@@ -32,6 +32,11 @@ _DB_STUBS = {
     "mark_game_processed_for_weakness": AsyncMock(return_value=True),
     "upsert_user_weakness": AsyncMock(return_value=None),
     "list_user_weaknesses": AsyncMock(return_value=[]),
+    "upsert_problem": AsyncMock(return_value=None),
+    "get_problem": AsyncMock(return_value=None),
+    "list_candidate_problems": AsyncMock(return_value=[]),
+    "record_drill_attempt": AsyncMock(return_value=None),
+    "recent_problem_ids": AsyncMock(return_value=[]),
 }
 
 

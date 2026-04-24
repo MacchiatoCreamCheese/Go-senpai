@@ -502,6 +502,120 @@ async def list_user_weaknesses(user_id: str) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+async def upsert_problem(
+    problem_id: str,
+    sgf: str,
+    solution: list[dict[str, Any]],
+    themes: list[str],
+    difficulty: int,
+    source: str | None,
+) -> None:
+    await _get_pool().execute(
+        """
+        INSERT INTO problems (id, sgf, solution, themes, difficulty, source)
+        VALUES ($1, $2, $3::jsonb, $4, $5, $6)
+        ON CONFLICT (id) DO UPDATE SET
+            sgf = EXCLUDED.sgf,
+            solution = EXCLUDED.solution,
+            themes = EXCLUDED.themes,
+            difficulty = EXCLUDED.difficulty,
+            source = EXCLUDED.source
+        """,
+        problem_id,
+        sgf,
+        json.dumps(solution),
+        themes,
+        difficulty,
+        source,
+    )
+
+
+async def get_problem(problem_id: str) -> dict[str, Any] | None:
+    row = await _get_pool().fetchrow(
+        "SELECT id, sgf, solution, themes, difficulty, source FROM problems WHERE id = $1",
+        problem_id,
+    )
+    if row is None:
+        return None
+    out = dict(row)
+    if isinstance(out.get("solution"), str):
+        out["solution"] = json.loads(out["solution"])
+    return out
+
+
+async def list_candidate_problems(
+    themes: list[str],
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """If themes is non-empty, pick problems tagged with any of those themes.
+    Otherwise return a random sample across all problems."""
+    if themes:
+        rows = await _get_pool().fetch(
+            """
+            SELECT id, sgf, solution, themes, difficulty, source
+            FROM problems
+            WHERE themes && $1::text[]
+            ORDER BY RANDOM()
+            LIMIT $2
+            """,
+            themes,
+            limit,
+        )
+    else:
+        rows = await _get_pool().fetch(
+            """
+            SELECT id, sgf, solution, themes, difficulty, source
+            FROM problems
+            ORDER BY RANDOM()
+            LIMIT $1
+            """,
+            limit,
+        )
+    out = []
+    for r in rows:
+        d = dict(r)
+        if isinstance(d.get("solution"), str):
+            d["solution"] = json.loads(d["solution"])
+        out.append(d)
+    return out
+
+
+async def record_drill_attempt(
+    user_id: str,
+    problem_id: str,
+    success: bool,
+    moves_played: list[dict[str, Any]],
+    hint_used: bool,
+) -> dict[str, Any]:
+    row = await _get_pool().fetchrow(
+        """
+        INSERT INTO drill_attempts (user_id, problem_id, success, moves_played, hint_used)
+        VALUES ($1, $2, $3, $4::jsonb, $5)
+        RETURNING id, user_id, problem_id, attempted_at, success
+        """,
+        user_id,
+        problem_id,
+        success,
+        json.dumps(moves_played),
+        hint_used,
+    )
+    return dict(row)
+
+
+async def recent_problem_ids(user_id: str, limit: int = 5) -> list[str]:
+    rows = await _get_pool().fetch(
+        """
+        SELECT problem_id FROM drill_attempts
+        WHERE user_id = $1
+        ORDER BY attempted_at DESC
+        LIMIT $2
+        """,
+        user_id,
+        limit,
+    )
+    return [r["problem_id"] for r in rows]
+
+
 async def list_user_games(user_id: str) -> list[dict[str, Any]]:
     rows = await _get_pool().fetch(
         """

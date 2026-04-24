@@ -109,3 +109,28 @@ class WeaknessSchema(BaseModel):
     severity: float
     evidence_count: int
     last_seen_at: Optional[str] = None
+
+
+class ProblemSchema(BaseModel):
+    id: str
+    sgf: str
+    solution: list[dict]
+    themes: list[str]
+    difficulty: int
+    source: Optional[str] = None
+
+
+class DrillAttemptRequest(BaseModel):
+    user_id: str
+    problem_id: str
+    success: bool
+    moves_played: list[dict] = Field(default_factory=list)
+    hint_used: bool = False
+
+
+class DrillAttemptSchema(BaseModel):
+    id: int
+    user_id: str
+    problem_id: str
+    attempted_at: str
+    success: bool

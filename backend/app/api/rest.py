@@ -17,15 +17,19 @@ from ..services.katago.engine import get_engine
 from ..schemas import (
     CreateGameRequest,
     CreateUserRequest,
+    DrillAttemptRequest,
+    DrillAttemptSchema,
     GameListItem,
     GameSchema,
     JoinGameRequest,
     MoveRequest,
+    ProblemSchema,
     StateSchema,
     UserSchema,
     WeaknessSchema,
     color_from_code,
 )
+from ..services.drills import pick_next
 from ..sessions import GameRecord, store
 from .ws import broadcast_players, broadcast_state
 
@@ -55,6 +59,39 @@ async def list_user_weaknesses(user_id: str) -> list[WeaknessSchema]:
         )
         for r in rows
     ]
+
+
+@router.get("/users/{user_id}/next-problem", response_model=ProblemSchema)
+async def get_next_problem(user_id: str) -> ProblemSchema:
+    problem = await pick_next(user_id)
+    if problem is None:
+        raise HTTPException(status_code=404, detail="no problems available")
+    return ProblemSchema(
+        id=problem["id"],
+        sgf=problem["sgf"],
+        solution=problem["solution"],
+        themes=list(problem["themes"] or []),
+        difficulty=int(problem["difficulty"]),
+        source=problem.get("source"),
+    )
+
+
+@router.post("/drill-attempts", response_model=DrillAttemptSchema, status_code=201)
+async def create_drill_attempt(req: DrillAttemptRequest) -> DrillAttemptSchema:
+    row = await db.record_drill_attempt(
+        req.user_id,
+        req.problem_id,
+        req.success,
+        req.moves_played,
+        req.hint_used,
+    )
+    return DrillAttemptSchema(
+        id=int(row["id"]),
+        user_id=str(row["user_id"]),
+        problem_id=str(row["problem_id"]),
+        attempted_at=row["attempted_at"].isoformat(),
+        success=bool(row["success"]),
+    )
 
 
 @router.get("/users/{user_id}/games", response_model=list[GameListItem])

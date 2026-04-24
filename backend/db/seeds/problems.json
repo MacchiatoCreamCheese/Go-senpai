@@ -1,0 +1,38 @@
+{
+  "starter-01-ladder": {
+    "themes": ["tesuji", "capturing_race"],
+    "difficulty": 1,
+    "source": "hand-authored starter",
+    "solution": [{"color": "B", "coord": "B8"}]
+  },
+  "starter-02-snapback": {
+    "themes": ["tesuji", "shape"],
+    "difficulty": 2,
+    "source": "hand-authored starter",
+    "solution": [{"color": "B", "coord": "A9"}]
+  },
+  "starter-03-throwin": {
+    "themes": ["tesuji", "shape"],
+    "difficulty": 2,
+    "source": "hand-authored starter",
+    "solution": [{"color": "B", "coord": "B8"}]
+  },
+  "starter-04-twopoint-eye": {
+    "themes": ["shape"],
+    "difficulty": 3,
+    "source": "hand-authored starter",
+    "solution": [{"color": "B", "coord": "B9"}]
+  },
+  "starter-05-capturing-race": {
+    "themes": ["capturing_race", "cutting"],
+    "difficulty": 3,
+    "source": "hand-authored starter",
+    "solution": [{"color": "B", "coord": "D8"}]
+  },
+  "starter-06-endgame-hane": {
+    "themes": ["endgame_tesuji", "counting"],
+    "difficulty": 2,
+    "source": "hand-authored starter",
+    "solution": [{"color": "B", "coord": "F3"}]
+  }
+}

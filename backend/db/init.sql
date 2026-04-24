@@ -116,3 +116,25 @@ CREATE TABLE user_weakness_games_processed (
     processed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (user_id, game_id)
 );
+
+CREATE TABLE problems (
+    id          TEXT PRIMARY KEY,
+    sgf         TEXT NOT NULL,
+    solution    JSONB NOT NULL,
+    themes      TEXT[] NOT NULL DEFAULT '{}',
+    difficulty  INT NOT NULL,
+    source      TEXT
+);
+CREATE INDEX idx_problems_themes ON problems USING GIN (themes);
+CREATE INDEX idx_problems_difficulty ON problems (difficulty);
+
+CREATE TABLE drill_attempts (
+    id            BIGSERIAL PRIMARY KEY,
+    user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    problem_id    TEXT NOT NULL REFERENCES problems(id) ON DELETE CASCADE,
+    attempted_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    success       BOOLEAN NOT NULL,
+    moves_played  JSONB NOT NULL DEFAULT '[]'::jsonb,
+    hint_used     BOOLEAN NOT NULL DEFAULT FALSE
+);
+CREATE INDEX idx_drill_attempts_user_time ON drill_attempts (user_id, attempted_at DESC);
