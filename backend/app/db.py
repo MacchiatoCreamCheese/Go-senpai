@@ -111,6 +111,75 @@ async def get_moves(game_id: str) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+async def insert_move_features(
+    game_id: str,
+    rows: list[dict[str, Any]],
+) -> None:
+    """Replace move_features rows for a game in one transaction."""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute("DELETE FROM move_features WHERE game_id = $1", game_id)
+            await conn.executemany(
+                """
+                INSERT INTO move_features (
+                    game_id, move_number, position_hash_before, position_hash_after,
+                    points_lost, policy_rank, top_move, top_move_points_lost,
+                    winrate_before, winrate_after, score_before, score_after,
+                    phase, is_blunder, local_context, ownership_delta
+                ) VALUES (
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+                )
+                """,
+                [
+                    (
+                        game_id,
+                        r["move_number"],
+                        r["position_hash_before"],
+                        r["position_hash_after"],
+                        r["points_lost"],
+                        r["policy_rank"],
+                        r["top_move"],
+                        r["top_move_points_lost"],
+                        r["winrate_before"],
+                        r["winrate_after"],
+                        r["score_before"],
+                        r["score_after"],
+                        r["phase"],
+                        r["is_blunder"],
+                        r["local_context"],
+                        r["ownership_delta"],
+                    )
+                    for r in rows
+                ],
+            )
+
+
+async def get_move_features(game_id: str) -> list[dict[str, Any]]:
+    rows = await _get_pool().fetch(
+        """
+        SELECT mf.move_number, mf.points_lost, mf.policy_rank, mf.top_move,
+               mf.top_move_points_lost, mf.winrate_before, mf.winrate_after,
+               mf.score_before, mf.score_after, mf.phase, mf.is_blunder,
+               m.color, m.coord
+        FROM move_features mf
+        JOIN moves m ON m.game_id = mf.game_id AND m.move_number = mf.move_number
+        WHERE mf.game_id = $1
+        ORDER BY mf.move_number
+        """,
+        game_id,
+    )
+    return [dict(r) for r in rows]
+
+
+async def count_move_features(game_id: str) -> int:
+    val = await _get_pool().fetchval(
+        "SELECT COUNT(*) FROM move_features WHERE game_id = $1",
+        game_id,
+    )
+    return int(val or 0)
+
+
 async def list_user_games(user_id: str) -> list[dict[str, Any]]:
     rows = await _get_pool().fetch(
         """
