@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
+from ... import db
 from .engine import KataGoEngine
 from .features import MoveFeatures, extract
 from .hashing import position_hash
@@ -22,6 +23,7 @@ class AnalysisResult:
     visits: int
     katago_version: str
     model_name: str
+    cache_hits: int
 
 
 def _to_katago_coord(coord: str) -> str:
@@ -55,8 +57,9 @@ async def analyze_game(
 ) -> AnalysisResult:
     """Run KataGo over a finished game; return per-move features + hashes.
 
-    `db_moves` is the list returned by db.get_moves() — each dict has
-    move_number, color ('B'/'W'), coord ('D4'/'pass'/'resign').
+    Uses the cross-game position cache: positions already analyzed at this
+    visit count are pulled from `position_analyses` and only fresh positions
+    are sent to KataGo.
     """
     katago_moves = _katago_moves(db_moves)
     if not katago_moves:
@@ -65,29 +68,58 @@ async def analyze_game(
             visits=visits,
             katago_version=engine.version,
             model_name=engine.model_name,
+            cache_hits=0,
         )
 
-    analyze_turns = list(range(len(katago_moves)))
-    request = {
-        "rules": rules,
-        "komi": komi,
-        "boardXSize": board_size,
-        "boardYSize": board_size,
-        "initialStones": [],
-        "moves": [list(m) for m in katago_moves],
-        "analyzeTurns": analyze_turns,
-        "maxVisits": visits,
-        "includePolicy": True,
-        "includeOwnership": True,
-    }
+    # Position BEFORE each turn T = first T moves.
+    hashes_before: list[bytes] = [
+        position_hash(board_size, komi, rules, katago_moves[:t])
+        for t in range(len(katago_moves))
+    ]
 
-    responses = await engine.analyze(request, expected_turns=analyze_turns)
+    cached = await db.get_cached_analyses(list(set(hashes_before)))
+    missing_turns = [t for t, h in enumerate(hashes_before) if h not in cached]
+
+    responses: dict[int, dict[str, Any]] = {}
+    if missing_turns:
+        request = {
+            "rules": rules,
+            "komi": komi,
+            "boardXSize": board_size,
+            "boardYSize": board_size,
+            "initialStones": [],
+            "moves": [list(m) for m in katago_moves],
+            "analyzeTurns": missing_turns,
+            "maxVisits": visits,
+            "includePolicy": True,
+            "includeOwnership": True,
+        }
+        responses = await engine.analyze(request, expected_turns=missing_turns)
+
+        # Persist fresh responses into the cross-game cache.
+        new_entries = []
+        seen: set[bytes] = set()
+        for t in missing_turns:
+            h = hashes_before[t]
+            if h in seen:
+                continue
+            seen.add(h)
+            new_entries.append(
+                {
+                    "position_hash": h,
+                    "board_size": board_size,
+                    "visits": visits,
+                    "katago_version": engine.version,
+                    "model_name": engine.model_name,
+                    "raw_response": responses[t],
+                }
+            )
+        await db.put_cached_analyses(new_entries)
 
     out: list[AnalyzedMove] = []
     for idx, (color, kcoord) in enumerate(katago_moves):
-        # DB move_number is 1-indexed; idx is 0-indexed (matches KataGo turnNumber).
         db_move = db_moves[idx]
-        resp = responses.get(idx)
+        resp = responses.get(idx) or cached.get(hashes_before[idx])
         feats = extract(
             move_number=db_move["move_number"],
             color=color,
@@ -95,17 +127,16 @@ async def analyze_game(
             board_size=board_size,
             katago_response=resp,
         )
-        before_moves = katago_moves[:idx]
         after_moves = katago_moves[: idx + 1]
         out.append(
             AnalyzedMove(
                 features=feats,
-                position_hash_before=position_hash(board_size, komi, rules, before_moves),
+                position_hash_before=hashes_before[idx],
                 position_hash_after=position_hash(board_size, komi, rules, after_moves),
             )
         )
 
-    # Append features rows for any trailing pass/resign that KataGo skipped.
+    # Features rows for any trailing pass/resign that KataGo skipped.
     for db_move in db_moves[len(katago_moves):]:
         feats = extract(
             move_number=db_move["move_number"],
@@ -128,6 +159,7 @@ async def analyze_game(
         visits=visits,
         katago_version=engine.version,
         model_name=engine.model_name,
+        cache_hits=len(hashes_before) - len(missing_turns),
     )
 
 

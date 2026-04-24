@@ -20,6 +20,7 @@ class AnalyzeResponse(BaseModel):
     katago_version: str
     model_name: str
     cached: bool
+    cache_hits: int = 0
 
 
 class MoveFeatureSchema(BaseModel):
@@ -108,6 +109,7 @@ async def analyze(
         katago_version=result.katago_version,
         model_name=result.model_name,
         cached=False,
+        cache_hits=result.cache_hits,
     )
 
 

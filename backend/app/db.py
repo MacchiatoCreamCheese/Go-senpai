@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import asyncpg
@@ -170,6 +171,50 @@ async def get_move_features(game_id: str) -> list[dict[str, Any]]:
         game_id,
     )
     return [dict(r) for r in rows]
+
+
+async def get_cached_analyses(hashes: list[bytes]) -> dict[bytes, dict[str, Any]]:
+    """Return {position_hash: raw_response} for any hashes already analyzed."""
+    if not hashes:
+        return {}
+    rows = await _get_pool().fetch(
+        "SELECT position_hash, raw_response FROM position_analyses WHERE position_hash = ANY($1::bytea[])",
+        hashes,
+    )
+    out: dict[bytes, dict[str, Any]] = {}
+    for r in rows:
+        raw = r["raw_response"]
+        if isinstance(raw, str):
+            raw = json.loads(raw)
+        out[bytes(r["position_hash"])] = raw
+    return out
+
+
+async def put_cached_analyses(
+    entries: list[dict[str, Any]],
+) -> None:
+    """Insert (or ignore on conflict) a batch of position_analyses rows."""
+    if not entries:
+        return
+    await _get_pool().executemany(
+        """
+        INSERT INTO position_analyses
+            (position_hash, board_size, visits, katago_version, model_name, raw_response)
+        VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+        ON CONFLICT (position_hash) DO NOTHING
+        """,
+        [
+            (
+                e["position_hash"],
+                e["board_size"],
+                e["visits"],
+                e["katago_version"],
+                e["model_name"],
+                json.dumps(e["raw_response"]),
+            )
+            for e in entries
+        ],
+    )
 
 
 async def count_move_features(game_id: str) -> int:
