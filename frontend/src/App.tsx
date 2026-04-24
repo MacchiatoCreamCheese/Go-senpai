@@ -19,6 +19,8 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [color, setColor] = useState<ColorCode>("B");
+  const [opponent, setOpponent] = useState<"human" | "ai">("human");
+  const [aiRank, setAiRank] = useState<number>(10); // 10 kyu default
 
   useEffect(() => {
     const onHash = () => setGameId(readHash());
@@ -71,13 +73,20 @@ export function App() {
     setCreating(true);
     try {
       const userId = await ensureUser();
-      const game = await createGame(size, userId, color);
+      const game = await createGame(size, userId, color, {
+        opponentType: opponent,
+        aiRank: opponent === "ai" ? aiRank : undefined,
+      });
       go(game.id);
     } catch (e) {
       setError(String(e));
     } finally {
       setCreating(false);
     }
+  }
+
+  function rankLabel(r: number): string {
+    return r > 0 ? `${r}k` : `${1 - r}d`;
   }
 
   if (gameId) return <GameView gameId={gameId} onExit={exit} />;
@@ -122,7 +131,46 @@ export function App() {
         {/* New game */}
         <section style={{ ...styles.section, animationDelay: "80ms" }}>
           <h2 style={styles.sectionLabel}>New game</h2>
-          <p style={styles.hint}>Pick your colour, then choose a board size.</p>
+          <p style={styles.hint}>Pick your opponent, colour, and board size.</p>
+
+          <div style={styles.colorRow}>
+            {(["human", "ai"] as const).map((o) => (
+              <button
+                key={o}
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setOpponent(o)}
+                style={{
+                  ...styles.colorBtn,
+                  borderColor: opponent === o ? "var(--ink)" : "var(--line-dark)",
+                  fontWeight: opponent === o ? 600 : 400,
+                }}
+              >
+                {o === "human" ? "vs Human" : "vs Sensei AI"}
+              </button>
+            ))}
+          </div>
+
+          {opponent === "ai" && (
+            <div style={styles.rankRow}>
+              <label style={styles.rankLabel}>
+                Sensei rank: <strong>{rankLabel(aiRank)}</strong>
+              </label>
+              <input
+                type="range"
+                min={-3}
+                max={20}
+                step={1}
+                value={aiRank}
+                onChange={(e) => setAiRank(parseInt(e.target.value, 10))}
+                style={styles.rankSlider}
+              />
+              <div style={styles.rankScale}>
+                <span>4d</span><span>1d/1k</span><span>20k</span>
+              </div>
+            </div>
+          )}
+
           <div style={styles.colorRow}>
             {(["B", "W"] as const).map((c) => (
               <button
@@ -160,7 +208,8 @@ export function App() {
 
         <hr className="divider" />
 
-        {/* Join game */}
+        {/* Join game — hidden when playing against AI */}
+        {opponent === "human" && (
         <section style={{ ...styles.section, animationDelay: "160ms" }}>
           <h2 style={styles.sectionLabel}>Join game</h2>
           <p style={styles.hint}>Paste a game ID to join an in-progress game.</p>
@@ -189,6 +238,7 @@ export function App() {
             </button>
           </form>
         </section>
+        )}
 
         {error && (
           <p className="error-text" style={{ marginTop: 8 }}>
@@ -311,6 +361,26 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     gap: 8,
     justifyContent: "center",
+  },
+  rankRow: {
+    marginBottom: 14,
+  },
+  rankLabel: {
+    display: "block",
+    fontSize: "0.9rem",
+    color: "var(--stone)",
+    marginBottom: 6,
+  },
+  rankSlider: {
+    width: "100%",
+  },
+  rankScale: {
+    display: "flex",
+    justifyContent: "space-between",
+    fontFamily: "var(--font-mono)",
+    fontSize: "0.72rem",
+    color: "var(--stone)",
+    marginTop: 4,
   },
   footerDot: {
     display: "inline-block",

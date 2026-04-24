@@ -61,6 +61,8 @@ class GameSchema(BaseModel):
     komi: float
     black_user_id: Optional[str] = None
     white_user_id: Optional[str] = None
+    opponent_type: Literal["human", "ai"] = "human"
+    ai_rank: Optional[int] = None
     state: StateSchema
 
 
@@ -69,6 +71,11 @@ class CreateGameRequest(BaseModel):
     komi: Optional[float] = Field(default=None, description="Overrides size-based default if provided.")
     user_id: str
     color: ColorCode = "B"
+    opponent_type: Literal["human", "ai"] = "human"
+    ai_rank: Optional[int] = Field(
+        default=None,
+        description="Kyu rank for the AI opponent; negative means dan. Required when opponent_type='ai'.",
+    )
 
 
 class MoveRequest(BaseModel):

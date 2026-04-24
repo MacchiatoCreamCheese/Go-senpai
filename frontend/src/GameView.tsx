@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { fetchGame, playMove, sgfUrl, swapColors } from "./api";
+import { fetchGame, playMove, requestAiMove, sgfUrl, swapColors } from "./api";
 import { GoBoard } from "./GoBoard";
 import { connectGameSocket } from "./ws";
 import type { ColorCode, GameT, GameStateT, MoveKind, PointT } from "./types";
@@ -42,6 +42,7 @@ export function GameView({ gameId, onExit }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [swapping, setSwapping] = useState(false);
+  const [aiThinking, setAiThinking] = useState(false);
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const role = deriveRole(game, localStorage.getItem(USER_ID_KEY));
@@ -57,6 +58,21 @@ export function GameView({ gameId, onExit }: Props) {
       .catch((e) => setError(String(e)));
     return () => { cancelled = true; };
   }, [gameId]);
+
+  // Kick the AI if it's already its turn on load (e.g. user picked White).
+  useEffect(() => {
+    if (!game || !state || aiThinking) return;
+    if (game.opponent_type !== "ai") return;
+    if (state.status !== "active") return;
+    if (!role || state.turn === role) return;
+    setAiThinking(true);
+    requestAiMove(gameId)
+      .then((s) => setState(s))
+      .catch((e) => setError(`AI move failed: ${e}`))
+      .finally(() => setAiThinking(false));
+    // Intentionally excluding aiThinking from deps to avoid re-triggering mid-request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game?.opponent_type, state?.turn, state?.status, role, gameId]);
 
   useEffect(() => {
     const close = connectGameSocket(
@@ -92,6 +108,7 @@ export function GameView({ gameId, onExit }: Props) {
     try {
       const next = await playMove(gameId, role, kind, point);
       setState(next);
+      // In AI games the kick-off effect picks this up once state.turn flips.
     } catch (e) {
       setError(String(e));
     }
@@ -202,7 +219,9 @@ export function GameView({ gameId, onExit }: Props) {
               {state.status === "active"
                 ? isMyTurn
                   ? `${turnLabel} — your move`
-                  : `${turnLabel} — waiting`
+                  : aiThinking
+                    ? `${turnLabel} — Sensei is thinking…`
+                    : `${turnLabel} — waiting`
                 : "—"}
             </span>
           </div>

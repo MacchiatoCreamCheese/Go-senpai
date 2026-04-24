@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
@@ -11,6 +12,8 @@ from ..engine.coords import from_coord, to_coord
 from ..engine.game import GameState, MoveKind, Status
 from ..engine.rules import IllegalMove
 from ..engine.sgf import export_sgf
+from ..services.katago import ai_player
+from ..services.katago.engine import get_engine
 from ..schemas import (
     CreateGameRequest,
     CreateUserRequest,
@@ -90,10 +93,15 @@ def _nullable_str(value: object | None) -> str | None:
     return str(value) if value else None
 
 
+AI_USER_ID = "00000000-0000-0000-0000-0000000000a1"
+
+
 def _game_schema(
     record: GameRecord,
     black_user_id: str | None,
     white_user_id: str | None,
+    opponent_type: str = "human",
+    ai_rank: int | None = None,
 ) -> GameSchema:
     return GameSchema(
         id=record.id,
@@ -101,6 +109,8 @@ def _game_schema(
         komi=record.game.komi,
         black_user_id=black_user_id,
         white_user_id=white_user_id,
+        opponent_type=opponent_type,  # type: ignore[arg-type]
+        ai_rank=ai_rank,
         state=StateSchema.from_game(record.game),
     )
 
@@ -109,11 +119,37 @@ def _game_schema(
 async def create_game(req: CreateGameRequest) -> GameSchema:
     game_id = str(uuid4())
     game = GameState.new(size=req.size, komi=req.komi)
-    black_id = req.user_id if req.color == "B" else None
-    white_id = req.user_id if req.color == "W" else None
-    await db.create_game(game_id, black_id, white_id, game.size, game.komi)
+
+    if req.opponent_type == "ai":
+        if req.ai_rank is None:
+            raise HTTPException(status_code=400, detail="ai_rank is required for AI games")
+        # User sits in their chosen colour; the AI takes the opposite seat
+        # so the game is immediately full and playable.
+        if req.color == "B":
+            black_id, white_id = req.user_id, AI_USER_ID
+        else:
+            black_id, white_id = AI_USER_ID, req.user_id
+    else:
+        black_id = req.user_id if req.color == "B" else None
+        white_id = req.user_id if req.color == "W" else None
+
+    await db.create_game(
+        game_id,
+        black_id,
+        white_id,
+        game.size,
+        game.komi,
+        opponent_type=req.opponent_type,
+        ai_rank=req.ai_rank if req.opponent_type == "ai" else None,
+    )
     record = store.create(game_id, game)
-    return _game_schema(record, black_id, white_id)
+    return _game_schema(
+        record,
+        black_id,
+        white_id,
+        opponent_type=req.opponent_type,
+        ai_rank=req.ai_rank,
+    )
 
 
 @router.get("/games/{game_id}", response_model=GameSchema)
@@ -124,6 +160,8 @@ async def get_game(game_id: str) -> GameSchema:
         record,
         _nullable_str(row["black_user_id"]) if row else None,
         _nullable_str(row["white_user_id"]) if row else None,
+        opponent_type=(row or {}).get("opponent_type") or "human",
+        ai_rank=(row or {}).get("ai_rank"),
     )
 
 
@@ -162,6 +200,82 @@ async def play_move(game_id: str, req: MoveRequest) -> StateSchema:
             )
         except IllegalMove as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+
+        move = record.game.moves[-1]
+        if move.kind == MoveKind.PASS:
+            coord = "pass"
+        elif move.kind == MoveKind.RESIGN:
+            coord = "resign"
+        else:
+            coord = to_coord(*move.point, record.game.size)  # type: ignore[misc]
+
+        await db.insert_move(
+            record.id,
+            len(record.game.moves),
+            color_label(move.color),
+            coord,
+        )
+
+        if record.game.status != Status.ACTIVE:
+            sgf = export_sgf(record.game).decode()
+            await db.finish_game(record.id, record.game.result, sgf)  # type: ignore[arg-type]
+
+        state = StateSchema.from_game(record.game)
+
+    await broadcast_state(record, state)
+    return state
+
+
+@router.post("/games/{game_id}/ai-move", response_model=StateSchema)
+async def play_ai_move(game_id: str) -> StateSchema:
+    row = await db.get_game_row(game_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="game not found")
+    if row.get("opponent_type") != "ai":
+        raise HTTPException(status_code=400, detail="not an AI game")
+    ai_rank = row.get("ai_rank")
+    if ai_rank is None:
+        raise HTTPException(status_code=400, detail="ai_rank missing on game")
+
+    record = await _get_record(game_id)
+    engine = get_engine()
+    if engine is None:
+        raise HTTPException(status_code=503, detail="KataGo engine not available")
+
+    # Determine which colour the AI is playing: whichever seat holds AI_USER_ID.
+    ai_color = "B" if _nullable_str(row["black_user_id"]) == AI_USER_ID else "W"
+
+    async with record.lock:
+        if record.game.status != Status.ACTIVE:
+            raise HTTPException(status_code=409, detail="game is not active")
+        if color_label(record.game.turn) != ai_color:
+            raise HTTPException(status_code=409, detail="it is not the AI's turn")
+
+        try:
+            kind, point = await ai_player.choose_move(
+                engine=engine,
+                game=record.game,
+                kyu_rank=int(ai_rank),
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"KataGo error: {exc}")
+
+        try:
+            record.game.play(
+                color=color_from_code(ai_color),  # type: ignore[arg-type]
+                kind=kind,
+                point=point,
+            )
+        except IllegalMove as exc:
+            # Extremely rare: sampled move was rejected (e.g. superko). Fall
+            # back to pass so the game keeps moving rather than 500-ing.
+            logging.getLogger(__name__).warning(
+                "AI illegal move %s/%s: %s; passing", kind, point, exc
+            )
+            record.game.play(
+                color=color_from_code(ai_color),  # type: ignore[arg-type]
+                kind=MoveKind.PASS,
+            )
 
         move = record.game.moves[-1]
         if move.kind == MoveKind.PASS:

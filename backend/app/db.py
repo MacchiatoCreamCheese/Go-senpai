@@ -57,17 +57,22 @@ async def create_game(
     white_user_id: str | None,
     size: int,
     komi: float,
+    opponent_type: str = "human",
+    ai_rank: int | None = None,
 ) -> None:
     await _get_pool().execute(
         """
-        INSERT INTO games (id, black_user_id, white_user_id, board_size, komi)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO games (id, black_user_id, white_user_id, board_size, komi,
+                           opponent_type, ai_rank)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         """,
         game_id,
         black_user_id,
         white_user_id,
         size,
         komi,
+        opponent_type,
+        ai_rank,
     )
 
 
@@ -189,7 +194,7 @@ async def get_game_row(game_id: str) -> dict[str, Any] | None:
     row = await _get_pool().fetchrow(
         """
         SELECT id, black_user_id, white_user_id, board_size, komi,
-               result, sgf, started_at, ended_at
+               result, sgf, opponent_type, ai_rank, started_at, ended_at
         FROM games WHERE id = $1
         """,
         game_id,

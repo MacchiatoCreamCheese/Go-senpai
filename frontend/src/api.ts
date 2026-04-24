@@ -23,17 +23,33 @@ export async function createUser(handle: string): Promise<UserT> {
   return asJson<UserT>(resp);
 }
 
+export interface CreateGameOpts {
+  opponentType?: "human" | "ai";
+  aiRank?: number;
+}
+
 export async function createGame(
   size: 9 | 13 | 19,
   userId: string,
   color: ColorCode,
+  opts: CreateGameOpts = {},
 ): Promise<GameT> {
+  const body: Record<string, unknown> = { size, user_id: userId, color };
+  if (opts.opponentType === "ai") {
+    body.opponent_type = "ai";
+    body.ai_rank = opts.aiRank;
+  }
   const resp = await fetch("/api/games", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ size, user_id: userId, color }),
+    body: JSON.stringify(body),
   });
   return asJson<GameT>(resp);
+}
+
+export async function requestAiMove(id: string): Promise<GameStateT> {
+  const resp = await fetch(`/api/games/${id}/ai-move`, { method: "POST" });
+  return asJson<GameStateT>(resp);
 }
 
 export async function swapColors(id: string): Promise<GameT> {

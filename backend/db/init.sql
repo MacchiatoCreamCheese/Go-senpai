@@ -17,9 +17,17 @@ CREATE TABLE games (
     komi            FLOAT NOT NULL,
     result          TEXT,
     sgf             TEXT,
+    opponent_type   TEXT NOT NULL DEFAULT 'human' CHECK (opponent_type IN ('human','ai')),
+    ai_rank         INT,
     started_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     ended_at        TIMESTAMPTZ
 );
+
+-- Reserved user row representing the KataGo AI opponent. Fixed UUID so the
+-- backend can reference it without a lookup round-trip.
+INSERT INTO users (id, handle) VALUES
+    ('00000000-0000-0000-0000-0000000000a1', 'sensei-ai')
+ON CONFLICT (handle) DO NOTHING;
 
 CREATE TABLE moves (
     id          BIGSERIAL PRIMARY KEY,

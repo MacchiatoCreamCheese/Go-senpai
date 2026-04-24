@@ -22,11 +22,15 @@ export interface GameStateT {
   result: string | null;
 }
 
+export type OpponentType = "human" | "ai";
+
 export interface GameT {
   id: string;
   size: number;
   komi: number;
   black_user_id: string | null;
   white_user_id: string | null;
+  opponent_type: OpponentType;
+  ai_rank: number | null;
   state: GameStateT;
 }
