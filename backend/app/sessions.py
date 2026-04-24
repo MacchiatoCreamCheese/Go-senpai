@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import secrets
 from dataclasses import dataclass, field
 
 from fastapi import WebSocket
@@ -11,20 +10,19 @@ from .engine.game import GameState
 
 @dataclass
 class GameRecord:
-    id: str
+    id: str  # UUID — same key used in DB and in-memory store
     game: GameState
     subscribers: set[WebSocket] = field(default_factory=set)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 class GameStore:
-    """In-memory registry of active games. Process-local; no persistence."""
+    """In-memory cache of active games. Write-through to DB on every mutation."""
 
     def __init__(self) -> None:
         self._games: dict[str, GameRecord] = {}
 
-    def create(self, game: GameState) -> GameRecord:
-        game_id = secrets.token_urlsafe(8)
+    def create(self, game_id: str, game: GameState) -> GameRecord:
         record = GameRecord(id=game_id, game=game)
         self._games[game_id] = record
         return record

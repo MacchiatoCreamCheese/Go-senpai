@@ -8,11 +8,28 @@ async function asJson<T>(resp: Response): Promise<T> {
   return resp.json() as Promise<T>;
 }
 
-export async function createGame(size: 9 | 13 | 19): Promise<GameT> {
+export interface UserT {
+  id: string;
+  handle: string;
+}
+
+export async function createUser(handle: string): Promise<UserT> {
+  const resp = await fetch("/api/users", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ handle }),
+  });
+  return asJson<UserT>(resp);
+}
+
+export async function createGame(
+  size: 9 | 13 | 19,
+  blackUserId: string,
+): Promise<GameT> {
   const resp = await fetch("/api/games", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ size }),
+    body: JSON.stringify({ size, black_user_id: blackUserId }),
   });
   return asJson<GameT>(resp);
 }

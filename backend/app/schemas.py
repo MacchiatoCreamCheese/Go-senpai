@@ -65,9 +65,27 @@ class GameSchema(BaseModel):
 class CreateGameRequest(BaseModel):
     size: Literal[9, 13, 19] = 9
     komi: Optional[float] = Field(default=None, description="Overrides size-based default if provided.")
+    black_user_id: str
+    white_user_id: Optional[str] = None
 
 
 class MoveRequest(BaseModel):
     color: ColorCode
     kind: Literal["play", "pass", "resign"]
     point: Optional[PointSchema] = None
+
+
+class CreateUserRequest(BaseModel):
+    handle: str
+
+
+class UserSchema(BaseModel):
+    id: str
+    handle: str
+
+
+class GameListItem(BaseModel):
+    id: str
+    board_size: int
+    result: Optional[str] = None
+    started_at: str
