@@ -33,7 +33,25 @@ async def game_socket(ws: WebSocket, game_id: str) -> None:
 
 
 async def broadcast_state(record: GameRecord, state: StateSchema) -> None:
-    payload = {"event": "move", "state": state.model_dump()}
+    await _broadcast(record, {"event": "move", "state": state.model_dump()})
+
+
+async def broadcast_players(
+    record: GameRecord,
+    black_user_id: str | None,
+    white_user_id: str | None,
+) -> None:
+    await _broadcast(
+        record,
+        {
+            "event": "players",
+            "black_user_id": black_user_id,
+            "white_user_id": white_user_id,
+        },
+    )
+
+
+async def _broadcast(record: GameRecord, payload: dict) -> None:
     dead: list[WebSocket] = []
     for ws in record.subscribers:
         try:

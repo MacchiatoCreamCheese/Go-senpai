@@ -1,4 +1,5 @@
 import type { ColorCode, GameT, GameStateT, MoveKind, PointT } from "./types";
+export type { ColorCode } from "./types";
 
 async function asJson<T>(resp: Response): Promise<T> {
   if (!resp.ok) {
@@ -24,18 +25,33 @@ export async function createUser(handle: string): Promise<UserT> {
 
 export async function createGame(
   size: 9 | 13 | 19,
-  blackUserId: string,
+  userId: string,
+  color: ColorCode,
 ): Promise<GameT> {
   const resp = await fetch("/api/games", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ size, black_user_id: blackUserId }),
+    body: JSON.stringify({ size, user_id: userId, color }),
   });
+  return asJson<GameT>(resp);
+}
+
+export async function swapColors(id: string): Promise<GameT> {
+  const resp = await fetch(`/api/games/${id}/swap_colors`, { method: "POST" });
   return asJson<GameT>(resp);
 }
 
 export async function fetchGame(id: string): Promise<GameT> {
   return asJson<GameT>(await fetch(`/api/games/${id}`));
+}
+
+export async function joinGame(id: string, userId: string): Promise<GameT> {
+  const resp = await fetch(`/api/games/${id}/join`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: userId }),
+  });
+  return asJson<GameT>(resp);
 }
 
 export async function playMove(

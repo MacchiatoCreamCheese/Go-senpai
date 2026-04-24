@@ -27,8 +27,17 @@ def _get_pool() -> asyncpg.Pool:
 
 
 async def create_user(handle: str) -> dict[str, Any]:
+    """Upsert by handle: returns the existing user if the handle is taken.
+
+    Handle is the identity in this phase (no auth). Two browsers typing the
+    same name get the same user row; typing a different name gets a new row.
+    """
     row = await _get_pool().fetchrow(
-        "INSERT INTO users (handle) VALUES ($1) RETURNING id, handle, created_at",
+        """
+        INSERT INTO users (handle) VALUES ($1)
+        ON CONFLICT (handle) DO UPDATE SET handle = EXCLUDED.handle
+        RETURNING id, handle, created_at
+        """,
         handle,
     )
     return dict(row)
@@ -78,6 +87,90 @@ async def insert_move(
         color,
         coord,
     )
+
+
+async def claim_empty_seat(game_id: str, user_id: str) -> dict[str, str | None]:
+    """Seat the user in whichever colour seat is empty.
+
+    Returns {"color": "B"|"W", "black_user_id": ..., "white_user_id": ...}
+    reflecting the post-update state. Raises ValueError if the user is
+    already seated or both seats are filled by other users.
+    """
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            row = await conn.fetchrow(
+                "SELECT black_user_id, white_user_id FROM games WHERE id = $1 FOR UPDATE",
+                game_id,
+            )
+            if row is None:
+                raise ValueError("game not found")
+            black = row["black_user_id"]
+            white = row["white_user_id"]
+            uid = str(user_id)
+
+            if (black is not None and str(black) == uid) or (
+                white is not None and str(white) == uid
+            ):
+                raise ValueError("you are already in this game")
+            if black is None:
+                await conn.execute(
+                    "UPDATE games SET black_user_id = $1 WHERE id = $2",
+                    user_id,
+                    game_id,
+                )
+                return {
+                    "color": "B",
+                    "black_user_id": uid,
+                    "white_user_id": str(white) if white else None,
+                }
+            if white is None:
+                await conn.execute(
+                    "UPDATE games SET white_user_id = $1 WHERE id = $2",
+                    user_id,
+                    game_id,
+                )
+                return {
+                    "color": "W",
+                    "black_user_id": str(black) if black else None,
+                    "white_user_id": uid,
+                }
+            raise ValueError("both seats are already taken")
+
+
+async def swap_colors(game_id: str) -> dict[str, str | None]:
+    """Swap black and white seats. Only allowed before any move is played.
+
+    Returns {"black_user_id": ..., "white_user_id": ...} after the swap.
+    """
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            row = await conn.fetchrow(
+                "SELECT black_user_id, white_user_id FROM games WHERE id = $1 FOR UPDATE",
+                game_id,
+            )
+            if row is None:
+                raise ValueError("game not found")
+            move_count = await conn.fetchval(
+                "SELECT COUNT(*) FROM moves WHERE game_id = $1", game_id
+            )
+            if move_count and move_count > 0:
+                raise ValueError("cannot swap colours after a move has been played")
+            await conn.execute(
+                """
+                UPDATE games
+                   SET black_user_id = $1, white_user_id = $2
+                 WHERE id = $3
+                """,
+                row["white_user_id"],
+                row["black_user_id"],
+                game_id,
+            )
+            return {
+                "black_user_id": str(row["white_user_id"]) if row["white_user_id"] else None,
+                "white_user_id": str(row["black_user_id"]) if row["black_user_id"] else None,
+            }
 
 
 async def finish_game(game_id: str, result: str, sgf: str) -> None:
@@ -223,6 +316,117 @@ async def count_move_features(game_id: str) -> int:
         game_id,
     )
     return int(val or 0)
+
+
+def _vector_literal(values: list[float]) -> str:
+    return "[" + ",".join(f"{v:.8f}" for v in values) + "]"
+
+
+async def upsert_concept(
+    concept_id: str,
+    title: str,
+    tags: list[str],
+    body_md: str,
+    body_hash: str,
+    embedding: list[float],
+) -> None:
+    await _get_pool().execute(
+        """
+        INSERT INTO go_concepts (id, title, tags, body_md, body_hash, embedding, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6::vector, NOW())
+        ON CONFLICT (id) DO UPDATE SET
+            title = EXCLUDED.title,
+            tags = EXCLUDED.tags,
+            body_md = EXCLUDED.body_md,
+            body_hash = EXCLUDED.body_hash,
+            embedding = EXCLUDED.embedding,
+            updated_at = NOW()
+        """,
+        concept_id,
+        title,
+        tags,
+        body_md,
+        body_hash,
+        _vector_literal(embedding),
+    )
+
+
+async def get_concept_hashes() -> dict[str, str]:
+    rows = await _get_pool().fetch("SELECT id, body_hash FROM go_concepts")
+    return {r["id"]: r["body_hash"] for r in rows}
+
+
+async def count_concepts() -> int:
+    val = await _get_pool().fetchval("SELECT COUNT(*) FROM go_concepts")
+    return int(val or 0)
+
+
+async def retrieve_concepts_by_vector(
+    embedding: list[float],
+    limit: int = 3,
+) -> list[dict[str, Any]]:
+    rows = await _get_pool().fetch(
+        """
+        SELECT id, title, tags, body_md
+        FROM go_concepts
+        WHERE embedding IS NOT NULL
+        ORDER BY embedding <=> $1::vector
+        LIMIT $2
+        """,
+        _vector_literal(embedding),
+        limit,
+    )
+    return [dict(r) for r in rows]
+
+
+async def insert_review(
+    game_id: str,
+    for_user_id: str,
+    model: str,
+    summary_md: str,
+    moments: list[dict[str, Any]],
+    cost_tokens: int | None,
+) -> dict[str, Any]:
+    row = await _get_pool().fetchrow(
+        """
+        INSERT INTO reviews (game_id, for_user_id, model, summary_md, moments, cost_tokens)
+        VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+        ON CONFLICT (game_id, for_user_id) DO UPDATE SET
+            model = EXCLUDED.model,
+            summary_md = EXCLUDED.summary_md,
+            moments = EXCLUDED.moments,
+            cost_tokens = EXCLUDED.cost_tokens,
+            generated_at = NOW()
+        RETURNING id, game_id, for_user_id, generated_at, model, summary_md, moments, cost_tokens
+        """,
+        game_id,
+        for_user_id,
+        model,
+        summary_md,
+        json.dumps(moments),
+        cost_tokens,
+    )
+    return _review_row_to_dict(row)
+
+
+async def get_review(game_id: str, for_user_id: str) -> dict[str, Any] | None:
+    row = await _get_pool().fetchrow(
+        """
+        SELECT id, game_id, for_user_id, generated_at, model, summary_md, moments, cost_tokens
+        FROM reviews WHERE game_id = $1 AND for_user_id = $2
+        """,
+        game_id,
+        for_user_id,
+    )
+    return _review_row_to_dict(row) if row else None
+
+
+def _review_row_to_dict(row: Any) -> dict[str, Any]:
+    d = dict(row)
+    moments = d.get("moments")
+    if isinstance(moments, str):
+        d["moments"] = json.loads(moments)
+    return d
 
 
 async def list_user_games(user_id: str) -> list[dict[str, Any]]:

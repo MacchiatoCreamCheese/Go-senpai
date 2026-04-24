@@ -1,4 +1,5 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE users (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -9,7 +10,7 @@ CREATE TABLE users (
 
 CREATE TABLE games (
     id              UUID PRIMARY KEY,
-    black_user_id   UUID NOT NULL REFERENCES users(id),
+    black_user_id   UUID REFERENCES users(id),
     white_user_id   UUID REFERENCES users(id),
     board_size      INT NOT NULL,
     ruleset         TEXT NOT NULL DEFAULT 'chinese',
@@ -61,3 +62,28 @@ CREATE TABLE move_features (
     PRIMARY KEY (game_id, move_number)
 );
 CREATE INDEX idx_move_features_game ON move_features (game_id);
+
+CREATE TABLE go_concepts (
+    id          TEXT PRIMARY KEY,
+    title       TEXT NOT NULL,
+    tags        TEXT[] NOT NULL DEFAULT '{}',
+    body_md     TEXT NOT NULL,
+    body_hash   TEXT NOT NULL,
+    embedding   vector(384),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_go_concepts_embedding ON go_concepts
+    USING ivfflat (embedding vector_cosine_ops) WITH (lists = 10);
+
+CREATE TABLE reviews (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    game_id         UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+    for_user_id     UUID NOT NULL REFERENCES users(id),
+    generated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    model           TEXT NOT NULL,
+    summary_md      TEXT NOT NULL,
+    moments         JSONB NOT NULL,
+    cost_tokens     INT,
+    UNIQUE (game_id, for_user_id)
+);
+CREATE INDEX idx_reviews_game ON reviews (game_id);

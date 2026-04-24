@@ -1,16 +1,23 @@
 import { useEffect, useRef, useState } from "react";
 
-import { fetchGame, playMove, sgfUrl } from "./api";
+import { fetchGame, playMove, sgfUrl, swapColors } from "./api";
 import { GoBoard } from "./GoBoard";
 import { connectGameSocket } from "./ws";
 import type { ColorCode, GameT, GameStateT, MoveKind, PointT } from "./types";
+
+const USER_ID_KEY = "senpai_user_id";
 
 interface Props {
   gameId: string;
   onExit: () => void;
 }
 
-const STORAGE_KEY = (id: string) => `gosenpai:role:${id}`;
+function deriveRole(game: GameT | null, userId: string | null): ColorCode | null {
+  if (!game || !userId) return null;
+  if (game.black_user_id === userId) return "B";
+  if (game.white_user_id === userId) return "W";
+  return null;
+}
 
 function CopyIcon() {
   return (
@@ -32,12 +39,12 @@ function CheckIcon() {
 export function GameView({ gameId, onExit }: Props) {
   const [game, setGame] = useState<GameT | null>(null);
   const [state, setState] = useState<GameStateT | null>(null);
-  const [role, setRole] = useState<ColorCode>(
-    () => (localStorage.getItem(STORAGE_KEY(gameId)) as ColorCode) || "B",
-  );
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [swapping, setSwapping] = useState(false);
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const role = deriveRole(game, localStorage.getItem(USER_ID_KEY));
 
   useEffect(() => {
     let cancelled = false;
@@ -52,13 +59,22 @@ export function GameView({ gameId, onExit }: Props) {
   }, [gameId]);
 
   useEffect(() => {
-    const close = connectGameSocket(gameId, (s) => setState(s));
+    const close = connectGameSocket(
+      gameId,
+      (s) => setState(s),
+      (players) =>
+        setGame((prev) =>
+          prev
+            ? {
+                ...prev,
+                black_user_id: players.black_user_id,
+                white_user_id: players.white_user_id,
+              }
+            : prev,
+        ),
+    );
     return close;
   }, [gameId]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY(gameId), role);
-  }, [gameId, role]);
 
   function copyId() {
     navigator.clipboard.writeText(gameId).catch(() => {});
@@ -68,12 +84,30 @@ export function GameView({ gameId, onExit }: Props) {
   }
 
   async function send(kind: MoveKind, point: PointT | null) {
+    if (!role) {
+      setError("You're not seated in this game yet.");
+      return;
+    }
     setError(null);
     try {
       const next = await playMove(gameId, role, kind, point);
       setState(next);
     } catch (e) {
       setError(String(e));
+    }
+  }
+
+  async function onSwap() {
+    setError(null);
+    setSwapping(true);
+    try {
+      const g = await swapColors(gameId);
+      setGame(g);
+      setState(g.state);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSwapping(false);
     }
   }
 
@@ -94,10 +128,12 @@ export function GameView({ gameId, onExit }: Props) {
     );
   }
 
-  const disabled = state.status !== "active" || state.turn !== role;
-  const isMyTurn = state.status === "active" && state.turn === role;
+  const disabled = !role || state.status !== "active" || state.turn !== role;
+  const isMyTurn = !!role && state.status === "active" && state.turn === role;
   const turnLabel = state.turn === "B" ? "Black" : "White";
   const turnColorClass = state.turn === "B" ? "black" : "white";
+  const preGame = state.moves.length === 0 && state.status === "active";
+  const bothSeated = !!game.black_user_id && !!game.white_user_id;
 
   return (
     <div style={styles.layout}>
@@ -130,17 +166,31 @@ export function GameView({ gameId, onExit }: Props) {
 
         <hr className="divider" style={{ margin: "20px 0" }} />
 
-        {/* Play as */}
+        {/* Play as (server-assigned) */}
         <div style={styles.field}>
           <label style={styles.fieldLabel}>Play as</label>
-          <select
-            className="styled-select"
-            value={role}
-            onChange={(e) => setRole(e.target.value as ColorCode)}
-          >
-            <option value="B">● Black</option>
-            <option value="W">○ White</option>
-          </select>
+          <div style={styles.turnRow}>
+            {role ? (
+              <>
+                <span className={`stone-dot ${role === "B" ? "black" : "white"}`} />
+                <span style={styles.turnText}>{role === "B" ? "Black" : "White"}</span>
+              </>
+            ) : (
+              <span style={styles.turnText}>Spectator</span>
+            )}
+          </div>
+          {preGame && role && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={onSwap}
+              disabled={swapping}
+              style={{ marginTop: 8, padding: "6px 12px", fontSize: "0.85rem" }}
+              title={bothSeated ? "Swap colours with opponent" : "Swap your seat (no opponent yet)"}
+            >
+              {swapping ? "swapping…" : "Swap colours"}
+            </button>
+          )}
         </div>
 
         {/* Turn */}

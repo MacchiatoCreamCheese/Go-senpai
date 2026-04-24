@@ -17,6 +17,18 @@ _DB_STUBS = {
     "get_game_row": AsyncMock(return_value=None),  # no row → 404 for unknown games
     "get_moves": AsyncMock(return_value=[]),
     "list_user_games": AsyncMock(return_value=[]),
+    "claim_empty_seat": AsyncMock(
+        return_value={"color": "W", "black_user_id": None, "white_user_id": None}
+    ),
+    "swap_colors": AsyncMock(return_value={"black_user_id": None, "white_user_id": None}),
+    "get_review": AsyncMock(return_value=None),
+    "insert_review": AsyncMock(return_value=None),
+    "get_move_features": AsyncMock(return_value=[]),
+    "count_move_features": AsyncMock(return_value=0),
+    "retrieve_concepts_by_vector": AsyncMock(return_value=[]),
+    "get_concept_hashes": AsyncMock(return_value={}),
+    "upsert_concept": AsyncMock(return_value=None),
+    "count_concepts": AsyncMock(return_value=0),
 }
 
 

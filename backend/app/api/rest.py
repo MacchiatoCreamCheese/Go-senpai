@@ -16,13 +16,14 @@ from ..schemas import (
     CreateUserRequest,
     GameListItem,
     GameSchema,
+    JoinGameRequest,
     MoveRequest,
     StateSchema,
     UserSchema,
     color_from_code,
 )
 from ..sessions import GameRecord, store
-from .ws import broadcast_state
+from .ws import broadcast_players, broadcast_state
 
 router = APIRouter(prefix="/api", tags=["games"])
 
@@ -85,24 +86,67 @@ async def _get_record(game_id: str) -> GameRecord:
     return record
 
 
+def _nullable_str(value: object | None) -> str | None:
+    return str(value) if value else None
+
+
+def _game_schema(
+    record: GameRecord,
+    black_user_id: str | None,
+    white_user_id: str | None,
+) -> GameSchema:
+    return GameSchema(
+        id=record.id,
+        size=record.game.size,
+        komi=record.game.komi,
+        black_user_id=black_user_id,
+        white_user_id=white_user_id,
+        state=StateSchema.from_game(record.game),
+    )
+
+
 @router.post("/games", response_model=GameSchema, status_code=201)
 async def create_game(req: CreateGameRequest) -> GameSchema:
     game_id = str(uuid4())
     game = GameState.new(size=req.size, komi=req.komi)
-    await db.create_game(game_id, req.black_user_id, req.white_user_id, game.size, game.komi)
+    black_id = req.user_id if req.color == "B" else None
+    white_id = req.user_id if req.color == "W" else None
+    await db.create_game(game_id, black_id, white_id, game.size, game.komi)
     record = store.create(game_id, game)
-    return GameSchema(id=record.id, size=game.size, komi=game.komi, state=StateSchema.from_game(game))
+    return _game_schema(record, black_id, white_id)
 
 
 @router.get("/games/{game_id}", response_model=GameSchema)
 async def get_game(game_id: str) -> GameSchema:
     record = await _get_record(game_id)
-    return GameSchema(
-        id=record.id,
-        size=record.game.size,
-        komi=record.game.komi,
-        state=StateSchema.from_game(record.game),
+    row = await db.get_game_row(game_id)
+    return _game_schema(
+        record,
+        _nullable_str(row["black_user_id"]) if row else None,
+        _nullable_str(row["white_user_id"]) if row else None,
     )
+
+
+@router.post("/games/{game_id}/join", response_model=GameSchema)
+async def join_game(game_id: str, req: JoinGameRequest) -> GameSchema:
+    record = await _get_record(game_id)
+    try:
+        seats = await db.claim_empty_seat(game_id, req.user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    await broadcast_players(record, seats["black_user_id"], seats["white_user_id"])
+    return _game_schema(record, seats["black_user_id"], seats["white_user_id"])
+
+
+@router.post("/games/{game_id}/swap_colors", response_model=GameSchema)
+async def swap_colors(game_id: str) -> GameSchema:
+    record = await _get_record(game_id)
+    try:
+        seats = await db.swap_colors(game_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    await broadcast_players(record, seats["black_user_id"], seats["white_user_id"])
+    return _game_schema(record, seats["black_user_id"], seats["white_user_id"])
 
 
 @router.post("/games/{game_id}/moves", response_model=StateSchema)

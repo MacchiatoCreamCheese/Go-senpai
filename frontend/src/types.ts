@@ -26,5 +26,7 @@ export interface GameT {
   id: string;
   size: number;
   komi: number;
+  black_user_id: string | null;
+  white_user_id: string | null;
   state: GameStateT;
 }

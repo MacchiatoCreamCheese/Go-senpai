@@ -4,7 +4,7 @@ from app.main import app
 from app.sessions import store
 
 _USER_ID = "00000000-0000-0000-0000-000000000001"
-_CREATE_GAME = {"size": 9, "black_user_id": _USER_ID}
+_CREATE_GAME = {"size": 9, "user_id": _USER_ID, "color": "B"}
 
 
 def _fresh_client() -> TestClient:

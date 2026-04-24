@@ -1,0 +1,84 @@
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any
+from uuid import UUID
+
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
+
+from .. import db
+from ..services.review.llm import LLMError
+from ..services.review.reviewer import ReviewError, generate_review
+
+
+router = APIRouter(prefix="/api", tags=["review"])
+
+
+class ReviewMoment(BaseModel):
+    move_number: int
+    coord: str
+    color: str
+    top_move: str | None
+    points_lost: float
+    phase: str
+    kind: str
+    explanation_md: str
+    concept_ids: list[str]
+
+
+class ReviewResponse(BaseModel):
+    id: UUID
+    game_id: UUID
+    for_user_id: UUID
+    generated_at: datetime
+    model: str
+    summary_md: str
+    moments: list[ReviewMoment]
+    cost_tokens: int | None
+
+
+def _row_to_response(row: dict[str, Any]) -> ReviewResponse:
+    return ReviewResponse(
+        id=row["id"],
+        game_id=row["game_id"],
+        for_user_id=row["for_user_id"],
+        generated_at=row["generated_at"],
+        model=row["model"],
+        summary_md=row["summary_md"],
+        moments=[ReviewMoment(**m) for m in row["moments"]],
+        cost_tokens=row.get("cost_tokens"),
+    )
+
+
+@router.post("/games/{game_id}/review", response_model=ReviewResponse)
+async def create_review(
+    game_id: str,
+    for_user_id: str = Query(..., description="User to generate the review for"),
+    force: bool = Query(False, description="Regenerate even if a review exists"),
+) -> ReviewResponse:
+    if not force:
+        existing = await db.get_review(game_id, for_user_id)
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail="review already exists; pass force=true to regenerate",
+            )
+    try:
+        row = await generate_review(game_id=game_id, for_user_id=for_user_id)
+    except ReviewError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except LLMError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    return _row_to_response(row)
+
+
+@router.get("/games/{game_id}/review", response_model=ReviewResponse)
+async def get_review(
+    game_id: str,
+    for_user_id: str = Query(...),
+) -> ReviewResponse:
+    row = await db.get_review(game_id, for_user_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="no review for this game/user")
+    return _row_to_response(row)

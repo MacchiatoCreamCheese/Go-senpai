@@ -59,14 +59,16 @@ class GameSchema(BaseModel):
     id: str
     size: int
     komi: float
+    black_user_id: Optional[str] = None
+    white_user_id: Optional[str] = None
     state: StateSchema
 
 
 class CreateGameRequest(BaseModel):
     size: Literal[9, 13, 19] = 9
     komi: Optional[float] = Field(default=None, description="Overrides size-based default if provided.")
-    black_user_id: str
-    white_user_id: Optional[str] = None
+    user_id: str
+    color: ColorCode = "B"
 
 
 class MoveRequest(BaseModel):
@@ -77,6 +79,10 @@ class MoveRequest(BaseModel):
 
 class CreateUserRequest(BaseModel):
     handle: str
+
+
+class JoinGameRequest(BaseModel):
+    user_id: str
 
 
 class UserSchema(BaseModel):

@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import db
-from .api import analysis, rest, ws
+from .api import analysis, rest, review, ws
 from .services.katago import KataGoEngine, get_engine, set_engine
 
 load_dotenv()
@@ -64,6 +64,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(rest.router)
     app.include_router(analysis.router)
+    app.include_router(review.router)
     app.include_router(ws.router)
     return app
 

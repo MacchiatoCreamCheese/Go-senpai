@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
-import { createGame, createUser } from "./api";
+import { createGame, createUser, fetchGame, joinGame } from "./api";
 import { GameView } from "./GameView";
+import type { ColorCode } from "./types";
 
 const USER_ID_KEY = "senpai_user_id";
 const USER_HANDLE_KEY = "senpai_user_handle";
@@ -17,10 +18,7 @@ export function App() {
   const [handle, setHandle] = useState(() => localStorage.getItem(USER_HANDLE_KEY) ?? "");
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const handleRef = useRef<HTMLInputElement>(null);
-
-  const hasUser = !!localStorage.getItem(USER_ID_KEY);
-  const [identified, setIdentified] = useState(hasUser);
+  const [color, setColor] = useState<ColorCode>("B");
 
   useEffect(() => {
     const onHash = () => setGameId(readHash());
@@ -38,14 +36,34 @@ export function App() {
     setGameId(null);
   }
 
+  // Handle is the identity in this phase (no auth): typing a different
+  // name must resolve to a different user, so always upsert.
   async function ensureUser(): Promise<string> {
-    const stored = localStorage.getItem(USER_ID_KEY);
-    if (stored) return stored;
-    const user = await createUser(handle.trim() || "anonymous");
+    const name = handle.trim() || "anonymous";
+    const user = await createUser(name);
     localStorage.setItem(USER_ID_KEY, user.id);
     localStorage.setItem(USER_HANDLE_KEY, user.handle);
-    setIdentified(true);
     return user.id;
+  }
+
+  async function join(id: string) {
+    setError(null);
+    try {
+      const userId = await ensureUser();
+      const game = await fetchGame(id).catch(() => null);
+      if (!game) {
+        setError("Game not found.");
+        return;
+      }
+      const alreadySeated =
+        game.black_user_id === userId || game.white_user_id === userId;
+      if (!alreadySeated) {
+        await joinGame(id, userId);
+      }
+      go(id);
+    } catch (e) {
+      setError(String(e));
+    }
   }
 
   async function create(size: 9 | 13 | 19) {
@@ -53,7 +71,7 @@ export function App() {
     setCreating(true);
     try {
       const userId = await ensureUser();
-      const game = await createGame(size, userId);
+      const game = await createGame(size, userId, color);
       go(game.id);
     } catch (e) {
       setError(String(e));
@@ -80,61 +98,57 @@ export function App() {
 
         <hr className="divider" />
 
-        {/* Handle */}
-        {!identified && (
-          <section style={{ ...styles.section, animationDelay: "40ms" }}>
-            <h2 style={styles.sectionLabel}>Your name</h2>
-            <p style={styles.hint}>Used to track your games. No account needed.</p>
-            <div style={styles.joinRow}>
-              <input
-                ref={handleRef}
-                className="input"
-                value={handle}
-                onChange={(e) => setHandle(e.target.value)}
-                placeholder="nickname"
-                style={{ flex: 1 }}
-                autoComplete="off"
-                spellCheck={false}
-                maxLength={32}
-              />
-            </div>
-          </section>
-        )}
-
-        {identified && (
-          <section style={{ ...styles.section, animationDelay: "40ms" }}>
-            <p style={styles.hint}>
-              Playing as <strong>{localStorage.getItem(USER_HANDLE_KEY) || "you"}</strong>
-              {" · "}
-              <button
-                className="btn btn-ghost"
-                style={{ padding: "2px 8px", fontSize: "0.85rem" }}
-                onClick={() => {
-                  localStorage.removeItem(USER_ID_KEY);
-                  localStorage.removeItem(USER_HANDLE_KEY);
-                  setIdentified(false);
-                  setHandle("");
-                }}
-              >
-                change
-              </button>
-            </p>
-          </section>
-        )}
+        <section style={{ ...styles.section, animationDelay: "40ms" }}>
+          <h2 style={styles.sectionLabel}>Your name</h2>
+          <p style={styles.hint}>
+            This is who you play as. Change it before joining to play as a different person.
+          </p>
+          <div style={styles.joinRow}>
+            <input
+              className="input"
+              value={handle}
+              onChange={(e) => setHandle(e.target.value)}
+              placeholder="nickname"
+              style={{ flex: 1 }}
+              autoComplete="off"
+              spellCheck={false}
+              maxLength={32}
+            />
+          </div>
+        </section>
 
         <hr className="divider" />
 
         {/* New game */}
         <section style={{ ...styles.section, animationDelay: "80ms" }}>
           <h2 style={styles.sectionLabel}>New game</h2>
-          <p style={styles.hint}>Choose a board size to begin.</p>
+          <p style={styles.hint}>Pick your colour, then choose a board size.</p>
+          <div style={styles.colorRow}>
+            {(["B", "W"] as const).map((c) => (
+              <button
+                key={c}
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setColor(c)}
+                style={{
+                  ...styles.colorBtn,
+                  borderColor: color === c ? "var(--ink)" : "var(--line-dark)",
+                  fontWeight: color === c ? 600 : 400,
+                }}
+              >
+                <span className={`stone-dot ${c === "B" ? "black" : "white"}`} />
+                {c === "B" ? "Black" : "White"}
+                {c === "B" && <span style={styles.colorHint}>moves first</span>}
+              </button>
+            ))}
+          </div>
           <div style={styles.sizeRow}>
             {([9, 13, 19] as const).map((size) => (
               <button
                 key={size}
                 className="btn btn-primary"
                 onClick={() => create(size)}
-                disabled={creating || (!identified && !handle.trim())}
+                disabled={creating || !handle.trim()}
                 style={styles.sizeBtn}
               >
                 <span style={styles.stoneDot} />
@@ -153,7 +167,7 @@ export function App() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              if (joinInput.trim()) go(joinInput.trim());
+              if (joinInput.trim()) join(joinInput.trim());
             }}
             style={styles.joinRow}
           >
@@ -169,7 +183,7 @@ export function App() {
             <button
               type="submit"
               className="btn btn-ghost"
-              disabled={!joinInput.trim()}
+              disabled={!joinInput.trim() || !handle.trim()}
             >
               Join
             </button>
@@ -252,6 +266,25 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     gap: 10,
     flexWrap: "wrap",
+  },
+  colorRow: {
+    display: "flex",
+    gap: 10,
+    marginBottom: 14,
+    flexWrap: "wrap",
+  },
+  colorBtn: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "8px 14px",
+    fontSize: "0.95rem",
+    transition: "border-color 150ms",
+  },
+  colorHint: {
+    fontSize: "0.78rem",
+    color: "var(--stone)",
+    marginLeft: 4,
   },
   sizeBtn: {
     fontSize: "1.05rem",
