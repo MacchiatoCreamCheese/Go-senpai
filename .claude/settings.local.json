@@ -3,7 +3,8 @@
     "allow": [
       "Bash(python -m pip install -e \".[dev]\")",
       "Bash(python -m pytest -q)",
-      "Bash(npx vite *)"
+      "Bash(npx vite *)",
+      "Bash(npx tsc *)"
     ]
   }
 }

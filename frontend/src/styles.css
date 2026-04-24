@@ -1,0 +1,296 @@
+/* ─── Variables ─────────────────────────────────────────── */
+:root {
+  --bg: #F2EDE4;
+  --bg-panel: #FAF7F2;
+  --ink: #1C1712;
+  --ink-soft: #3D3530;
+  --seal: #8B3A2A;
+  --seal-hover: #6E2D1F;
+  --board: #C9A96E;
+  --stone: #7A7268;
+  --line: #D6CEBD;
+  --line-dark: #B8AFA2;
+
+  --font-display: 'Cormorant Garamond', Georgia, serif;
+  --font-body: 'EB Garamond', Georgia, serif;
+  --font-mono: 'JetBrains Mono', 'Courier New', monospace;
+}
+
+/* ─── Reset ─────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 17px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Typography ─────────────────────────────────────────── */
+h1 {
+  font-family: var(--font-display);
+  font-weight: 300;
+  letter-spacing: 0.02em;
+}
+
+h2 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 1.25rem;
+  letter-spacing: 0.04em;
+  color: var(--stone);
+  text-transform: uppercase;
+}
+
+p {
+  font-family: var(--font-body);
+  color: var(--ink-soft);
+}
+
+/* ─── Buttons ─────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-body);
+  font-size: 1rem;
+  padding: 9px 22px;
+  border-radius: 2px;
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease, transform 80ms ease;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.btn:active {
+  transform: scale(0.97);
+}
+
+.btn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-primary {
+  background: var(--ink);
+  color: var(--bg);
+  border-color: var(--ink);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--seal);
+  border-color: var(--seal);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--line-dark);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  border-color: var(--ink);
+  background: rgba(28, 23, 18, 0.05);
+}
+
+.btn-seal {
+  background: var(--seal);
+  color: #FAF7F2;
+  border-color: var(--seal);
+}
+
+.btn-seal:hover:not(:disabled) {
+  background: var(--seal-hover);
+  border-color: var(--seal-hover);
+}
+
+/* ─── Input ──────────────────────────────────────────────── */
+.input {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  padding: 9px 14px;
+  border: 1.5px solid var(--line-dark);
+  border-radius: 2px;
+  background: var(--bg-panel);
+  color: var(--ink);
+  outline: none;
+  transition: border-color 150ms ease;
+}
+
+.input:focus {
+  border-color: var(--ink);
+}
+
+.input::placeholder {
+  color: var(--stone);
+  font-style: italic;
+}
+
+/* ─── Tag (monospace pill for IDs) ──────────────────────── */
+.tag {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  padding: 3px 10px;
+  background: rgba(201, 169, 110, 0.18);
+  border: 1px solid var(--board);
+  border-radius: 2px;
+  color: var(--ink-soft);
+  letter-spacing: 0.04em;
+  word-break: break-all;
+}
+
+/* ─── Copy button ────────────────────────────────────────── */
+.copy-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  color: var(--stone);
+  font-size: 0.85rem;
+  transition: color 150ms;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+.copy-btn:hover {
+  color: var(--ink);
+}
+
+/* ─── Divider ─────────────────────────────────────────────── */
+.divider {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 28px 0;
+}
+
+/* ─── Error text ─────────────────────────────────────────── */
+.error-text {
+  color: var(--seal);
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  margin-top: 10px;
+}
+
+/* ─── Stone dot (colored indicator) ─────────────────────── */
+.stone-dot {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  vertical-align: middle;
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+
+.stone-dot.black {
+  background: #1C1712;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+}
+
+.stone-dot.white {
+  background: #F5F0E8;
+  border: 1.5px solid #B8AFA2;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+/* ─── Board container ────────────────────────────────────── */
+.board-container {
+  display: inline-block;
+  border-radius: 3px;
+  overflow: hidden;
+  box-shadow:
+    0 2px 8px rgba(28, 23, 18, 0.12),
+    0 8px 24px rgba(28, 23, 18, 0.08);
+}
+
+/* ─── Result banner ──────────────────────────────────────── */
+.result-banner {
+  padding: 14px 20px;
+  background: linear-gradient(135deg, rgba(139, 58, 42, 0.08), rgba(201, 169, 110, 0.12));
+  border: 1px solid var(--board);
+  border-radius: 2px;
+  animation: bannerSlide 400ms ease forwards;
+}
+
+.result-banner strong {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--seal);
+  display: block;
+  margin-bottom: 2px;
+}
+
+.result-banner span {
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  color: var(--ink-soft);
+}
+
+/* ─── Select ─────────────────────────────────────────────── */
+.styled-select {
+  font-family: var(--font-body);
+  font-size: 1rem;
+  padding: 7px 12px;
+  border: 1.5px solid var(--line-dark);
+  border-radius: 2px;
+  background: var(--bg-panel);
+  color: var(--ink);
+  appearance: none;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 150ms;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%237A7268'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;
+}
+
+.styled-select:focus {
+  border-color: var(--ink);
+}
+
+/* ─── Animations ─────────────────────────────────────────── */
+@keyframes fadeSlide {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bannerSlide {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes copyFlash {
+  0%, 100% { color: var(--stone); }
+  50% { color: #2D6A2D; }
+}
+
+.copy-flash {
+  animation: copyFlash 600ms ease;
+}

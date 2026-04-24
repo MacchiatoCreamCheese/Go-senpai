@@ -18,15 +18,17 @@ function toSignMap(board: number[][]): number[][] {
 export function GoBoard({ state, onPlay, disabled }: Props) {
   const signMap = toSignMap(state.board);
   return (
-    <Goban
-      vertexSize={28}
-      signMap={signMap}
-      showCoordinates
-      busy={disabled}
-      onVertexClick={(_evt, [x, y]) => {
-        if (!onPlay || disabled) return;
-        onPlay({ row: y, col: x });
-      }}
-    />
+    <div className="board-container">
+      <Goban
+        vertexSize={28}
+        signMap={signMap}
+        showCoordinates
+        busy={disabled}
+        onVertexClick={(_evt, [x, y]) => {
+          if (!onPlay || disabled) return;
+          onPlay({ row: y, col: x });
+        }}
+      />
+    </div>
   );
 }

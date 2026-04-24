@@ -12,6 +12,7 @@ export function App() {
   const [gameId, setGameId] = useState<string | null>(() => readHash());
   const [joinInput, setJoinInput] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     const onHash = () => setGameId(readHash());
@@ -31,47 +32,195 @@ export function App() {
 
   async function create(size: 9 | 13 | 19) {
     setError(null);
+    setCreating(true);
     try {
       const game = await createGame(size);
       go(game.id);
     } catch (e) {
       setError(String(e));
+    } finally {
+      setCreating(false);
     }
   }
 
   if (gameId) return <GameView gameId={gameId} onExit={exit} />;
 
   return (
-    <div style={{ padding: 24, maxWidth: 520, margin: "0 auto" }}>
-      <h1>Go-senpai</h1>
-      <p>Barebones Go — two tabs can open a game and play it to completion.</p>
-      <section style={{ marginTop: 24 }}>
-        <h2>Create a new game</h2>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => create(9)}>9×9</button>
-          <button onClick={() => create(13)}>13×13</button>
-          <button onClick={() => create(19)}>19×19</button>
-        </div>
-      </section>
-      <section style={{ marginTop: 24 }}>
-        <h2>Join an existing game</h2>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (joinInput.trim()) go(joinInput.trim());
-          }}
-          style={{ display: "flex", gap: 8 }}
-        >
-          <input
-            value={joinInput}
-            onChange={(e) => setJoinInput(e.target.value)}
-            placeholder="game id"
-            style={{ flex: 1, padding: 4 }}
-          />
-          <button type="submit">Join</button>
-        </form>
-      </section>
-      {error && <p style={{ color: "crimson" }}>Error: {error}</p>}
+    <div style={styles.page}>
+      {/* Decorative kanji watermark */}
+      <div style={styles.kanji} aria-hidden="true">碁</div>
+
+      <div style={styles.content}>
+        {/* Hero */}
+        <header style={{ ...styles.section, animationDelay: "0ms" }}>
+          <h1 style={styles.title}>Go-senpai</h1>
+          <p style={styles.tagline}>
+            Two players. One board. Ancient wisdom, modern game.
+          </p>
+        </header>
+
+        <hr className="divider" />
+
+        {/* New game */}
+        <section style={{ ...styles.section, animationDelay: "80ms" }}>
+          <h2 style={styles.sectionLabel}>New game</h2>
+          <p style={styles.hint}>Choose a board size to begin.</p>
+          <div style={styles.sizeRow}>
+            {([9, 13, 19] as const).map((size) => (
+              <button
+                key={size}
+                className="btn btn-primary"
+                onClick={() => create(size)}
+                disabled={creating}
+                style={styles.sizeBtn}
+              >
+                <span style={styles.stoneDot} />
+                {size}×{size}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <hr className="divider" />
+
+        {/* Join game */}
+        <section style={{ ...styles.section, animationDelay: "160ms" }}>
+          <h2 style={styles.sectionLabel}>Join game</h2>
+          <p style={styles.hint}>Paste a game ID to join an in-progress game.</p>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (joinInput.trim()) go(joinInput.trim());
+            }}
+            style={styles.joinRow}
+          >
+            <input
+              className="input"
+              value={joinInput}
+              onChange={(e) => setJoinInput(e.target.value)}
+              placeholder="game-id"
+              style={{ flex: 1 }}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <button
+              type="submit"
+              className="btn btn-ghost"
+              disabled={!joinInput.trim()}
+            >
+              Join
+            </button>
+          </form>
+        </section>
+
+        {error && (
+          <p className="error-text" style={{ marginTop: 8 }}>
+            {error}
+          </p>
+        )}
+
+        <footer style={styles.footer}>
+          <span style={styles.footerDot} />
+          <span style={styles.footerDot} />
+          <span style={styles.footerDot} />
+        </footer>
+      </div>
     </div>
   );
 }
+
+const styles: Record<string, React.CSSProperties> = {
+  page: {
+    minHeight: "100vh",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "48px 24px",
+    position: "relative",
+    overflow: "hidden",
+  },
+  kanji: {
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    transform: "translate(-50%, -50%)",
+    fontSize: "clamp(260px, 40vw, 520px)",
+    lineHeight: 1,
+    fontFamily: "var(--font-display)",
+    fontWeight: 300,
+    color: "var(--ink)",
+    opacity: 0.04,
+    pointerEvents: "none",
+    userSelect: "none",
+    letterSpacing: "-0.02em",
+  },
+  content: {
+    position: "relative",
+    zIndex: 1,
+    width: "100%",
+    maxWidth: 480,
+  },
+  section: {
+    animation: "fadeSlide 500ms ease both",
+  },
+  title: {
+    fontSize: "clamp(52px, 9vw, 80px)",
+    fontWeight: 300,
+    letterSpacing: "0.01em",
+    lineHeight: 1.05,
+    marginBottom: 14,
+  },
+  tagline: {
+    fontFamily: "var(--font-body)",
+    fontStyle: "italic",
+    fontSize: "1.1rem",
+    color: "var(--stone)",
+    letterSpacing: "0.01em",
+  },
+  sectionLabel: {
+    marginBottom: 6,
+  },
+  hint: {
+    fontSize: "0.95rem",
+    color: "var(--stone)",
+    marginBottom: 16,
+  },
+  sizeRow: {
+    display: "flex",
+    gap: 10,
+    flexWrap: "wrap",
+  },
+  sizeBtn: {
+    fontSize: "1.05rem",
+    letterSpacing: "0.01em",
+    minWidth: 96,
+    justifyContent: "center",
+  },
+  stoneDot: {
+    display: "inline-block",
+    width: 9,
+    height: 9,
+    borderRadius: "50%",
+    background: "currentColor",
+    opacity: 0.7,
+    flexShrink: 0,
+  },
+  joinRow: {
+    display: "flex",
+    gap: 10,
+    alignItems: "stretch",
+  },
+  footer: {
+    marginTop: 48,
+    display: "flex",
+    gap: 8,
+    justifyContent: "center",
+  },
+  footerDot: {
+    display: "inline-block",
+    width: 6,
+    height: 6,
+    borderRadius: "50%",
+    background: "var(--line-dark)",
+  },
+};
