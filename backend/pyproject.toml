@@ -12,6 +12,8 @@ dependencies = [
     "uvicorn[standard]>=0.29",
     "pydantic>=2.6",
     "sgfmill>=1.1.1",
+    "asyncpg>=0.29",
+    "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]

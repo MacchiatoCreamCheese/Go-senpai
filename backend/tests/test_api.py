@@ -3,6 +3,9 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.sessions import store
 
+_USER_ID = "00000000-0000-0000-0000-000000000001"
+_CREATE_GAME = {"size": 9, "black_user_id": _USER_ID}
+
 
 def _fresh_client() -> TestClient:
     store._games.clear()  # isolated per-test state
@@ -11,7 +14,7 @@ def _fresh_client() -> TestClient:
 
 def test_create_game_returns_state():
     client = _fresh_client()
-    resp = client.post("/api/games", json={"size": 9})
+    resp = client.post("/api/games", json=_CREATE_GAME)
     assert resp.status_code == 201
     body = resp.json()
     assert body["size"] == 9
@@ -23,7 +26,7 @@ def test_create_game_returns_state():
 
 def test_play_capture_sequence():
     client = _fresh_client()
-    game_id = client.post("/api/games", json={"size": 9}).json()["id"]
+    game_id = client.post("/api/games", json=_CREATE_GAME).json()["id"]
 
     # black and white place stones that lead to black capturing a white stone.
     moves = [
@@ -49,7 +52,7 @@ def test_play_capture_sequence():
 
 def test_illegal_move_rejected():
     client = _fresh_client()
-    game_id = client.post("/api/games", json={"size": 9}).json()["id"]
+    game_id = client.post("/api/games", json=_CREATE_GAME).json()["id"]
     # black plays, then white tries to play the same point.
     client.post(
         f"/api/games/{game_id}/moves",
@@ -65,7 +68,7 @@ def test_illegal_move_rejected():
 
 def test_two_passes_finish_game():
     client = _fresh_client()
-    game_id = client.post("/api/games", json={"size": 9}).json()["id"]
+    game_id = client.post("/api/games", json=_CREATE_GAME).json()["id"]
     client.post(f"/api/games/{game_id}/moves", json={"color": "B", "kind": "pass"})
     client.post(f"/api/games/{game_id}/moves", json={"color": "W", "kind": "pass"})
     state = client.get(f"/api/games/{game_id}").json()["state"]
@@ -75,7 +78,7 @@ def test_two_passes_finish_game():
 
 def test_sgf_download():
     client = _fresh_client()
-    game_id = client.post("/api/games", json={"size": 9}).json()["id"]
+    game_id = client.post("/api/games", json=_CREATE_GAME).json()["id"]
     client.post(
         f"/api/games/{game_id}/moves",
         json={"color": "B", "kind": "play", "point": {"row": 4, "col": 4}},
