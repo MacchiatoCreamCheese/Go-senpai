@@ -1,0 +1,542 @@
+# Go-senpai
+
+An agentic Go coach that pairs KataGo with an LLM to help you play, review, and drill.
+
+> **Status:** Work in progress — game engine, analysis pipeline, and coaching backend are implemented. UI design has not been done yet; the frontend is functional but unstyled.
+
+---
+
+## Problem statement
+
+The game of Go has a famously long learning curve. A strong human teacher can point at a move and tell a student *why* it was wrong and *what concept* to study next, but human coaching is expensive and scarce outside a handful of Go clubs. Learners are left with two unsatisfying tools:
+
+1. **Raw engines** such as KataGo. These are superhumanly strong and can tell you that a move lost 3.2 points, but they do not explain *why* in human terms, do not track recurring weaknesses across games, and do not assign follow-up practice.
+2. **General-purpose LLMs.** These can talk about Go in natural language, but they hallucinate on concrete board positions — they will happily invent stones, misread captures, and recommend illegal moves.
+
+**Go-senpai ("Sensei")** is a class project that tries to close this gap by pairing the two. KataGo provides grounded numerical truth about every move (points lost, top alternative, win-rate swing, ownership delta). A deterministic orchestrator turns those numbers into a small set of human-readable *weaknesses* (e.g. "ignores opponent's last move", "overplays in the opening"). An LLM is then called with tightly scoped prompts and a curated concept library to produce explanations and pick drills, without ever being asked to read the board itself. The result is an agentic coach that plays, reviews, and drills — one that is grounded by an engine and pedagogical by an LLM.
+
+---
+
+## Features
+
+- Play Go (9×9, 13×13, 19×19) against another human or a KataGo AI opponent
+- Real-time board sync over WebSocket
+- Post-game analysis via KataGo (points lost, top-move comparison, per-move features)
+- Weakness detection across 6 themes: opening/middlegame/endgame blunders, top-move avoidance, consistency
+- Coaching orchestration: weakness → concept teaching → drill assignment
+- Agent orchestrator endpoint `POST /api/users/{id}/next-action`: dispatches between review, teach, revisit, and drill actions via an explicit rule table
+- SGF import/export
+- LLM game review using Anthropic or Gemini (backend complete; not yet wired to the frontend)
+
+---
+
+## Use-case diagram
+
+```mermaid
+flowchart LR
+    player(( Player ))
+    katago[[ KataGo engine ]]
+    llm[[ LLM provider ]]
+
+    subgraph Go-senpai
+        uc1([ Register / log in ])
+        uc2([ Play vs human ])
+        uc3([ Play vs AI ])
+        uc4([ Import / export SGF ])
+        uc5([ Request game analysis ])
+        uc6([ Receive weakness report ])
+        uc7([ Run assigned drill ])
+        uc8([ Read LLM review ])
+    end
+
+    player --- uc1
+    player --- uc2
+    player --- uc3
+    player --- uc4
+    player --- uc5
+    player --- uc6
+    player --- uc7
+    player --- uc8
+
+    uc3 --- katago
+    uc5 --- katago
+    uc6 --- katago
+    uc8 --- llm
+    uc7 --- llm
+```
+
+The player is the only human actor. KataGo participates in any use case that needs a ground-truth evaluation of the board (AI opponent, post-game analysis, weakness detection). The LLM provider participates only in pedagogical use cases (drill selection, written review), never in move generation.
+
+---
+
+## Class diagram
+
+```mermaid
+classDiagram
+    class Board {
+        +int size
+        +place(x, y, color)
+        +remove_group(group)
+        +hash() bytes
+    }
+    class Group {
+        +stones
+        +liberties
+    }
+    class Rules {
+        +is_legal(board, move)
+        +apply(board, move)
+    }
+    class Game {
+        +id
+        +board: Board
+        +moves: list~Move~
+        +play(move)
+        +resign()
+    }
+    class SGF {
+        +load(text) Game
+        +dump(game) text
+    }
+    class Scoring {
+        +area_score(board, komi)
+    }
+
+    class KataGoClient {
+        +analyze(position) Analysis
+        +genmove(position) Move
+    }
+    class WeaknessDetector {
+        +detect(game) list~Weakness~
+    }
+    class DrillSelector {
+        +select(weakness) Drill
+    }
+    class Orchestrator {
+        +run(game) CoachingPlan
+    }
+    class ReviewService {
+        +generate(game) Review
+    }
+
+    class User
+    class GameRecord {
+        +id
+        +black_user_id
+        +white_user_id
+        +sgf
+    }
+    class Move {
+        +move_number
+        +color
+        +coord
+    }
+    class MoveFeature {
+        +points_lost
+        +policy_rank
+        +top_move
+        +phase
+        +is_blunder
+    }
+    class PositionAnalysis {
+        +position_hash
+        +raw_response
+    }
+    class GoConcept {
+        +id
+        +title
+        +tags
+        +embedding
+    }
+    class Review {
+        +summary_md
+        +moments
+    }
+
+    Game "1" --> "*" Move
+    Game "1" --> "1" Board
+    Rules ..> Board
+    SGF ..> Game
+    Scoring ..> Board
+
+    GameRecord "1" --> "*" Move
+    GameRecord "1" --> "*" MoveFeature
+    MoveFeature "*" --> "1" PositionAnalysis
+    Review "*" --> "1" GameRecord
+    User "1" --> "*" GameRecord
+
+    Orchestrator ..> WeaknessDetector
+    Orchestrator ..> DrillSelector
+    Orchestrator ..> GoConcept
+    WeaknessDetector ..> MoveFeature
+    KataGoClient ..> PositionAnalysis
+    ReviewService ..> MoveFeature
+    ReviewService ..> GoConcept
+```
+
+The diagram separates three concerns: the pure **engine** classes (`Board`, `Group`, `Rules`, `Game`, `SGF`, `Scoring`) live under `backend/app/engine/`; the **service** classes (`KataGoClient`, `WeaknessDetector`, `Orchestrator`, `DrillSelector`, `ReviewService`) live under `backend/app/services/`; the **persistence** entities (`User`, `GameRecord`, `Move`, `MoveFeature`, `PositionAnalysis`, `GoConcept`, `Review`) are defined in `backend/db/init.sql`.
+
+---
+
+## Architecture
+
+```mermaid
+flowchart TB
+    subgraph Client
+        FE[React + Vite + Shudan<br/>frontend/src]
+    end
+
+    subgraph Server [FastAPI backend]
+        API[api/<br/>rest, ws, analysis, review]
+        SVC[services/<br/>katago, weakness, orchestrator, drills, review]
+        ENG[engine/<br/>board, rules, sgf, scoring]
+    end
+
+    subgraph Data
+        PG[(PostgreSQL 16<br/>+ pgvector)]
+    end
+
+    subgraph External
+        KG[[KataGo process<br/>on host]]
+        LLM[[Anthropic or Gemini]]
+    end
+
+    FE -- REST --> API
+    FE <-. WebSocket .-> API
+    API --> SVC
+    API --> ENG
+    SVC --> ENG
+    SVC --> PG
+    SVC -- JSON over stdio --> KG
+    SVC -- HTTPS --> LLM
+    API --> PG
+```
+
+Two request flows matter most:
+
+- **Live play.** The browser opens a WebSocket to `api/ws`, every move is validated by the `engine/` layer, persisted as a `Move` row, and broadcast to the opponent. If the opponent is AI, `services/katago/` generates the reply.
+- **Post-game analysis and coaching.** `POST /api/games/{id}/analyze` sends every position to the KataGo process, stores raw responses in `position_analyses`, derives per-move metrics into `move_features`, and hands the result to `services/orchestrator/`. The orchestrator calls `services/weakness/` to classify the player's mistakes, `services/drills/` to pick follow-up practice, and optionally `services/review/` to ask the LLM for a natural-language summary grounded in those features and the `go_concepts` library (retrieved via pgvector similarity search).
+
+---
+
+## Onboarding guide for new team members
+
+Welcome. This section is long on purpose — read it once end-to-end before touching code, and you will save yourself a week of confusion. It assumes you have cloned the repo, installed the prerequisites, and can run the backend and frontend locally. Everything else is explained from scratch.
+
+### 1. What we are actually building
+
+"Sensei" (code name `Go-senpai`) is an **agentic Go coach**. A beginner plays a game in the browser; the system analyses it with a strong Go engine; a deterministic pipeline classifies the player's mistakes; an LLM writes a human-readable review and assigns a drill. The key insight driving the design is this: **the engine is never trusted to teach, and the LLM is never trusted to read the board.** The engine produces numbers. The orchestrator turns numbers into weakness labels. The LLM turns labels into prose. If you remember nothing else from this section, remember that split — it is the reason the architecture looks the way it does.
+
+### 2. A five-minute tour of the code
+
+```
+Go-senpai/
+├── backend/                      ← FastAPI, Python 3.11
+│   ├── app/
+│   │   ├── main.py               ← FastAPI app factory, CORS, startup hooks
+│   │   ├── api/                  ← HTTP and WebSocket endpoints
+│   │   │   ├── rest.py           ← users, games, moves, SGF import/export
+│   │   │   ├── ws.py             ← live-play WebSocket
+│   │   │   ├── analysis.py       ← POST /games/{id}/analyze
+│   │   │   └── review.py         ← LLM review endpoint
+│   │   ├── engine/               ← Pure Go rules, no I/O, no DB
+│   │   │   ├── board.py          ← Board state, Zobrist hashing
+│   │   │   ├── group.py          ← Stone groups, liberty counting
+│   │   │   ├── rules.py          ← Legality, ko, suicide
+│   │   │   ├── game.py           ← Move history, turn tracking
+│   │   │   ├── coords.py         ← A1 ↔ (x, y) helpers
+│   │   │   ├── scoring.py        ← Area / Chinese scoring
+│   │   │   └── sgf.py            ← SGF parse and dump
+│   │   ├── services/             ← Where the "agentic" part lives
+│   │   │   ├── katago/           ← Subprocess client, request queue
+│   │   │   ├── weakness/         ← 6 theme detectors
+│   │   │   ├── drills/           ← Tsumego selection
+│   │   │   ├── orchestrator/     ← Deterministic coaching planner
+│   │   │   └── review/           ← LLM prompt building + call
+│   │   ├── db.py                 ← asyncpg pool, query helpers
+│   │   ├── schemas.py            ← Pydantic request / response models
+│   │   └── sessions.py           ← Cookie-based session auth
+│   └── db/init.sql               ← Schema, runs on first container boot
+├── frontend/                     ← React 18 + Vite + TypeScript
+│   └── src/
+│       ├── App.tsx               ← Router + session bootstrap
+│       ├── GameView.tsx          ← Page: active game, move list, controls
+│       ├── GoBoard.tsx           ← Wrapper around @sabaki/shudan
+│       ├── api.ts                ← typed fetch helpers
+│       ├── ws.ts                 ← WebSocket client
+│       └── types.ts              ← shared TypeScript types
+└── docker-compose.yml            ← Postgres 16 + pgvector
+```
+
+**The golden rule of the backend layers:** `api/` may call `services/` and `engine/`; `services/` may call `engine/` and the DB; `engine/` depends on nothing. If you find yourself importing `app.db` from inside `engine/`, stop — you are about to break a test.
+
+### 3. Why each technology is there
+
+- **FastAPI + asyncpg.** We need async because the KataGo client is long-lived and streams responses; blocking the event loop would freeze live games. FastAPI gives us request validation via Pydantic for free. asyncpg (not SQLAlchemy) because our queries are small, handwritten, and we wanted to stay close to SQL.
+- **PostgreSQL + pgvector.** Postgres is obvious; pgvector is for semantic retrieval over the `go_concepts` table when the LLM review asks "find me a concept that matches this weakness". 384-dimensional sentence-transformer embeddings, cosine similarity, `ivfflat` index.
+- **React + Vite + TypeScript.** Vite for fast reloads. TypeScript because the API payloads are intricate (move features, weakness reports) and compile-time types save a lot of debugging.
+- **@sabaki/shudan.** A battle-tested Go board component. It is written in **Preact**, not React, which is why `vite.config.ts` contains aliases mapping `preact` and `preact/hooks` to `react` — without those aliases the board renders as a blank page. This trips up everyone exactly once.
+- **KataGo.** Strongest open-source Go engine. Runs as a separate process on the host (not in Docker — GPU access is messy). We speak to it over stdio using its JSON "analysis engine" protocol.
+- **LLM (Anthropic or Gemini).** Interchangeable. Selected at runtime via `REVIEW_LLM_PROVIDER`. Only used for prose generation and drill selection, never for board reading.
+
+### 4. The two request flows you need to understand
+
+**Flow A — Live play.** Browser loads `GameView`, opens a WebSocket to `/api/ws/{game_id}`, sends move messages. The server validates the move through `engine/rules.py`, writes a row to `moves`, re-broadcasts to the other player. If the opponent is AI, `services/katago/` is asked for a reply, and the same path writes the AI's move. No LLM involvement. This path must stay fast (<100ms for human moves, <2s for AI moves).
+
+**Flow B — Post-game coaching.** User clicks "Analyse" → `POST /api/games/{id}/analyze`. The backend:
+
+1. Iterates every position in the game and sends it to KataGo.
+2. Caches raw KataGo output in `position_analyses` (keyed by Zobrist hash — replays and transpositions are free after the first analysis).
+3. Computes per-move features (`points_lost`, `policy_rank`, `top_move`, phase, `is_blunder`, etc.) into `move_features`.
+4. Hands the feature table to `services/orchestrator/`, which calls each detector in `services/weakness/` and produces a ranked list of weaknesses.
+5. Picks relevant concepts from `go_concepts` via pgvector similarity, and a drill via `services/drills/`.
+6. (Optional) Calls `services/review/` which constructs a prompt containing *only* the labelled weaknesses and retrieved concepts — never the raw board — and asks the LLM for a markdown review.
+
+Flow B is what makes this project "agentic". The orchestrator is a plain Python state machine; it is the thing choosing tool calls, not the LLM.
+
+### 5. How to run and debug things
+
+```bash
+docker compose up -d db            # Postgres + pgvector
+cd backend && uvicorn app.main:app --reload
+cd frontend && npm run dev
+```
+
+- **Backend logs:** watch the uvicorn terminal. Weakness detectors and the orchestrator log every decision at INFO level.
+- **KataGo not responding?** Run `katago.exe analysis -config ...` manually in a terminal first. OpenCL tuning takes ~5 minutes the first time and looks like a hang but isn't.
+- **Frontend blank page?** 99% of the time it's the Preact alias. Check `frontend/vite.config.ts`.
+- **DB schema out of date?** `docker compose down -v && docker compose up -d db` wipes and recreates. You will lose local games — that is fine in dev.
+- **Tests:** `pytest -q` from `backend/`. Expect **41 passed**. If you touch `engine/` or `services/`, add a test. The engine tests are fast and deterministic; please keep them that way.
+
+### 6. Conventions we have converged on
+
+- **Don't mock the database in tests.** Integration tests hit a real Postgres (either the dockerised one or a throwaway schema). Mock engines lie.
+- **Engine code is pure.** No network, no DB, no logging beyond exceptions. This is what keeps the tests fast.
+- **Services are stateless.** State lives in the DB. A service instance should be safe to construct per-request.
+- **Prompts live next to the service that uses them**, as plain Python string templates — not in a separate "prompts/" folder. When the prompt and the code drift apart, bugs follow.
+- **Secrets go in `.env`, never in code or commits.** The repo has a `.env.example`; copy it.
+- **Commit messages are short and imperative** ("add weakness detector for top-move avoidance", not "Added..."). Match the existing `git log` style.
+
+### 7. Where to start as a new contributor
+
+Pick one of these depending on your interest; all three are real, unblocked tickets:
+
+1. **Frontend styling.** The UI works but looks like 1998. Any visual-design improvement to `GameView` or `GoBoard` is welcome. Good first task.
+2. **Wire the LLM review into the UI.** Backend endpoint already returns markdown + moments; the frontend currently ignores it. Needs a panel on the game page.
+3. **Add a weakness detector.** The framework is in `services/weakness/`; each detector is ~50 lines. Ideas: "ignores ko threats", "plays too slowly in the opening", "fails to respond to a kikashi". Write the detector, add a test with a canned `move_features` fixture, register it in the orchestrator.
+
+### 8. People and communication
+
+Six-person team, class project. Decisions that affect more than one module should be discussed in the group chat before being merged. When in doubt: open a draft PR, link the relevant files with line numbers, and ask for a review. Small PRs are easier to approve than large ones — split aggressively.
+
+---
+
+## Tech stack
+
+| Layer | Tech |
+|---|---|
+| Frontend | React 18 + Vite + TypeScript + @sabaki/shudan |
+| Backend | FastAPI + asyncpg + Python 3.11 |
+| Database | PostgreSQL 16 + pgvector (via Docker) |
+| Analysis | KataGo (runs on host) |
+| LLM review | Anthropic Claude or Google Gemini |
+
+---
+
+## Prerequisites
+
+- **Docker Desktop**
+- **Python 3.11+**
+- **Node 18+**
+- **KataGo** binary + network file *(optional — only needed for post-game analysis)*
+
+---
+
+## Getting started
+
+### 1. Start the database
+
+From the repo root:
+
+```bash
+docker compose up -d db
+```
+
+The schema in `backend/db/init.sql` is applied automatically on first creation. If you pull schema changes later, recreate the volume:
+
+```bash
+docker compose down -v && docker compose up -d db
+```
+
+### 2. Configure and run the backend
+
+```bash
+cd backend
+cp .env.example .env
+```
+
+Edit `.env`. Minimum to run without analysis:
+
+```
+DATABASE_URL=postgresql://senpai:senpai@localhost:5432/senpai
+KATAGO_ENABLED=false
+```
+
+Install and verify:
+
+```bash
+pip install -e ".[dev]"
+pytest -q          # expect 41 passed
+uvicorn app.main:app --reload
+```
+
+The server listens on `http://localhost:8000`.
+
+### 3. Run the frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173`. Create a user, create a game, and play.
+
+### 4. Drive the coaching loop (curl walkthrough)
+
+Once you have played at least one game to completion, the backend exposes a single endpoint that drives the whole coaching pipeline. It decides the *next action* for the user by consulting a deterministic rule table:
+
+1. **`review_game`** — an unreviewed finished game exists for this user.
+2. **`revisit_concept`** — a concept we already taught, not yet demonstrated, and ≥24h old.
+3. **`teach_concept`** — the user has an active weakness (severity ≥ 0.2) mapped to a concept they haven't seen.
+4. **`serve_drill`** — default; returns a tsumego matched to weakness themes.
+5. **`idle`** — nothing to do (empty corpus).
+
+The sequence below reproduces the demo the coaching pipeline was built for. Substitute your own `user_id`/`game_id` values. Commands work as-is in Windows `cmd.exe`; on bash you may swap the escaped quotes for single quotes.
+
+```bash
+:: 1. Ask what to do next — if you have an unreviewed game, this returns review_game.
+curl -s -X POST http://localhost:8000/api/users/{user_id}/next-action | python -m json.tool
+
+:: 2. Generate the LLM review for that game.
+curl -s -X POST "http://localhost:8000/api/games/{game_id}/review?for_user_id={user_id}" | python -m json.tool
+
+:: 3. Ask again — now usually teach_concept (if a weakness ≥ 0.2) or serve_drill.
+curl -s -X POST http://localhost:8000/api/users/{user_id}/next-action | python -m json.tool
+
+:: 4. Record a drill attempt. success=true also auto-marks matching concepts as demonstrated.
+curl -s -X POST http://localhost:8000/api/drill-attempts ^
+     -H "content-type: application/json" ^
+     -d "{\"user_id\":\"{user_id}\",\"problem_id\":\"starter-04-twopoint-eye\",\"success\":true,\"moves_played\":[],\"hint_used\":false}"
+
+:: 5. Ask again — the recency penalty kicks in, so the served problem changes.
+curl -s -X POST http://localhost:8000/api/users/{user_id}/next-action | python -m json.tool
+```
+
+Peek at the state the orchestrator just updated:
+
+```bash
+:: Current weaknesses with their EMA severities
+curl -s http://localhost:8000/api/users/{user_id}/weaknesses | python -m json.tool
+
+:: Concepts we've taught this user (and whether they've demonstrated each one)
+docker compose exec db psql -U senpai -d senpai -c "SELECT concept_id, times_taught, last_taught_at, user_demonstrated FROM user_concepts_seen WHERE user_id = '{user_id}';"
+```
+
+Tip: to force the `teach_concept` branch in a test DB where no weakness has crossed the 0.2 threshold yet, bump one directly:
+
+```bash
+docker compose exec db psql -U senpai -d senpai -c "UPDATE user_weaknesses SET severity = 0.5 WHERE user_id = '{user_id}' AND theme = 'low_consistency_opening';"
+```
+
+---
+
+## KataGo setup (optional)
+
+Required only for post-game analysis (`POST /api/games/{id}/analyze`). KataGo runs on the host, not in Docker.
+
+1. Download a Windows OpenCL release from <https://github.com/lightvector/KataGo/releases> and unzip into `C:\tools\katago\`.
+2. Download a network file from <https://katagotraining.org/networks/> (recommended: `kata1-b28c512nbt-s12763923712-d5805955894.bin.gz`) and save it into the same folder.
+3. Duplicate `analysis_example.cfg` → `analysis.cfg`. Edit it:
+   ```
+   numAnalysisThreads = 1
+   numSearchThreadsPerAnalysisThread = 1
+   maxVisits = 500
+   ```
+4. Run once to complete OpenCL tuning (~5 min, one-time):
+   ```powershell
+   C:\tools\katago\katago.exe analysis -config C:\tools\katago\analysis.cfg -model C:\tools\katago\<network>.bin.gz < NUL
+   ```
+   Wait for `Started, ready to begin handling requests`, then Ctrl+C.
+5. Set in `.env`:
+   ```
+   KATAGO_ENABLED=true
+   KATAGO_BIN=C:\tools\katago\katago.exe
+   KATAGO_CONFIG=C:\tools\katago\analysis.cfg
+   KATAGO_MODEL=C:\tools\katago\<network>.bin.gz
+   ```
+
+---
+
+## Environment variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `KATAGO_ENABLED` | No | Enable KataGo analysis (`true`/`false`) |
+| `KATAGO_BIN` | If enabled | Path to `katago.exe` |
+| `KATAGO_CONFIG` | If enabled | Path to `analysis.cfg` |
+| `KATAGO_MODEL` | If enabled | Path to network `.bin.gz` |
+| `KATAGO_MAX_VISITS` | No | Search visits per move (default `500`) |
+| `KATAGO_ANALYZE_TIMEOUT` | No | Max seconds for a full-game analysis (default `60`) |
+| `KATAGO_TIMEOUT_PER_TURN` | No | Seconds per turn (default `8`) |
+| `REVIEW_LLM_PROVIDER` | No | `gemini` or `anthropic` |
+| `REVIEW_LLM_MODEL` | No | e.g. `gemini-2.5-flash`, `claude-sonnet-4-6` |
+| `GOOGLE_API_KEY` | If Gemini | Gemini API key |
+| `ANTHROPIC_API_KEY` | If Anthropic | Anthropic API key |
+| `REVIEW_EMBEDDING_MODEL` | No | Sentence-transformer model for concept retrieval |
+
+---
+
+## Project structure
+
+```
+Go-senpai/
+├── backend/          # FastAPI server
+│   ├── app/
+│   │   ├── api/      # HTTP + WebSocket endpoints
+│   │   ├── engine/   # Go rules, board logic, SGF I/O
+│   │   └── services/ # KataGo, weakness detection, orchestration, LLM review
+│   ├── db/           # init.sql schema + seed data
+│   └── README.md     # Backend-specific setup and API docs
+├── frontend/         # React + Vite app
+│   └── src/
+│       ├── components/   # GoBoard, GameView
+│       └── api.ts / ws.ts
+└── docker-compose.yml    # PostgreSQL + pgvector
+```
+
+---
+
+## Running tests
+
+```bash
+cd backend
+pytest -q
+```
+
+---
+
+## Conclusions
+
+What works today: a clean Go engine with full rule enforcement and SGF I/O, live human-vs-human and human-vs-AI play over WebSocket, a KataGo analysis pipeline that caches positions and derives per-move features, weakness detection across six themes, a deterministic orchestrator that picks concepts and drills, and an LLM review service that grounds its prose in those features and a pgvector-retrieved concept library.
+
+What is still missing: a designed frontend (the UI is functional but unstyled) and the wiring that surfaces the LLM review and drill flow in the browser.
+
+What the team learned: separating the grounded engine from the pedagogical LLM is the single most important decision — asking an LLM to read the board fails, while asking it to explain a pre-computed weakness works. Small integration details (the `@sabaki/shudan` Preact→React alias in Vite) can block an entire page. And a deterministic orchestrator around a non-deterministic LLM is easier to debug, test, and trust than a single monolithic prompt.
+
+---
+
+## Notes
+
+This is a class project ("Sensei") built by a 6-person team. The coaching pipeline (weakness detection → concept teaching → drill selection) is driven by a deterministic orchestrator in `backend/app/services/orchestrator/`.
