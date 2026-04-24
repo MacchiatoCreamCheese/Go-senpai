@@ -88,3 +88,35 @@ def test_skips_pass_and_resign():
 def test_returns_empty_when_no_mistakes():
     features = [_feat(move_number=i, color="B", points_lost=0.1, policy_rank=0) for i in range(5)]
     assert pick_moments(features, "B") == []
+
+
+def test_high_stdev_suppresses_noisy_opening():
+    # Move 3: raw 4pt loss, but scoreStdev=12 → confident = 1.2 < 1.5
+    # threshold → NOT selected as a critical decision. Without confidence
+    # weighting this would pass the threshold and get picked.
+    # Move 80: raw 5pt loss, scoreStdev=1 → confident = 5.0 → selected.
+    features = [
+        _feat(
+            move_number=3, color="B", points_lost=4.0, policy_rank=4,
+            is_blunder=False, score_stdev_before=12.0, phase="opening",
+        ),
+        _feat(
+            move_number=80, color="B", points_lost=5.0, policy_rank=5,
+            is_blunder=False, score_stdev_before=1.0, phase="endgame",
+        ),
+    ]
+    picked = pick_moments(features, "B")
+    assert [m.move_number for m in picked] == [80]
+
+
+def test_selector_exposes_raw_and_confident():
+    features = [
+        _feat(
+            move_number=5, color="B", points_lost=8.0, policy_rank=0,
+            is_blunder=True, score_stdev_before=10.0,
+        ),
+    ]
+    moments = pick_moments(features, "B")
+    assert len(moments) == 1
+    assert moments[0].points_lost == 8.0
+    assert abs(moments[0].confident_points_lost - 8.0 * 0.3) < 1e-6

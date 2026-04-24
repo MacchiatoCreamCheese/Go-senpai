@@ -1,13 +1,60 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import os
 import re
-from typing import Protocol
+from typing import Awaitable, Callable, Protocol, TypeVar
+
+
+log = logging.getLogger(__name__)
 
 
 class LLMError(RuntimeError):
     pass
+
+
+_TRANSIENT_STATUSES = {408, 425, 429, 500, 502, 503, 504}
+_RETRY_DELAYS = (1.0, 3.0)  # seconds
+T = TypeVar("T")
+
+
+def _status_of(exc: BaseException) -> int | None:
+    code = getattr(exc, "status_code", None)
+    if isinstance(code, int):
+        return code
+    code = getattr(exc, "code", None)
+    return code if isinstance(code, int) else None
+
+
+async def _with_retry(
+    call: Callable[[], Awaitable[T]],
+    label: str,
+) -> T:
+    """Retry transient provider errors with short backoff; map others to LLMError."""
+    for attempt, delay in enumerate((*_RETRY_DELAYS, None)):
+        try:
+            return await call()
+        except LLMError:
+            raise
+        except Exception as exc:
+            status = _status_of(exc)
+            transient = status in _TRANSIENT_STATUSES or "UNAVAILABLE" in str(exc).upper()
+            if transient and delay is not None:
+                log.warning(
+                    "%s transient error (status=%s, attempt=%d); retrying in %.1fs: %s",
+                    label, status, attempt + 1, delay, exc,
+                )
+                await asyncio.sleep(delay)
+                continue
+            if transient:
+                raise LLMError(
+                    f"{label} provider is unavailable after retries "
+                    f"(status={status}). Please try again in a minute."
+                ) from exc
+            raise LLMError(f"{label} call failed: {exc}") from exc
+    raise LLMError(f"{label} retries exhausted")
 
 
 class LLMClient(Protocol):
@@ -27,17 +74,20 @@ class ClaudeClient:
         self._client = AsyncAnthropic(api_key=api_key)
 
     async def generate_review(self, system: str, user: str) -> tuple[str, int]:
-        msg = await self._client.messages.create(
-            model=self.model,
-            max_tokens=self.max_tokens,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-        )
-        text = "".join(
-            block.text for block in msg.content if getattr(block, "type", None) == "text"
-        )
-        tokens = (msg.usage.input_tokens or 0) + (msg.usage.output_tokens or 0)
-        return text, int(tokens)
+        async def call() -> tuple[str, int]:
+            msg = await self._client.messages.create(
+                model=self.model,
+                max_tokens=self.max_tokens,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+            )
+            text = "".join(
+                block.text for block in msg.content if getattr(block, "type", None) == "text"
+            )
+            tokens = (msg.usage.input_tokens or 0) + (msg.usage.output_tokens or 0)
+            return text, int(tokens)
+
+        return await _with_retry(call, label="Claude")
 
 
 class GeminiClient:
@@ -52,24 +102,27 @@ class GeminiClient:
     async def generate_review(self, system: str, user: str) -> tuple[str, int]:
         from google.genai import types
 
-        response = await self._client.aio.models.generate_content(
-            model=self.model,
-            contents=user,
-            config=types.GenerateContentConfig(
-                system_instruction=system,
-                max_output_tokens=self.max_tokens,
-                response_mime_type="application/json",
-            ),
-        )
-        text = response.text or ""
-        usage = getattr(response, "usage_metadata", None)
-        tokens = 0
-        if usage is not None:
-            tokens = int(
-                (getattr(usage, "prompt_token_count", 0) or 0)
-                + (getattr(usage, "candidates_token_count", 0) or 0)
+        async def call() -> tuple[str, int]:
+            response = await self._client.aio.models.generate_content(
+                model=self.model,
+                contents=user,
+                config=types.GenerateContentConfig(
+                    system_instruction=system,
+                    max_output_tokens=self.max_tokens,
+                    response_mime_type="application/json",
+                ),
             )
-        return text, tokens
+            text = response.text or ""
+            usage = getattr(response, "usage_metadata", None)
+            tokens = 0
+            if usage is not None:
+                tokens = int(
+                    (getattr(usage, "prompt_token_count", 0) or 0)
+                    + (getattr(usage, "candidates_token_count", 0) or 0)
+                )
+            return text, tokens
+
+        return await _with_retry(call, label="Gemini")
 
 
 def build_default_client() -> LLMClient:

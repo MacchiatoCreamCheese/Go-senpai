@@ -58,6 +58,8 @@ CREATE TABLE move_features (
     is_blunder           BOOLEAN NOT NULL,
     local_context        JSONB,
     ownership_delta      JSONB,
+    top_pv               JSONB,
+    score_stdev_before   REAL,
     created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (game_id, move_number)
 );

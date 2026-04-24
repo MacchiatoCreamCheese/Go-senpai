@@ -12,6 +12,7 @@ def _moment(**kw):
         coord="K10",
         top_move="Q5",
         points_lost=8.2,
+        confident_points_lost=8.2,
         winrate_before=0.58,
         winrate_after=0.42,
         score_before=2.0,
@@ -54,3 +55,33 @@ def test_system_prompt_specifies_json_output():
     assert "JSON" in SYSTEM_PROMPT
     assert "summary_md" in SYSTEM_PROMPT
     assert "concept_ids" in SYSTEM_PROMPT
+
+
+def test_system_prompt_references_continuation():
+    assert "continuation" in SYSTEM_PROMPT.lower()
+
+
+def test_prompt_includes_continuation_when_pv_present():
+    moments = [_moment(top_pv=["Q5", "R4", "P6"])]
+    concepts = [[RetrievedConcept(id="direction_of_play", title="Direction", body_md="x")]]
+    _system, user = build_review_prompt(
+        game={"board_size": 19, "komi": 7.5, "result": "W+4.5"},
+        player_color="B",
+        moments=moments,
+        concepts_per_moment=concepts,
+    )
+    payload = json.loads(user)
+    assert payload["moments"][0]["continuation"] == ["Q5", "R4", "P6"]
+
+
+def test_prompt_omits_continuation_when_pv_missing():
+    moments = [_moment(top_pv=None)]
+    concepts = [[RetrievedConcept(id="direction_of_play", title="Direction", body_md="x")]]
+    _system, user = build_review_prompt(
+        game={"board_size": 19, "komi": 7.5, "result": "W+4.5"},
+        player_color="B",
+        moments=moments,
+        concepts_per_moment=concepts,
+    )
+    payload = json.loads(user)
+    assert "continuation" not in payload["moments"][0]

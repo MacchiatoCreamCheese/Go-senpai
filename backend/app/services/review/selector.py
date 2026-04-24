@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from ..katago.features import confidence_weight
+
 
 Phase = Literal["opening", "middlegame", "endgame"]
 
@@ -13,7 +15,8 @@ class Moment:
     color: str
     coord: str
     top_move: str | None
-    points_lost: float
+    points_lost: float                     # raw diff, as KataGo saw it
+    confident_points_lost: float           # used for ranking
     winrate_before: float | None
     winrate_after: float | None
     score_before: float | None
@@ -21,6 +24,7 @@ class Moment:
     phase: Phase
     is_blunder: bool
     kind: Literal["blunder", "critical_decision"]
+    top_pv: list[str] | None = None
 
 
 CRITICAL_POLICY_RANK = 3
@@ -53,6 +57,9 @@ def pick_moments(
         if coord.lower() in ("pass", "resign"):
             continue
 
+        stdev = _float_or_none(row.get("score_stdev_before"))
+        confident_pl = float(points_lost) * confidence_weight(stdev)
+
         is_blunder = bool(row.get("is_blunder"))
         policy_rank = row.get("policy_rank")
 
@@ -62,7 +69,7 @@ def pick_moments(
         elif (
             policy_rank is not None
             and policy_rank >= CRITICAL_POLICY_RANK
-            and points_lost >= CRITICAL_POINTS_LOST
+            and confident_pl >= CRITICAL_POINTS_LOST
         ):
             kind = "critical_decision"
         if kind is None:
@@ -74,6 +81,7 @@ def pick_moments(
             coord=coord,
             top_move=row.get("top_move"),
             points_lost=float(points_lost),
+            confident_points_lost=confident_pl,
             winrate_before=_float_or_none(row.get("winrate_before")),
             winrate_after=_float_or_none(row.get("winrate_after")),
             score_before=_float_or_none(row.get("score_before")),
@@ -81,9 +89,10 @@ def pick_moments(
             phase=row["phase"],
             is_blunder=is_blunder,
             kind=kind,
+            top_pv=row.get("top_pv"),
         )
-        # Blunders always outrank critical decisions at the same points_lost.
-        priority = float(points_lost) + (1000.0 if is_blunder else 0.0)
+        # Blunders always outrank critical decisions at the same weighted loss.
+        priority = confident_pl + (1000.0 if is_blunder else 0.0)
         candidates.append((priority, moment))
 
     candidates.sort(key=lambda x: x[0], reverse=True)

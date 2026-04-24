@@ -93,8 +93,14 @@ async def analyze_game(
             "maxVisits": visits,
             "includePolicy": True,
             "includeOwnership": True,
+            "includeOwnershipStdev": True,
+            "analysisPVLen": 8,
         }
-        responses = await engine.analyze(request, expected_turns=missing_turns)
+        responses = await engine.analyze(
+            request,
+            expected_turns=missing_turns,
+            timeout=_analyze_timeout(len(missing_turns)),
+        )
 
         # Persist fresh responses into the cross-game cache.
         new_entries = []
@@ -173,3 +179,22 @@ def default_visits() -> int:
 
 def default_rules() -> str:
     return os.environ.get("KATAGO_RULES", "chinese")
+
+
+def _analyze_timeout(turn_count: int) -> float:
+    """Budget KataGo's wall time per request.
+
+    Override with KATAGO_ANALYZE_TIMEOUT (floor in seconds); otherwise
+    scale by KATAGO_TIMEOUT_PER_TURN (default 8s) * turns, with a floor
+    of 60s so tiny games aren't rushed.
+    """
+    floor = _env_float("KATAGO_ANALYZE_TIMEOUT", 60.0)
+    per_turn = _env_float("KATAGO_TIMEOUT_PER_TURN", 8.0)
+    return max(floor, turn_count * per_turn)
+
+
+def _env_float(name: str, fallback: float) -> float:
+    try:
+        return float(os.environ.get(name, fallback))
+    except ValueError:
+        return fallback

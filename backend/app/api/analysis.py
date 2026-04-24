@@ -97,6 +97,8 @@ async def analyze(
             "is_blunder": am.features.is_blunder,
             "local_context": None,
             "ownership_delta": None,
+            "top_pv": am.features.top_pv,
+            "score_stdev_before": am.features.score_stdev_before,
         }
         for am in result.moves
     ]

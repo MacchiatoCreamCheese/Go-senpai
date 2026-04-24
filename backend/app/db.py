@@ -220,9 +220,11 @@ async def insert_move_features(
                     game_id, move_number, position_hash_before, position_hash_after,
                     points_lost, policy_rank, top_move, top_move_points_lost,
                     winrate_before, winrate_after, score_before, score_after,
-                    phase, is_blunder, local_context, ownership_delta
+                    phase, is_blunder, local_context, ownership_delta,
+                    top_pv, score_stdev_before
                 ) VALUES (
-                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+                    $17::jsonb, $18
                 )
                 """,
                 [
@@ -243,6 +245,8 @@ async def insert_move_features(
                         r["is_blunder"],
                         r["local_context"],
                         r["ownership_delta"],
+                        json.dumps(r["top_pv"]) if r.get("top_pv") is not None else None,
+                        r.get("score_stdev_before"),
                     )
                     for r in rows
                 ],
@@ -255,6 +259,7 @@ async def get_move_features(game_id: str) -> list[dict[str, Any]]:
         SELECT mf.move_number, mf.points_lost, mf.policy_rank, mf.top_move,
                mf.top_move_points_lost, mf.winrate_before, mf.winrate_after,
                mf.score_before, mf.score_after, mf.phase, mf.is_blunder,
+               mf.top_pv, mf.score_stdev_before,
                m.color, m.coord
         FROM move_features mf
         JOIN moves m ON m.game_id = mf.game_id AND m.move_number = mf.move_number
@@ -263,7 +268,14 @@ async def get_move_features(game_id: str) -> list[dict[str, Any]]:
         """,
         game_id,
     )
-    return [dict(r) for r in rows]
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        d = dict(r)
+        pv = d.get("top_pv")
+        if isinstance(pv, str):
+            d["top_pv"] = json.loads(pv)
+        out.append(d)
+    return out
 
 
 async def get_cached_analyses(hashes: list[bytes]) -> dict[bytes, dict[str, Any]]:

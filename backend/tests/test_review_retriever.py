@@ -16,6 +16,7 @@ def _moment(**kw):
         coord="K10",
         top_move="Q5",
         points_lost=8.2,
+        confident_points_lost=8.2,
         winrate_before=0.58,
         winrate_after=0.42,
         score_before=2.0,

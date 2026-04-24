@@ -13,9 +13,13 @@ library of Go concepts retrieved for each moment.
 
 Hard rules:
 - Every claim you make must reference a provided feature (move_number, coord,
-  top_move, points_lost, winrate_before/after) or a provided concept id.
+  top_move, points_lost, winrate_before/after, continuation) or a provided
+  concept id.
 - Do not invent moves, coordinates, captures, players, or outcomes.
 - Do not speculate about positions you were not shown.
+- If a moment includes a "continuation" list, reference the first 2-3 moves
+  of it explicitly when explaining what to play instead (e.g. "play Q5; after
+  R4, a hane at P6 settles the shape"). Treat the continuation as authoritative.
 - If the provided data is insufficient for a moment, say so plainly rather
   than inventing detail.
 
@@ -35,7 +39,7 @@ Output: return ONLY a JSON object with this exact shape, no prose around it:
 
 
 def _moment_block(moment: Moment, concepts: list[RetrievedConcept]) -> dict[str, Any]:
-    return {
+    block: dict[str, Any] = {
         "move_number": moment.move_number,
         "color": moment.color,
         "played_coord": moment.coord,
@@ -49,6 +53,9 @@ def _moment_block(moment: Moment, concepts: list[RetrievedConcept]) -> dict[str,
         "kind": moment.kind,
         "retrieved_concepts": [{"id": c.id, "title": c.title} for c in concepts],
     }
+    if moment.top_pv:
+        block["continuation"] = moment.top_pv
+    return block
 
 
 def _pct(v: float | None) -> float | None:

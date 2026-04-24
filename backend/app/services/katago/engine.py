@@ -32,6 +32,7 @@ class KataGoEngine:
         self._stderr_task: asyncio.Task[None] | None = None
         self._pending: dict[str, _Pending] = {}
         self._write_lock = asyncio.Lock()
+        self._restart_lock = asyncio.Lock()
         self.version: str = "unknown"
         self.model_name: str = os.path.basename(model)
 
@@ -75,7 +76,9 @@ class KataGoEngine:
         self,
         request: dict[str, Any],
         expected_turns: list[int],
+        timeout: float = 600.0,
     ) -> dict[int, dict[str, Any]]:
+        await self._restart_if_dead()
         if not self.is_alive() or self._proc is None or self._proc.stdin is None:
             raise EngineDiedError("KataGo process is not running")
 
@@ -90,9 +93,24 @@ class KataGoEngine:
             await self._proc.stdin.drain()
 
         try:
-            return await pending.future
+            return await asyncio.wait_for(pending.future, timeout=timeout)
+        except asyncio.TimeoutError as exc:
+            log.warning("katago analyze timed out after %.1fs (req=%s)", timeout, req_id)
+            if not pending.future.done():
+                pending.future.cancel()
+            raise TimeoutError(f"KataGo request timed out after {timeout:.1f}s") from exc
         finally:
             self._pending.pop(req_id, None)
+
+    async def _restart_if_dead(self) -> None:
+        if self.is_alive():
+            return
+        async with self._restart_lock:
+            if self.is_alive():
+                return
+            log.warning("KataGo process is not alive — restarting")
+            self._fail_all(EngineDiedError("KataGo restarting"))
+            await self.start()
 
     async def _read_loop(self) -> None:
         assert self._proc is not None and self._proc.stdout is not None
@@ -136,7 +154,9 @@ class KataGoEngine:
                 # KataGo prints e.g. "KataGo v1.16.4" early in stderr.
                 idx = text.find("KataGo v")
                 self.version = text[idx:].split()[1] if " " in text[idx:] else text[idx:]
-            log.debug("katago stderr: %s", text)
+            # KataGo stderr includes per-query timing and errors. Log at INFO
+            # for operational visibility; noisy but useful when diagnosing.
+            log.info("katago stderr: %s", text)
 
     def _fail_all(self, exc: BaseException) -> None:
         for pending in list(self._pending.values()):

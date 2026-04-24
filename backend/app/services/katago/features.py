@@ -7,13 +7,22 @@ Phase = Literal["opening", "middlegame", "endgame"]
 
 BLUNDER_THRESHOLDS: dict[int, float] = {9: 2.0, 13: 3.0, 19: 5.0}
 
+# scoreStdev in points. KataGo reports high values early (>10 on 19x19) when
+# it's uncertain about final score. Full signal when stdev <= 2pt; linearly
+# decayed to a floor of 0.3 at stdev >= 10pt. The floor keeps clear blunders
+# registering even in noisy positions.
+_CONFIDENCE_LOW_STDEV = 2.0
+_CONFIDENCE_HIGH_STDEV = 10.0
+_CONFIDENCE_FLOOR = 0.3
+_PV_LEN = 8
+
 
 @dataclass
 class MoveFeatures:
     move_number: int
     color: str
     coord: str
-    points_lost: float | None
+    points_lost: float | None          # raw scoreLead diff, unweighted
     policy_rank: int | None
     top_move: str | None
     top_move_points_lost: float | None
@@ -23,6 +32,9 @@ class MoveFeatures:
     score_after: float | None
     phase: Phase
     is_blunder: bool
+    top_pv: list[str] | None = None
+    score_stdev_before: float | None = None
+    confident_points_lost: float | None = None  # points_lost * confidence_weight
 
 
 def classify_phase(move_number: int, board_size: int) -> Phase:
@@ -38,6 +50,24 @@ def is_blunder(points_lost: float | None, board_size: int) -> bool:
     if points_lost is None:
         return False
     return points_lost >= BLUNDER_THRESHOLDS.get(board_size, 5.0)
+
+
+def confidence_weight(score_stdev: float | None) -> float:
+    """Return a multiplier in [_CONFIDENCE_FLOOR, 1.0] for points-lost.
+
+    scoreStdev is roughly a 1-sigma confidence interval on scoreLead in
+    points. Below ~2pt we trust the score diff fully; above ~10pt it's
+    mostly noise and we downgrade (but don't zero) the signal.
+    """
+    if score_stdev is None:
+        return 1.0
+    if score_stdev <= _CONFIDENCE_LOW_STDEV:
+        return 1.0
+    if score_stdev >= _CONFIDENCE_HIGH_STDEV:
+        return _CONFIDENCE_FLOOR
+    span = _CONFIDENCE_HIGH_STDEV - _CONFIDENCE_LOW_STDEV
+    t = (score_stdev - _CONFIDENCE_LOW_STDEV) / span
+    return 1.0 - t * (1.0 - _CONFIDENCE_FLOOR)
 
 
 def extract(
@@ -81,10 +111,12 @@ def extract(
 
     winrate_before = _as_float(root.get("winrate"))
     score_before = _as_float(root.get("scoreLead"))
+    score_stdev_before = _as_float(root.get("scoreStdev"))
 
     top = move_infos[0] if move_infos else None
     top_move = (top.get("move") if top else None)
     top_score = _as_float(top.get("scoreLead")) if top else None
+    top_pv = _trim_pv(top.get("pv") if top else None)
 
     played_norm = played_coord.upper()
     played = next(
@@ -108,6 +140,18 @@ def extract(
     else:
         points_lost = None
 
+    confident_points_lost = (
+        None if points_lost is None
+        else points_lost * confidence_weight(score_stdev_before)
+    )
+
+    if top_score is not None and score_before is not None:
+        top_move_points_lost = max(0.0, top_score - score_before)
+    elif top_move is not None:
+        top_move_points_lost = 0.0
+    else:
+        top_move_points_lost = None
+
     return MoveFeatures(
         move_number=move_number,
         color=color,
@@ -115,14 +159,24 @@ def extract(
         points_lost=points_lost,
         policy_rank=policy_rank,
         top_move=top_move,
-        top_move_points_lost=0.0 if top_move is not None else None,
+        top_move_points_lost=top_move_points_lost,
         winrate_before=winrate_before,
         winrate_after=winrate_after,
         score_before=score_before,
         score_after=score_after,
         phase=phase,
-        is_blunder=is_blunder(points_lost, board_size),
+        is_blunder=is_blunder(confident_points_lost, board_size),
+        top_pv=top_pv,
+        score_stdev_before=score_stdev_before,
+        confident_points_lost=confident_points_lost,
     )
+
+
+def _trim_pv(pv: Any) -> list[str] | None:
+    if not isinstance(pv, list) or not pv:
+        return None
+    out = [str(m) for m in pv[:_PV_LEN] if isinstance(m, (str, int))]
+    return out or None
 
 
 def _as_float(value: Any) -> float | None:
