@@ -134,3 +134,18 @@ class DrillAttemptSchema(BaseModel):
     problem_id: str
     attempted_at: str
     success: bool
+
+
+class ConceptSchema(BaseModel):
+    id: str
+    title: str
+    body_md: str
+    tags: list[str] = Field(default_factory=list)
+
+
+class NextActionResponse(BaseModel):
+    kind: Literal["review_game", "teach_concept", "revisit_concept", "serve_drill", "idle"]
+    game_id: Optional[str] = None
+    problem: Optional[ProblemSchema] = None
+    concept: Optional[ConceptSchema] = None
+    reason: Optional[str] = None

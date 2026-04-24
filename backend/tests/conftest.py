@@ -37,6 +37,11 @@ _DB_STUBS = {
     "list_candidate_problems": AsyncMock(return_value=[]),
     "record_drill_attempt": AsyncMock(return_value=None),
     "recent_problem_ids": AsyncMock(return_value=[]),
+    "list_unreviewed_games_for_user": AsyncMock(return_value=[]),
+    "list_concepts_seen": AsyncMock(return_value=[]),
+    "record_concept_taught": AsyncMock(return_value=None),
+    "mark_concepts_demonstrated": AsyncMock(return_value=None),
+    "get_concept": AsyncMock(return_value=None),
 }
 
 

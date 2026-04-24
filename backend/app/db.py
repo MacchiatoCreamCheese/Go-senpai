@@ -599,7 +599,111 @@ async def record_drill_attempt(
         json.dumps(moves_played),
         hint_used,
     )
+    if success:
+        await _mark_demonstrated_for_problem(user_id, problem_id)
     return dict(row)
+
+
+async def _mark_demonstrated_for_problem(user_id: str, problem_id: str) -> None:
+    """On a successful drill, mark any concept the drill's themes cover as
+    demonstrated. Keeps the signal evidence-based: the user didn't just see
+    the concept, they solved a problem with a matching theme.
+    """
+    # Deferred import: orchestrator imports from ..services which imports db;
+    # module-level import would create a cycle.
+    from .services.drills.selector import WEAKNESS_TO_PROBLEM_THEMES
+    from .services.orchestrator.planner import WEAKNESS_TO_CONCEPT_ID
+
+    problem = await get_problem(problem_id)
+    if not problem:
+        return
+    themes = set(problem.get("themes") or [])
+    if not themes:
+        return
+    concept_ids: set[str] = set()
+    for weakness_theme, problem_themes in WEAKNESS_TO_PROBLEM_THEMES.items():
+        if themes.intersection(problem_themes):
+            concept_id = WEAKNESS_TO_CONCEPT_ID.get(weakness_theme)
+            if concept_id:
+                concept_ids.add(concept_id)
+    if concept_ids:
+        await mark_concepts_demonstrated(user_id, list(concept_ids))
+
+
+async def get_concept(concept_id: str) -> dict[str, Any] | None:
+    row = await _get_pool().fetchrow(
+        "SELECT id, title, tags, body_md FROM go_concepts WHERE id = $1",
+        concept_id,
+    )
+    return dict(row) if row else None
+
+
+async def list_unreviewed_games_for_user(
+    user_id: str,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    rows = await _get_pool().fetch(
+        """
+        SELECT g.id, g.started_at, g.ended_at, g.result
+        FROM games g
+        LEFT JOIN reviews r
+               ON r.game_id = g.id AND r.for_user_id = $1
+        WHERE g.ended_at IS NOT NULL
+          AND (g.black_user_id = $1 OR g.white_user_id = $1)
+          AND r.id IS NULL
+        ORDER BY g.ended_at DESC
+        LIMIT $2
+        """,
+        user_id,
+        limit,
+    )
+    return [dict(r) for r in rows]
+
+
+async def list_concepts_seen(user_id: str) -> list[dict[str, Any]]:
+    rows = await _get_pool().fetch(
+        """
+        SELECT concept_id, times_taught, last_taught_at,
+               user_demonstrated, demonstrated_at
+        FROM user_concepts_seen
+        WHERE user_id = $1
+        """,
+        user_id,
+    )
+    return [dict(r) for r in rows]
+
+
+async def record_concept_taught(user_id: str, concept_id: str) -> None:
+    await _get_pool().execute(
+        """
+        INSERT INTO user_concepts_seen (user_id, concept_id, times_taught, last_taught_at)
+        VALUES ($1, $2, 1, NOW())
+        ON CONFLICT (user_id, concept_id) DO UPDATE SET
+            times_taught = user_concepts_seen.times_taught + 1,
+            last_taught_at = NOW()
+        """,
+        user_id,
+        concept_id,
+    )
+
+
+async def mark_concepts_demonstrated(
+    user_id: str,
+    concept_ids: list[str],
+) -> None:
+    if not concept_ids:
+        return
+    await _get_pool().execute(
+        """
+        UPDATE user_concepts_seen
+           SET user_demonstrated = TRUE,
+               demonstrated_at = NOW()
+         WHERE user_id = $1
+           AND concept_id = ANY($2::text[])
+        """,
+        user_id,
+        concept_ids,
+    )
 
 
 async def recent_problem_ids(user_id: str, limit: int = 5) -> list[str]:

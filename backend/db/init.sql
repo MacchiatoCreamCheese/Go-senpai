@@ -138,3 +138,14 @@ CREATE TABLE drill_attempts (
     hint_used     BOOLEAN NOT NULL DEFAULT FALSE
 );
 CREATE INDEX idx_drill_attempts_user_time ON drill_attempts (user_id, attempted_at DESC);
+
+CREATE TABLE user_concepts_seen (
+    user_id            UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    concept_id         TEXT NOT NULL REFERENCES go_concepts(id) ON DELETE CASCADE,
+    times_taught       INT  NOT NULL DEFAULT 0,
+    last_taught_at     TIMESTAMPTZ,
+    user_demonstrated  BOOLEAN NOT NULL DEFAULT FALSE,
+    demonstrated_at    TIMESTAMPTZ,
+    PRIMARY KEY (user_id, concept_id)
+);
+CREATE INDEX idx_user_concepts_seen_user ON user_concepts_seen (user_id);

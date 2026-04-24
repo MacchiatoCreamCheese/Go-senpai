@@ -21,12 +21,14 @@ WEAKNESS_TO_PROBLEM_THEMES: dict[str, tuple[str, ...]] = {
 }
 
 RECENCY_PENALTY = 1.0
+DIFFICULTY_PENALTY_PER_STEP = 0.25
 
 
 def score_candidates(
     weaknesses: list[dict[str, Any]],
     candidates: list[dict[str, Any]],
     recent_problem_ids: set[str],
+    target_difficulty: int | None = None,
 ) -> list[tuple[dict[str, Any], float]]:
     theme_weight: dict[str, float] = {}
     for w in weaknesses:
@@ -43,6 +45,8 @@ def score_candidates(
             s += theme_weight.get(t, 0.0)
         if c["id"] in recent_problem_ids:
             s -= RECENCY_PENALTY
+        if target_difficulty is not None:
+            s -= abs(int(c.get("difficulty") or 0) - target_difficulty) * DIFFICULTY_PENALTY_PER_STEP
         scored.append((c, s))
 
     scored.sort(key=lambda x: (-x[1], int(x[0].get("difficulty") or 0), x[0]["id"]))

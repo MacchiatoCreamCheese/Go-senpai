@@ -15,6 +15,7 @@ from ..engine.sgf import export_sgf
 from ..services.katago import ai_player
 from ..services.katago.engine import get_engine
 from ..schemas import (
+    ConceptSchema,
     CreateGameRequest,
     CreateUserRequest,
     DrillAttemptRequest,
@@ -23,6 +24,7 @@ from ..schemas import (
     GameSchema,
     JoinGameRequest,
     MoveRequest,
+    NextActionResponse,
     ProblemSchema,
     StateSchema,
     UserSchema,
@@ -30,6 +32,7 @@ from ..schemas import (
     color_from_code,
 )
 from ..services.drills import pick_next
+from ..services.orchestrator import run_session_step
 from ..sessions import GameRecord, store
 from .ws import broadcast_players, broadcast_state
 
@@ -92,6 +95,39 @@ async def create_drill_attempt(req: DrillAttemptRequest) -> DrillAttemptSchema:
         attempted_at=row["attempted_at"].isoformat(),
         success=bool(row["success"]),
     )
+
+
+@router.post("/users/{user_id}/next-action", response_model=NextActionResponse)
+async def next_action(user_id: str) -> NextActionResponse:
+    result = await run_session_step(user_id)
+    kind = result["kind"]
+    if kind == "review_game":
+        return NextActionResponse(kind="review_game", game_id=str(result["game_id"]))
+    if kind == "serve_drill":
+        p = result["problem"]
+        return NextActionResponse(
+            kind="serve_drill",
+            problem=ProblemSchema(
+                id=p["id"],
+                sgf=p["sgf"],
+                solution=p["solution"],
+                themes=list(p["themes"] or []),
+                difficulty=int(p["difficulty"]),
+                source=p.get("source"),
+            ),
+        )
+    if kind in ("teach_concept", "revisit_concept"):
+        c = result["concept"]
+        return NextActionResponse(
+            kind=kind,
+            concept=ConceptSchema(
+                id=c["id"],
+                title=c["title"],
+                body_md=c["body_md"],
+                tags=list(c.get("tags") or []),
+            ),
+        )
+    return NextActionResponse(kind="idle", reason=result.get("reason", ""))
 
 
 @router.get("/users/{user_id}/games", response_model=list[GameListItem])

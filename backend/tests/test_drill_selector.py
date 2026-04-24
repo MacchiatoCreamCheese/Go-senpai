@@ -55,6 +55,24 @@ def test_tie_break_prefers_lower_difficulty_then_id():
     assert [p["id"] for p, _ in scored] == ["b_easy", "c_easy", "a_hard"]
 
 
+def test_target_difficulty_penalises_far_from_target():
+    weaknesses = [{"theme": "ignored_top_move", "severity": 0.5}]
+    candidates = [
+        _p("near", ["tesuji"], difficulty=3),
+        _p("far", ["tesuji"], difficulty=8),
+    ]
+    scored = score_candidates(
+        weaknesses,
+        candidates,
+        recent_problem_ids=set(),
+        target_difficulty=3,
+    )
+    assert scored[0][0]["id"] == "near"
+    far_score = next(s for p, s in scored if p["id"] == "far")
+    near_score = next(s for p, s in scored if p["id"] == "near")
+    assert near_score > far_score
+
+
 def test_zero_severity_weakness_contributes_nothing():
     weaknesses = [{"theme": "blunder_middlegame", "severity": 0.0}]
     candidates = [_p("a", ["capturing_race"])]
