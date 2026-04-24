@@ -190,6 +190,7 @@ async def choose_move(
         request,
         expected_turns=[len(game.moves)],
         timeout=float(os.environ.get("KATAGO_AI_MOVE_TIMEOUT", "10")),
+        priority=10,  # preempt slower review queries on the shared engine
     )
     resp = responses[len(game.moves)]
     policy = resp.get("policy")

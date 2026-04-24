@@ -77,13 +77,24 @@ class KataGoEngine:
         request: dict[str, Any],
         expected_turns: list[int],
         timeout: float = 600.0,
+        priority: int = 0,
     ) -> dict[int, dict[str, Any]]:
+        """Run a KataGo analysis query.
+
+        `priority` maps to KataGo's native priority field: higher = served
+        first. Live AI moves pass a positive priority so they preempt the
+        slower review queries on the shared subprocess.
+
+        If the awaiting task is cancelled (e.g. the FastAPI handler was cut
+        because the client disconnected), we send KataGo an `action=terminate`
+        control message so it stops burning time on the abandoned query.
+        """
         await self._restart_if_dead()
         if not self.is_alive() or self._proc is None or self._proc.stdin is None:
             raise EngineDiedError("KataGo process is not running")
 
         req_id = uuid.uuid4().hex
-        request = {**request, "id": req_id}
+        request = {**request, "id": req_id, "priority": priority}
         pending = _Pending(expected=set(expected_turns))
         self._pending[req_id] = pending
 
@@ -98,9 +109,29 @@ class KataGoEngine:
             log.warning("katago analyze timed out after %.1fs (req=%s)", timeout, req_id)
             if not pending.future.done():
                 pending.future.cancel()
+            await self._terminate(req_id)
             raise TimeoutError(f"KataGo request timed out after {timeout:.1f}s") from exc
+        except asyncio.CancelledError:
+            log.info("katago analyze cancelled (req=%s); terminating query", req_id)
+            await self._terminate(req_id)
+            raise
         finally:
             self._pending.pop(req_id, None)
+
+    async def _terminate(self, req_id: str) -> None:
+        """Best-effort KataGo query termination. Never raises."""
+        if not self.is_alive() or self._proc is None or self._proc.stdin is None:
+            return
+        payload = (
+            json.dumps({"id": f"terminate-{req_id}", "action": "terminate", "terminateId": req_id})
+            + "\n"
+        ).encode("utf-8")
+        try:
+            async with self._write_lock:
+                self._proc.stdin.write(payload)
+                await self._proc.stdin.drain()
+        except Exception as exc:
+            log.debug("katago terminate send failed (req=%s): %s", req_id, exc)
 
     async def _restart_if_dead(self) -> None:
         if self.is_alive():

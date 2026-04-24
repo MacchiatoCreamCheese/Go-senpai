@@ -305,7 +305,8 @@ async def play_ai_move(game_id: str) -> StateSchema:
 @router.get("/games/{game_id}/sgf", response_class=PlainTextResponse)
 async def export_game_sgf(game_id: str) -> PlainTextResponse:
     record = await _get_record(game_id)
-    data = export_sgf(record.game)
+    features = await db.get_move_features(game_id)
+    data = export_sgf(record.game, features=features or None)
     return PlainTextResponse(
         content=data.decode("utf-8"),
         media_type="application/x-go-sgf",

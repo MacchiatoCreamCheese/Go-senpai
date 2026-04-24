@@ -100,6 +100,7 @@ async def analyze_game(
             request,
             expected_turns=missing_turns,
             timeout=_analyze_timeout(len(missing_turns)),
+            priority=0,  # background work; live AI moves (priority=10) preempt
         )
 
         # Persist fresh responses into the cross-game cache.
