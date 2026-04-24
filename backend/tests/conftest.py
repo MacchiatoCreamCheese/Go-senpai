@@ -29,6 +29,9 @@ _DB_STUBS = {
     "get_concept_hashes": AsyncMock(return_value={}),
     "upsert_concept": AsyncMock(return_value=None),
     "count_concepts": AsyncMock(return_value=0),
+    "mark_game_processed_for_weakness": AsyncMock(return_value=True),
+    "upsert_user_weakness": AsyncMock(return_value=None),
+    "list_user_weaknesses": AsyncMock(return_value=[]),
 }
 
 

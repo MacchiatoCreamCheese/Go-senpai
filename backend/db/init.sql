@@ -97,3 +97,22 @@ CREATE TABLE reviews (
     UNIQUE (game_id, for_user_id)
 );
 CREATE INDEX idx_reviews_game ON reviews (game_id);
+
+CREATE TABLE user_weaknesses (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id           UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    theme             TEXT NOT NULL,
+    severity          REAL NOT NULL DEFAULT 0.0,
+    evidence_count    INT  NOT NULL DEFAULT 0,
+    last_seen_at      TIMESTAMPTZ,
+    last_updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (user_id, theme)
+);
+CREATE INDEX idx_user_weaknesses_user ON user_weaknesses (user_id);
+
+CREATE TABLE user_weakness_games_processed (
+    user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    game_id       UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+    processed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, game_id)
+);

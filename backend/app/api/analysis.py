@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Literal
 from uuid import UUID
 
@@ -9,8 +10,13 @@ from pydantic import BaseModel
 from .. import db
 from ..services.katago import get_engine
 from ..services.katago.analyzer import analyze_game, default_rules, default_visits
+from ..services.weakness import apply_evidence, extract_evidence
 
 router = APIRouter(prefix="/api", tags=["analysis"])
+
+AI_USER_ID = "00000000-0000-0000-0000-0000000000a1"
+
+log = logging.getLogger(__name__)
 
 
 class AnalyzeResponse(BaseModel):
@@ -103,6 +109,7 @@ async def analyze(
         for am in result.moves
     ]
     await db.insert_move_features(game_id, rows)
+    await _run_weakness_update(game_id, game)
 
     return AnalyzeResponse(
         game_id=UUID(game_id),
@@ -113,6 +120,30 @@ async def analyze(
         cached=False,
         cache_hits=result.cache_hits,
     )
+
+
+async def _run_weakness_update(game_id: str, game: dict) -> None:
+    """For each real user in the game, extract and apply weakness evidence.
+
+    Failures here must not fail the /analyze response — just log.
+    """
+    seats = [
+        (game.get("black_user_id"), "B"),
+        (game.get("white_user_id"), "W"),
+    ]
+    try:
+        features = await db.get_move_features(game_id)
+        for user_id, color in seats:
+            if user_id is None:
+                continue
+            uid = str(user_id)
+            if uid == AI_USER_ID:
+                continue
+            player_features = [f for f in features if f.get("color") == color]
+            evidence = extract_evidence(player_features)
+            await apply_evidence(uid, game_id, evidence)
+    except Exception as exc:  # pragma: no cover — best-effort hook
+        log.warning("weakness update failed for game %s: %s", game_id, exc)
 
 
 @router.get("/games/{game_id}/analysis", response_model=AnalysisResponse)

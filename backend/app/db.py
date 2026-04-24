@@ -446,6 +446,62 @@ def _review_row_to_dict(row: Any) -> dict[str, Any]:
     return d
 
 
+async def mark_game_processed_for_weakness(user_id: str, game_id: str) -> bool:
+    """Record that we've extracted weakness evidence for (user, game).
+
+    Returns True if this is the first time; False if the pair was already
+    processed (caller should skip to avoid double-counting on /analyze re-runs).
+    """
+    row = await _get_pool().fetchrow(
+        """
+        INSERT INTO user_weakness_games_processed (user_id, game_id)
+        VALUES ($1, $2)
+        ON CONFLICT (user_id, game_id) DO NOTHING
+        RETURNING game_id
+        """,
+        user_id,
+        game_id,
+    )
+    return row is not None
+
+
+async def upsert_user_weakness(
+    user_id: str,
+    theme: str,
+    score: float,
+    alpha: float,
+) -> None:
+    """EMA-update severity for (user, theme). Inserts row if missing."""
+    await _get_pool().execute(
+        """
+        INSERT INTO user_weaknesses (user_id, theme, severity, evidence_count, last_seen_at, last_updated_at)
+        VALUES ($1, $2, $3::real, 1, CASE WHEN $3::real > 0 THEN NOW() ELSE NULL END, NOW())
+        ON CONFLICT (user_id, theme) DO UPDATE SET
+            severity = $4::real * $3::real + (1 - $4::real) * user_weaknesses.severity,
+            evidence_count = user_weaknesses.evidence_count + 1,
+            last_seen_at = CASE WHEN $3::real > 0 THEN NOW() ELSE user_weaknesses.last_seen_at END,
+            last_updated_at = NOW()
+        """,
+        user_id,
+        theme,
+        score,
+        alpha,
+    )
+
+
+async def list_user_weaknesses(user_id: str) -> list[dict[str, Any]]:
+    rows = await _get_pool().fetch(
+        """
+        SELECT theme, severity, evidence_count, last_seen_at
+        FROM user_weaknesses
+        WHERE user_id = $1
+        ORDER BY severity DESC, theme ASC
+        """,
+        user_id,
+    )
+    return [dict(r) for r in rows]
+
+
 async def list_user_games(user_id: str) -> list[dict[str, Any]]:
     rows = await _get_pool().fetch(
         """

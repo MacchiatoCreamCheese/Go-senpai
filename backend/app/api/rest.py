@@ -23,6 +23,7 @@ from ..schemas import (
     MoveRequest,
     StateSchema,
     UserSchema,
+    WeaknessSchema,
     color_from_code,
 )
 from ..sessions import GameRecord, store
@@ -40,6 +41,20 @@ router = APIRouter(prefix="/api", tags=["games"])
 async def create_user(req: CreateUserRequest) -> UserSchema:
     row = await db.create_user(req.handle)
     return UserSchema(id=str(row["id"]), handle=row["handle"])
+
+
+@router.get("/users/{user_id}/weaknesses", response_model=list[WeaknessSchema])
+async def list_user_weaknesses(user_id: str) -> list[WeaknessSchema]:
+    rows = await db.list_user_weaknesses(user_id)
+    return [
+        WeaknessSchema(
+            theme=r["theme"],
+            severity=float(r["severity"]),
+            evidence_count=int(r["evidence_count"]),
+            last_seen_at=r["last_seen_at"].isoformat() if r["last_seen_at"] else None,
+        )
+        for r in rows
+    ]
 
 
 @router.get("/users/{user_id}/games", response_model=list[GameListItem])

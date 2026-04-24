@@ -102,3 +102,10 @@ class GameListItem(BaseModel):
     board_size: int
     result: Optional[str] = None
     started_at: str
+
+
+class WeaknessSchema(BaseModel):
+    theme: str
+    severity: float
+    evidence_count: int
+    last_seen_at: Optional[str] = None
