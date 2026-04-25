@@ -4,10 +4,11 @@ import logging
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from .. import db
+from ..rate_limit import ANALYZE_LIMIT, limiter
 from ..services.katago import get_engine
 from ..services.katago.analyzer import analyze_game, default_rules, default_visits
 from ..services.weakness import apply_evidence, extract_evidence
@@ -52,7 +53,9 @@ class AnalysisResponse(BaseModel):
 
 
 @router.post("/games/{game_id}/analyze", response_model=AnalyzeResponse)
+@limiter.limit(ANALYZE_LIMIT)
 async def analyze(
+    request: Request,
     game_id: str,
     force: bool = Query(False, description="Re-run even if features already exist"),
     _user=Depends(soft_user),

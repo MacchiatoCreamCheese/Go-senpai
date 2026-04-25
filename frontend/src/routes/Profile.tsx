@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
-import { getMyGames, getWeaknesses } from "../api";
+import { getMyGames, getUserConcepts, getUserProgress, getWeaknesses } from "../api";
+import { Sparkline } from "../components/Sparkline";
 import { WeaknessBar } from "../components/WeaknessBar";
 import { UserChip } from "../components/UserChip";
 import { HandleEditor } from "../components/HandleEditor";
@@ -28,6 +29,21 @@ export default function Profile() {
     queryKey: ["my-games", userId],
     queryFn: () => (userId ? getMyGames(userId) : Promise.resolve([])),
     enabled: !!userId,
+  });
+
+  const concepts = useQuery({
+    queryKey: ["user-concepts", userId],
+    queryFn: () => (userId ? getUserConcepts(userId) : Promise.resolve([])),
+    enabled: !!userId && tab === "concepts",
+  });
+
+  const progress = useQuery({
+    queryKey: ["user-progress", userId],
+    queryFn: () =>
+      userId
+        ? getUserProgress(userId)
+        : Promise.resolve({ games_per_week: [], drills_per_week: [], top_weakness_severity_history: [] }),
+    enabled: !!userId && tab === "progress",
   });
 
   if (!userId) {
@@ -123,17 +139,54 @@ export default function Profile() {
         )}
 
         {tab === "concepts" && (
-          <div className="home-empty">
-            Concepts learned will appear here once <code>/users/:id/concepts</code> is wired
-            up on the backend.
-          </div>
+          <>
+            {concepts.isLoading ? (
+              <div className="home-empty">Loading…</div>
+            ) : (concepts.data ?? []).length === 0 ? (
+              <div className="home-empty">
+                No concepts taught yet. Ask Sensei <Link to="/coach" className="link-btn">for a lesson →</Link>
+              </div>
+            ) : (
+              <div className="profile-concept-grid">
+                {(concepts.data ?? []).map((c) => (
+                  <Link
+                    key={c.concept_id}
+                    to={`/concepts/${c.concept_id}`}
+                    className={"profile-concept-card" + (c.demonstrated ? " is-demo" : "")}
+                  >
+                    <span className="profile-concept-title">{c.title}</span>
+                    <span className="profile-concept-meta">
+                      <span>taught {c.times_taught}×</span>
+                      {c.demonstrated && <span className="dim">· demonstrated</span>}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </>
         )}
 
         {tab === "progress" && (
-          <div className="home-empty">
-            Rank-over-time and drills-per-week charts arrive with{" "}
-            <code>/users/:id/progress</code>.
-          </div>
+          <>
+            {progress.isLoading ? (
+              <div className="home-empty">Loading…</div>
+            ) : (
+              <div className="profile-progress-stack">
+                <ProgressRow
+                  label="Games per week"
+                  data={progress.data?.games_per_week ?? []}
+                />
+                <ProgressRow
+                  label="Drills per week"
+                  data={progress.data?.drills_per_week ?? []}
+                />
+                <ProgressRow
+                  label="Top weakness severity"
+                  data={progress.data?.top_weakness_severity_history ?? []}
+                />
+              </div>
+            )}
+          </>
         )}
       </section>
     </div>
@@ -152,6 +205,19 @@ function ProfileTab({
     >
       {label}
     </button>
+  );
+}
+
+function ProgressRow({ label, data }: { label: string; data: { week: string; value: number }[] }) {
+  const latest = data.length > 0 ? data[data.length - 1].value : 0;
+  return (
+    <div className="profile-progress-row">
+      <div className="profile-progress-meta">
+        <span className="profile-progress-label">{label}</span>
+        <span className="profile-progress-latest">{latest.toFixed(latest % 1 === 0 ? 0 : 2)}</span>
+      </div>
+      <Sparkline points={data.map((d) => d.value)} width={260} height={36} />
+    </div>
   );
 }
 

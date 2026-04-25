@@ -2677,3 +2677,134 @@ p {
   line-height: 1;
   margin-bottom: 8px;
 }
+
+/* ─── Sub-phase 5D: concepts library + progress ───────────── */
+.profile-concept-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+.profile-concept-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-dark);
+  background: var(--bg-panel);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 120ms;
+}
+.profile-concept-card:hover { border-left-color: var(--seal); }
+.profile-concept-card.is-demo { border-left-color: #2D6A2D; }
+.profile-concept-title { font-family: var(--font-display); font-size: 1.05rem; }
+.profile-concept-meta {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+  display: flex; gap: 6px;
+}
+
+.profile-progress-stack { display: flex; flex-direction: column; gap: 18px; }
+.profile-progress-row {
+  display: flex; align-items: center; gap: 18px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  background: var(--bg-panel);
+}
+.profile-progress-meta {
+  display: flex; flex-direction: column; gap: 2px;
+  min-width: 180px;
+}
+.profile-progress-label { font-family: var(--font-body); font-size: 0.9rem; color: var(--ink-soft); }
+.profile-progress-latest { font-family: var(--font-mono); font-size: 1.4rem; color: var(--ink); }
+.sparkline { display: block; }
+
+.concepts-page { max-width: 1100px; margin: 0 auto; padding: 32px 28px; }
+.concepts-head { margin-bottom: 24px; }
+.concepts-title { font-family: var(--font-display); font-size: 2.2rem; margin: 4px 0 6px; }
+.concepts-sub { color: var(--ink-soft); font-family: var(--font-body); max-width: 60ch; }
+.concepts-layout {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 24px;
+}
+.concepts-tags {
+  display: flex; flex-direction: column; gap: 4px;
+  padding-right: 12px;
+  border-right: 1px solid var(--line);
+}
+.concepts-tag {
+  background: transparent;
+  border: none;
+  text-align: left;
+  padding: 6px 8px;
+  font-family: var(--font-body);
+  font-size: 0.92rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+.concepts-tag:hover { color: var(--seal); }
+.concepts-tag.is-active {
+  color: var(--seal);
+  border-left-color: var(--seal);
+  background: rgba(139, 58, 42, 0.04);
+}
+.concepts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  align-content: start;
+}
+.concept-card {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  background: var(--bg-panel);
+  text-decoration: none; color: inherit;
+  transition: border-color 120ms;
+}
+.concept-card:hover { border-color: var(--seal); }
+.concept-card-title { font-family: var(--font-display); font-size: 1.05rem; color: var(--ink); }
+.concept-card-tags { font-family: var(--font-mono); font-size: 0.72rem; color: var(--stone); }
+
+.concept-detail-page { max-width: 760px; margin: 0 auto; padding: 32px 28px; }
+.concept-detail-head { margin-bottom: 20px; }
+.concept-detail-title {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  margin: 8px 0 8px;
+}
+.concept-detail-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.concept-tag-chip {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border: 1px solid var(--line-dark);
+  border-radius: 999px;
+  color: var(--ink-soft);
+}
+.concept-detail-body {
+  font-family: var(--font-body);
+  font-size: 1.02rem;
+  line-height: 1.7;
+  color: var(--ink-soft);
+}
+.concept-detail-body h2 { font-family: var(--font-display); margin-top: 1.6em; color: var(--ink); }
+.concept-detail-body p { margin: 0 0 1em; }
+.concept-detail-body code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: rgba(28, 23, 18, 0.06);
+  padding: 1px 5px;
+  border-radius: 2px;
+}
+
+@media (max-width: 720px) {
+  .concepts-layout { grid-template-columns: 1fr; }
+  .concepts-tags { flex-direction: row; flex-wrap: wrap; border-right: none; padding: 0 0 8px; border-bottom: 1px solid var(--line); }
+  .profile-progress-row { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .profile-progress-meta { min-width: 0; }
+}

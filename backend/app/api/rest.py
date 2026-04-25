@@ -3,10 +3,11 @@ from __future__ import annotations
 import logging
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 
 from .. import db
+from ..rate_limit import NEXT_ACTION_LIMIT, limiter
 from ..engine.board import BLACK, WHITE, color_label
 from ..engine.coords import from_coord, to_coord
 from ..engine.game import GameState, MoveKind, Status
@@ -15,6 +16,7 @@ from ..engine.sgf import export_sgf
 from ..services.katago import ai_player
 from ..services.katago.engine import get_engine
 from ..schemas import (
+    ConceptListItem,
     ConceptSchema,
     CreateGameRequest,
     CreateUserRequest,
@@ -27,6 +29,8 @@ from ..schemas import (
     NextActionResponse,
     ProblemSchema,
     StateSchema,
+    UserConceptItem,
+    UserProgressResponse,
     UserSchema,
     WeaknessSchema,
     color_from_code,
@@ -81,6 +85,48 @@ async def list_user_weaknesses(user_id: str) -> list[WeaknessSchema]:
     ]
 
 
+@router.get("/users/{user_id}/concepts", response_model=list[UserConceptItem])
+async def list_user_concepts(user_id: str) -> list[UserConceptItem]:
+    rows = await db.list_user_concept_progress(user_id)
+    return [
+        UserConceptItem(
+            concept_id=r["concept_id"],
+            title=r["title"],
+            times_taught=int(r["times_taught"]),
+            last_taught_at=r["last_taught_at"].isoformat() if r["last_taught_at"] else None,
+            demonstrated=bool(r["demonstrated"]),
+        )
+        for r in rows
+    ]
+
+
+@router.get("/users/{user_id}/progress", response_model=UserProgressResponse)
+async def get_user_progress(user_id: str) -> UserProgressResponse:
+    series = await db.user_progress_series(user_id)
+    return UserProgressResponse(**series)
+
+
+@router.get("/concepts", response_model=list[ConceptListItem])
+async def list_all_concepts(tag: str | None = None) -> list[ConceptListItem]:
+    rows = await db.list_concepts()
+    if tag:
+        rows = [r for r in rows if tag in (r.get("tags") or [])]
+    return [
+        ConceptListItem(id=r["id"], title=r["title"], tags=list(r["tags"] or []))
+        for r in rows
+    ]
+
+
+@router.get("/concepts/{concept_id}", response_model=ConceptSchema)
+async def get_concept_detail(concept_id: str) -> ConceptSchema:
+    row = await db.get_concept(concept_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="concept not found")
+    return ConceptSchema(
+        id=row["id"], title=row["title"], body_md=row["body_md"], tags=list(row["tags"] or []),
+    )
+
+
 @router.get("/users/{user_id}/next-problem", response_model=ProblemSchema)
 async def get_next_problem(user_id: str) -> ProblemSchema:
     problem = await pick_next(user_id)
@@ -117,7 +163,12 @@ async def create_drill_attempt(
 
 
 @router.post("/users/{user_id}/next-action", response_model=NextActionResponse)
-async def next_action(user_id: str, _user=Depends(soft_user)) -> NextActionResponse:
+@limiter.limit(NEXT_ACTION_LIMIT)
+async def next_action(
+    request: Request,
+    user_id: str,
+    _user=Depends(soft_user),
+) -> NextActionResponse:
     result = await run_session_step(user_id)
     kind = result["kind"]
     if kind == "review_game":

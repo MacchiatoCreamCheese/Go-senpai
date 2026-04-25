@@ -270,6 +270,59 @@ export async function postDrillAttempt(payload: {
   return asJson<DrillAttemptResp>(resp);
 }
 
+// ─── Phase 5D: concepts + progress ─────────────────────────
+export interface UserConceptItem {
+  concept_id: string;
+  title: string;
+  times_taught: number;
+  last_taught_at: string | null;
+  demonstrated: boolean;
+}
+
+export async function getUserConcepts(userId: string): Promise<UserConceptItem[]> {
+  const resp = await api(`/api/users/${encodeURIComponent(userId)}/concepts`);
+  if (!resp.ok) return [];
+  return asJson<UserConceptItem[]>(resp);
+}
+
+export interface ProgressPoint {
+  week: string;
+  value: number;
+}
+
+export interface UserProgressResponse {
+  games_per_week: ProgressPoint[];
+  drills_per_week: ProgressPoint[];
+  top_weakness_severity_history: ProgressPoint[];
+}
+
+export async function getUserProgress(userId: string): Promise<UserProgressResponse> {
+  const resp = await api(`/api/users/${encodeURIComponent(userId)}/progress`);
+  if (!resp.ok) {
+    return { games_per_week: [], drills_per_week: [], top_weakness_severity_history: [] };
+  }
+  return asJson<UserProgressResponse>(resp);
+}
+
+export interface ConceptListItem {
+  id: string;
+  title: string;
+  tags: string[];
+}
+
+export async function listConcepts(tag?: string): Promise<ConceptListItem[]> {
+  const qs = tag ? `?tag=${encodeURIComponent(tag)}` : "";
+  const resp = await api(`/api/concepts${qs}`);
+  if (!resp.ok) return [];
+  return asJson<ConceptListItem[]>(resp);
+}
+
+export async function getConcept(id: string): Promise<ConceptT | null> {
+  const resp = await api(`/api/concepts/${encodeURIComponent(id)}`);
+  if (resp.status === 404) return null;
+  return asJson<ConceptT>(resp);
+}
+
 export async function generateReview(
   gameId: string,
   forUserId: string,

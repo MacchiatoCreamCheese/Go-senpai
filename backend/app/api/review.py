@@ -4,10 +4,11 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from .. import db
+from ..rate_limit import REVIEW_LIMIT, limiter
 from ..services.review.llm import LLMError
 from ..services.review.reviewer import ReviewError, generate_review
 from .auth import soft_user
@@ -54,7 +55,9 @@ def _row_to_response(row: dict[str, Any]) -> ReviewResponse:
 
 
 @router.post("/games/{game_id}/review", response_model=ReviewResponse)
+@limiter.limit(REVIEW_LIMIT)
 async def create_review(
+    request: Request,
     game_id: str,
     for_user_id: str = Query(..., description="User to generate the review for"),
     force: bool = Query(False, description="Regenerate even if a review exists"),

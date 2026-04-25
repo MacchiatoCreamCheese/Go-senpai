@@ -5,6 +5,8 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   getMyGames,
   getNextAction,
+  getUserConcepts,
+  getUserProgress,
   getWeaknesses,
   type NextActionResponse,
 } from "../api";
@@ -29,6 +31,21 @@ export default function Home() {
     enabled: !!userId,
   });
 
+  const userConcepts = useQuery({
+    queryKey: ["user-concepts", userId],
+    queryFn: () => (userId ? getUserConcepts(userId) : Promise.resolve([])),
+    enabled: !!userId,
+  });
+
+  const progress = useQuery({
+    queryKey: ["user-progress", userId],
+    queryFn: () =>
+      userId
+        ? getUserProgress(userId)
+        : Promise.resolve({ games_per_week: [], drills_per_week: [], top_weakness_severity_history: [] }),
+    enabled: !!userId,
+  });
+
   const nextAction = useMutation({
     mutationFn: () => {
       if (!userId) throw new Error("Sign in first");
@@ -49,14 +66,14 @@ export default function Home() {
   const stats = useMemo(() => {
     const all = games.data ?? [];
     const finished = all.filter((g) => g.result);
-    const week = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    const recentFinished = finished.filter((g) => Date.parse(g.started_at) >= week);
+    const drillsThisWeek = (progress.data?.drills_per_week ?? []).slice(-1)[0]?.value ?? 0;
     return {
       played: all.length,
       finished: finished.length,
-      thisWeek: recentFinished.length,
+      drills: Math.round(drillsThisWeek),
+      concepts: (userConcepts.data ?? []).length,
     };
-  }, [games.data]);
+  }, [games.data, progress.data, userConcepts.data]);
 
   if (!userId) {
     return (
@@ -151,11 +168,10 @@ export default function Home() {
           <div className="home-stat-stack">
             <Stat label="Games played" value={stats.played.toString()} />
             <Stat label="Games finished" value={stats.finished.toString()} />
-            <Stat label="Played in last 7d" value={stats.thisWeek.toString()} />
+            <Stat label="Drills this week" value={stats.drills.toString()} />
+            <Stat label="Concepts learned" value={stats.concepts.toString()} />
           </div>
-          <span className="home-col-foot dim">
-            Drill + concept counts arrive once those endpoints exist.
-          </span>
+          <Link to="/profile" className="home-col-foot">See progress →</Link>
         </section>
       </div>
     </div>

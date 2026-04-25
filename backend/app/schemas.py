@@ -143,6 +143,31 @@ class ConceptSchema(BaseModel):
     tags: list[str] = Field(default_factory=list)
 
 
+class ConceptListItem(BaseModel):
+    id: str
+    title: str
+    tags: list[str] = Field(default_factory=list)
+
+
+class UserConceptItem(BaseModel):
+    concept_id: str
+    title: str
+    times_taught: int
+    last_taught_at: Optional[str] = None
+    demonstrated: bool
+
+
+class ProgressPoint(BaseModel):
+    week: str
+    value: float
+
+
+class UserProgressResponse(BaseModel):
+    games_per_week: list[ProgressPoint] = Field(default_factory=list)
+    drills_per_week: list[ProgressPoint] = Field(default_factory=list)
+    top_weakness_severity_history: list[ProgressPoint] = Field(default_factory=list)
+
+
 class NextActionResponse(BaseModel):
     kind: Literal["review_game", "teach_concept", "revisit_concept", "serve_drill", "idle"]
     game_id: Optional[str] = None

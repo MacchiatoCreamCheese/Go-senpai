@@ -760,6 +760,73 @@ async def recent_problem_ids(user_id: str, limit: int = 5) -> list[str]:
     return [r["problem_id"] for r in rows]
 
 
+async def list_concepts() -> list[dict[str, Any]]:
+    rows = await _get_pool().fetch(
+        "SELECT id, title, tags FROM go_concepts ORDER BY title"
+    )
+    return [dict(r) for r in rows]
+
+
+async def list_user_concept_progress(user_id: str) -> list[dict[str, Any]]:
+    rows = await _get_pool().fetch(
+        """
+        SELECT s.concept_id, c.title, s.times_taught, s.last_taught_at,
+               s.user_demonstrated AS demonstrated
+        FROM user_concepts_seen s
+        JOIN go_concepts c ON c.id = s.concept_id
+        WHERE s.user_id = $1
+        ORDER BY s.last_taught_at DESC NULLS LAST
+        """,
+        user_id,
+    )
+    return [dict(r) for r in rows]
+
+
+async def user_progress_series(user_id: str, weeks: int = 7) -> dict[str, list[dict[str, Any]]]:
+    """Return per-week counts for the last `weeks` weeks. Each series is a list
+    of {week: ISO date (week start, Monday), value: number}.
+    """
+    pool = _get_pool()
+    games_rows = await pool.fetch(
+        """
+        SELECT date_trunc('week', started_at)::date AS week, COUNT(*) AS n
+        FROM games
+        WHERE (black_user_id = $1 OR white_user_id = $1)
+          AND started_at >= NOW() - ($2::int || ' weeks')::interval
+        GROUP BY 1 ORDER BY 1
+        """,
+        user_id, weeks,
+    )
+    drills_rows = await pool.fetch(
+        """
+        SELECT date_trunc('week', attempted_at)::date AS week, COUNT(*) AS n
+        FROM drill_attempts
+        WHERE user_id = $1
+          AND attempted_at >= NOW() - ($2::int || ' weeks')::interval
+        GROUP BY 1 ORDER BY 1
+        """,
+        user_id, weeks,
+    )
+    sev_rows = await pool.fetch(
+        """
+        SELECT date_trunc('week', last_updated_at)::date AS week,
+               MAX(severity) AS sev
+        FROM user_weaknesses
+        WHERE user_id = $1
+          AND last_updated_at >= NOW() - ($2::int || ' weeks')::interval
+        GROUP BY 1 ORDER BY 1
+        """,
+        user_id, weeks,
+    )
+    return {
+        "games_per_week": [{"week": r["week"].isoformat(), "value": int(r["n"])} for r in games_rows],
+        "drills_per_week": [{"week": r["week"].isoformat(), "value": int(r["n"])} for r in drills_rows],
+        "top_weakness_severity_history": [
+            {"week": r["week"].isoformat(), "value": float(r["sev"])} for r in sev_rows
+        ],
+    }
+
+
 async def list_user_games(user_id: str) -> list[dict[str, Any]]:
     rows = await _get_pool().fetch(
         """

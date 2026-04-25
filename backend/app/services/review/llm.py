@@ -1,14 +1,44 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
 import re
+from collections import OrderedDict
 from typing import Awaitable, Callable, Protocol, TypeVar
 
 
 log = logging.getLogger(__name__)
+
+
+_LLM_CACHE_MAX = 64
+_llm_cache: "OrderedDict[str, tuple[str, int]]" = OrderedDict()
+
+
+def _cache_key(model: str, system: str, user: str) -> str:
+    h = hashlib.sha256()
+    h.update(model.encode())
+    h.update(b"\0")
+    h.update(system.encode())
+    h.update(b"\0")
+    h.update(user.encode())
+    return h.hexdigest()
+
+
+def _cache_get(key: str) -> tuple[str, int] | None:
+    val = _llm_cache.get(key)
+    if val is not None:
+        _llm_cache.move_to_end(key)
+    return val
+
+
+def _cache_put(key: str, value: tuple[str, int]) -> None:
+    _llm_cache[key] = value
+    _llm_cache.move_to_end(key)
+    while len(_llm_cache) > _LLM_CACHE_MAX:
+        _llm_cache.popitem(last=False)
 
 
 class LLMError(RuntimeError):
@@ -74,6 +104,11 @@ class ClaudeClient:
         self._client = AsyncAnthropic(api_key=api_key)
 
     async def generate_review(self, system: str, user: str) -> tuple[str, int]:
+        key = _cache_key(self.model, system, user)
+        hit = _cache_get(key)
+        if hit is not None:
+            return hit
+
         async def call() -> tuple[str, int]:
             msg = await self._client.messages.create(
                 model=self.model,
@@ -87,7 +122,9 @@ class ClaudeClient:
             tokens = (msg.usage.input_tokens or 0) + (msg.usage.output_tokens or 0)
             return text, int(tokens)
 
-        return await _with_retry(call, label="Claude")
+        result = await _with_retry(call, label="Claude")
+        _cache_put(key, result)
+        return result
 
 
 class GeminiClient:
@@ -101,6 +138,11 @@ class GeminiClient:
 
     async def generate_review(self, system: str, user: str) -> tuple[str, int]:
         from google.genai import types
+
+        key = _cache_key(self.model, system, user)
+        hit = _cache_get(key)
+        if hit is not None:
+            return hit
 
         async def call() -> tuple[str, int]:
             response = await self._client.aio.models.generate_content(
@@ -122,7 +164,9 @@ class GeminiClient:
                 )
             return text, tokens
 
-        return await _with_retry(call, label="Gemini")
+        result = await _with_retry(call, label="Gemini")
+        _cache_put(key, result)
+        return result
 
 
 def build_default_client() -> LLMClient:

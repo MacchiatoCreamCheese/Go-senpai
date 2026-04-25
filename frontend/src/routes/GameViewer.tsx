@@ -438,10 +438,12 @@ function AnalysisTab({
   const mutation = useMutation({
     mutationFn: () => triggerAnalyze(gameId),
     onSuccess: (res) => {
+      const hits = res.cache_hits ?? 0;
+      const hitsLine = hits > 0 ? ` · ${hits} position${hits === 1 ? "" : "s"} from cache` : "";
       toast.push({
         kind: "success",
         title: res.cached ? "Analysis already cached" : "Analysis complete",
-        body: `${res.move_count} moves · ${res.katago_version}`,
+        body: `${res.move_count} moves · ${res.katago_version}${hitsLine}`,
       });
       queryClient.invalidateQueries({ queryKey: ["analysis", gameId] });
     },

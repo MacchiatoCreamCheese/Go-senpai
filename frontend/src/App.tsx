@@ -12,7 +12,8 @@ import Drill from "./routes/Drill";
 import Profile from "./routes/Profile";
 import Games from "./routes/Games";
 import Settings from "./routes/Settings";
-import Stub from "./routes/Stub";
+import Concepts from "./routes/Concepts";
+import ConceptDetail from "./routes/ConceptDetail";
 
 export function App() {
   return (
@@ -35,14 +36,8 @@ export function App() {
         <Route path="profile" element={<RequireAuth><Profile /></RequireAuth>} />
         <Route path="profile/:userId" element={<Profile />} />
 
-        <Route
-          path="concepts"
-          element={<Stub mark="智" title="Concepts" blurb="The library lands once the backend exposes /concepts. Built in Sub-phase 5D." />}
-        />
-        <Route
-          path="concepts/:conceptId"
-          element={<Stub mark="智" title="Concept" blurb="Per-concept lessons need GET /concepts/:id on the backend. Built in Sub-phase 5D." />}
-        />
+        <Route path="concepts" element={<Concepts />} />
+        <Route path="concepts/:conceptId" element={<ConceptDetail />} />
 
         <Route path="settings" element={<Settings />} />
 
