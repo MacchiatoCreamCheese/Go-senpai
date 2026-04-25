@@ -4,6 +4,7 @@ import { AppShell } from "./layout/AppShell";
 import Home from "./routes/Home";
 import Lobby from "./routes/Lobby";
 import PlayGame from "./routes/PlayGame";
+import GameViewer from "./routes/GameViewer";
 import Stub from "./routes/Stub";
 
 export function App() {
@@ -19,14 +20,8 @@ export function App() {
           path="games"
           element={<Stub mark="史" title="Game history" blurb="A filterable list of every game you've played. Built in Sub-phase 4." />}
         />
-        <Route
-          path="games/:gameId"
-          element={<Stub mark="覧" title="Game viewer" blurb="Replay + analysis + review tabs. Built in Sub-phase 1 & 2." />}
-        />
-        <Route
-          path="games/:gameId/review"
-          element={<Stub mark="評" title="Review" blurb="LLM-authored moments and engine analysis. Built in Sub-phase 2." />}
-        />
+        <Route path="games/:gameId" element={<GameViewer />} />
+        <Route path="games/:gameId/review" element={<GameViewer />} />
         <Route
           path="coach"
           element={<Stub mark="師" title="Coach" blurb="Your agentic coaching session: what to do next, and why. Built in Sub-phase 4." />}

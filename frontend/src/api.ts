@@ -87,3 +87,47 @@ export async function playMove(
 export function sgfUrl(id: string): string {
   return `/api/games/${id}/sgf`;
 }
+
+// ─── Analysis (Phase 1 backend) ────────────────────────────
+export type Phase = "opening" | "middlegame" | "endgame";
+
+export interface MoveFeature {
+  move_number: number;
+  color: ColorCode;
+  coord: string;
+  points_lost: number | null;
+  policy_rank: number | null;
+  top_move: string | null;
+  winrate_before: number | null;
+  winrate_after: number | null;
+  score_before: number | null;
+  score_after: number | null;
+  phase: Phase;
+  is_blunder: boolean;
+}
+
+export interface AnalysisResponse {
+  game_id: string;
+  features: MoveFeature[];
+}
+
+export async function getGameAnalysis(id: string): Promise<AnalysisResponse | null> {
+  const resp = await fetch(`/api/games/${id}/analysis`);
+  if (resp.status === 404) return null;
+  return asJson<AnalysisResponse>(resp);
+}
+
+export interface AnalyzeResponse {
+  game_id: string;
+  move_count: number;
+  visits: number;
+  katago_version: string;
+  model_name: string;
+  cached: boolean;
+  cache_hits?: number;
+}
+
+export async function triggerAnalyze(id: string, force = false): Promise<AnalyzeResponse> {
+  const url = `/api/games/${id}/analyze${force ? "?force=true" : ""}`;
+  return asJson<AnalyzeResponse>(await fetch(url, { method: "POST" }));
+}

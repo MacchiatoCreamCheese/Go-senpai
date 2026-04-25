@@ -264,6 +264,9 @@ export function GameView({ gameId, onExit }: Props) {
           <div className="result-banner">
             <strong>Game over</strong>
             <span>{state.result ?? state.status}</span>
+            <a href={`/games/${gameId}`} className="result-banner-link">
+              Open review viewer →
+            </a>
           </div>
         )}
 
