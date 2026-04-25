@@ -7,6 +7,13 @@ Phase = Literal["opening", "middlegame", "endgame"]
 
 BLUNDER_THRESHOLDS: dict[int, float] = {9: 2.0, 13: 3.0, 19: 5.0}
 
+# (yellow_min, red_min) — red_min intentionally equals BLUNDER_THRESHOLDS
+TIER_THRESHOLDS: dict[int, tuple[float, float]] = {
+    9:  (0.8, 2.0),
+    13: (1.0, 3.0),
+    19: (1.5, 5.0),
+}
+
 # scoreStdev in points. KataGo reports high values early (>10 on 19x19) when
 # it's uncertain about final score. Full signal when stdev <= 2pt; linearly
 # decayed to a floor of 0.3 at stdev >= 10pt. The floor keeps clear blunders
@@ -177,6 +184,18 @@ def _trim_pv(pv: Any) -> list[str] | None:
         return None
     out = [str(m) for m in pv[:_PV_LEN] if isinstance(m, (str, int))]
     return out or None
+
+
+def classify_tier(points_lost: float | None, board_size: int) -> str:
+    """Return 'green' | 'yellow' | 'red'. Pass confident_points_lost when available."""
+    if points_lost is None:
+        return "green"
+    yellow_min, red_min = TIER_THRESHOLDS.get(board_size, (1.5, 5.0))
+    if points_lost >= red_min:
+        return "red"
+    if points_lost >= yellow_min:
+        return "yellow"
+    return "green"
 
 
 def _as_float(value: Any) -> float | None:

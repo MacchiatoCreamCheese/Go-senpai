@@ -827,6 +827,51 @@ async def user_progress_series(user_id: str, weeks: int = 7) -> dict[str, list[d
     }
 
 
+async def get_move_note(
+    game_id: str, move_number: int, for_user_id: str
+) -> dict[str, Any] | None:
+    row = await _get_pool().fetchrow(
+        """
+        SELECT tier, body_md, concept_ids, model, generated_at
+        FROM move_notes
+        WHERE game_id=$1 AND move_number=$2 AND for_user_id=$3
+        """,
+        game_id,
+        move_number,
+        for_user_id,
+    )
+    return dict(row) if row else None
+
+
+async def insert_move_note(
+    game_id: str,
+    move_number: int,
+    for_user_id: str,
+    tier: str,
+    body_md: str,
+    concept_ids: list[str],
+    model: str,
+) -> dict[str, Any]:
+    row = await _get_pool().fetchrow(
+        """
+        INSERT INTO move_notes (game_id, move_number, for_user_id, tier, body_md, concept_ids, model)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (game_id, move_number, for_user_id) DO UPDATE
+          SET body_md=EXCLUDED.body_md, concept_ids=EXCLUDED.concept_ids,
+              model=EXCLUDED.model, generated_at=NOW()
+        RETURNING tier, body_md, concept_ids, model, generated_at
+        """,
+        game_id,
+        move_number,
+        for_user_id,
+        tier,
+        body_md,
+        concept_ids,
+        model,
+    )
+    return dict(row)  # type: ignore[arg-type]
+
+
 async def list_user_games(user_id: str) -> list[dict[str, Any]]:
     rows = await _get_pool().fetch(
         """

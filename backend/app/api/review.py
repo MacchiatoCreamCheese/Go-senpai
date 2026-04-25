@@ -10,11 +10,20 @@ from pydantic import BaseModel
 from .. import db
 from ..rate_limit import REVIEW_LIMIT, limiter
 from ..services.review.llm import LLMError
+from ..services.review.note_generator import get_or_generate_note
 from ..services.review.reviewer import ReviewError, generate_review
 from .auth import soft_user
 
 
 router = APIRouter(prefix="/api", tags=["review"])
+
+
+class MoveNoteResponse(BaseModel):
+    tier: str
+    body_md: str
+    concept_ids: list[str]
+    model: str
+    generated_at: datetime
 
 
 class ReviewMoment(BaseModel):
@@ -77,6 +86,30 @@ async def create_review(
     except LLMError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
     return _row_to_response(row)
+
+
+@router.get("/games/{game_id}/moves/{move_number}/note", response_model=MoveNoteResponse)
+async def get_move_note(
+    game_id: str,
+    move_number: int,
+    for_user_id: str = Query(...),
+    _user=Depends(soft_user),
+) -> MoveNoteResponse:
+    game = await db.get_game_row(game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="game not found")
+    try:
+        note = await get_or_generate_note(
+            game_id=game_id,
+            move_number=move_number,
+            for_user_id=for_user_id,
+            board_size=game["board_size"],
+        )
+    except LLMError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    if note is None:
+        raise HTTPException(status_code=404, detail="no note for green moves")
+    return MoveNoteResponse(**note)
 
 
 @router.get("/games/{game_id}/review", response_model=ReviewResponse)

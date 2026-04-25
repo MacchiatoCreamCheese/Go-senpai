@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -17,6 +17,8 @@ import { MoveScrubber } from "../components/MoveScrubber";
 import { EngineOverlay } from "../components/EngineOverlay";
 import { ScoreLineChart } from "../components/ScoreLineChart";
 import { MomentCard } from "../components/MomentCard";
+import { MoveNotePopover } from "../components/MoveNotePopover";
+import { TierDot, getTier } from "../components/TierDot";
 import { useToast } from "../components/NotificationToast";
 import { boardAtMove, parseCoord } from "../lib/replay";
 import { renderMarkdown } from "../lib/markdown";
@@ -219,6 +221,8 @@ export default function GameViewer() {
               setSortKey={setSortKey}
               gameId={gameId}
               gameFinished={!!game.data?.state.result}
+              userId={userId}
+              boardSize={game.data?.size ?? 19}
             />
           )}
 
@@ -418,6 +422,8 @@ interface AnalysisTabProps {
   setSortKey: (k: "move" | "lost") => void;
   gameId: string;
   gameFinished: boolean;
+  userId: string | null;
+  boardSize: number;
 }
 
 function AnalysisTab({
@@ -431,9 +437,12 @@ function AnalysisTab({
   setSortKey,
   gameId,
   gameFinished,
+  userId,
+  boardSize,
 }: AnalysisTabProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
+  const [openNote, setOpenNote] = useState<number | null>(null);
 
   const mutation = useMutation({
     mutationFn: () => triggerAnalyze(gameId),
@@ -484,6 +493,39 @@ function AnalysisTab({
       return (b.points_lost ?? 0) - (a.points_lost ?? 0);
     });
 
+  const nonGreenMoves = useMemo(
+    () =>
+      [...features]
+        .sort((a, b) => a.move_number - b.move_number)
+        .filter((f) => getTier(f.points_lost, boardSize) !== "green")
+        .map((f) => f.move_number),
+    [features, boardSize],
+  );
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setOpenNote(null);
+        return;
+      }
+      if (!["j", "n", "k", "p"].includes(e.key)) return;
+      if (nonGreenMoves.length === 0) return;
+      const cur = nonGreenMoves.indexOf(openNote ?? -1);
+      if (e.key === "j" || e.key === "n") {
+        const next = nonGreenMoves[(cur + 1) % nonGreenMoves.length];
+        setOpenNote(next);
+        onSelect(next - 1);
+      } else {
+        const prev =
+          nonGreenMoves[(cur - 1 + nonGreenMoves.length) % nonGreenMoves.length];
+        setOpenNote(prev);
+        onSelect(prev - 1);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [openNote, nonGreenMoves, onSelect]);
+
   return (
     <div className="analysis-tab">
       <div className="analysis-controls">
@@ -520,16 +562,32 @@ function AnalysisTab({
           <tbody>
             {sorted.map((f) => {
               const isCurrent = f.move_number === currentMove;
+              const isNoteOpen = openNote === f.move_number;
               return (
                 <tr
                   key={f.move_number}
                   className={
                     (f.is_blunder ? "is-blunder " : "") +
-                    (isCurrent ? "is-current" : "")
+                    (isCurrent ? "is-current" : "") +
+                    (isNoteOpen ? " is-note-open" : "")
                   }
                   onClick={() => onSelect(f.move_number)}
                 >
-                  <td className="mono">{f.move_number}</td>
+                  <td className="mono analysis-move-num">
+                    <TierDot
+                      feature={f}
+                      boardSize={boardSize}
+                      onClick={
+                        userId
+                          ? () => {
+                              setOpenNote(isNoteOpen ? null : f.move_number);
+                              onSelect(f.move_number);
+                            }
+                          : undefined
+                      }
+                    />
+                    {f.move_number}
+                  </td>
                   <td>
                     <span className={`stone-dot ${f.color === "B" ? "black" : "white"}`} />
                   </td>
@@ -546,8 +604,29 @@ function AnalysisTab({
         </table>
       </div>
 
+      {openNote !== null && userId && (() => {
+        const f = features.find((x) => x.move_number === openNote);
+        const tier = f ? getTier(f.points_lost, boardSize) : null;
+        if (!f || !tier || tier === "green") return null;
+        return (
+          <MoveNotePopover
+            gameId={gameId}
+            moveNumber={openNote}
+            forUserId={userId}
+            tier={tier}
+            onShowOnBoard={() => onSelect(openNote)}
+            onClose={() => setOpenNote(null)}
+          />
+        );
+      })()}
+
       <div className="analysis-foot">
         <span>{sorted.length} moves shown</span>
+        {nonGreenMoves.length > 0 && (
+          <span className="dim" style={{ fontSize: "0.75rem" }}>
+            j/k to cycle yellow/red
+          </span>
+        )}
         <button
           className="btn btn-ghost btn-sm"
           onClick={() => mutation.mutate()}

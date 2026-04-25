@@ -247,6 +247,26 @@ export async function getNextProblem(userId: string): Promise<ProblemT | null> {
   return asJson<ProblemT>(resp);
 }
 
+export interface MoveNote {
+  tier: "yellow" | "red";
+  body_md: string;
+  concept_ids: string[];
+  model: string;
+  generated_at: string;
+}
+
+export async function getMoveNote(
+  gameId: string,
+  moveNumber: number,
+  forUserId: string,
+): Promise<MoveNote> {
+  const resp = await api(
+    `/api/games/${encodeURIComponent(gameId)}/moves/${moveNumber}/note?for_user_id=${encodeURIComponent(forUserId)}`,
+  );
+  if (!resp.ok) throw new Error(`${resp.status}`);
+  return resp.json() as Promise<MoveNote>;
+}
+
 export interface DrillAttemptResp {
   id: number;
   user_id: string;
