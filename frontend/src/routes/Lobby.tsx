@@ -16,6 +16,7 @@ export default function Lobby() {
   const [color, setColor] = useState<ColorCode>("B");
   const [opponent, setOpponent] = useState<"human" | "ai">("human");
   const [aiRank, setAiRank] = useState<number>(10);
+  const [trainingMode, setTrainingMode] = useState(true);
 
   const supabaseUserId = !legacy && user ? user.id : null;
   const userId = supabaseUserId ?? localStorage.getItem(USER_ID_KEY);
@@ -74,6 +75,7 @@ export default function Lobby() {
       const game = await createGame(size, userId, color, {
         opponentType: opponent,
         aiRank: opponent === "ai" ? aiRank : undefined,
+        trainingMode: opponent === "ai" ? trainingMode : undefined,
       });
       go(game.id);
     } catch (e) {
@@ -189,6 +191,14 @@ export default function Lobby() {
               <div style={styles.rankScale}>
                 <span>4d</span><span>1d/1k</span><span>20k</span>
               </div>
+              <label className="checkbox lobby-training-toggle">
+                <input
+                  type="checkbox"
+                  checked={trainingMode}
+                  onChange={(e) => setTrainingMode(e.target.checked)}
+                />
+                Training mode — show coaching dots after each move
+              </label>
             </div>
           )}
 

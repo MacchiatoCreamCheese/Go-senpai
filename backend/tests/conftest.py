@@ -3,6 +3,9 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.api.auth import get_current_user, soft_user
+from app.main import app
+
 _FAKE_USER_ID = "00000000-0000-0000-0000-000000000001"
 
 FAKE_USER = {"id": _FAKE_USER_ID, "handle": "tester"}
@@ -25,6 +28,9 @@ _DB_STUBS = {
     "insert_review": AsyncMock(return_value=None),
     "get_move_features": AsyncMock(return_value=[]),
     "count_move_features": AsyncMock(return_value=0),
+    "get_move_note": AsyncMock(return_value=None),
+    "insert_move_note": AsyncMock(return_value=None),
+    "upsert_move_feature": AsyncMock(return_value=None),
     "retrieve_concepts_by_vector": AsyncMock(return_value=[]),
     "get_concept_hashes": AsyncMock(return_value={}),
     "upsert_concept": AsyncMock(return_value=None),
@@ -47,8 +53,11 @@ _DB_STUBS = {
 
 @pytest.fixture(autouse=True)
 def mock_db():
+    app.dependency_overrides[soft_user] = lambda: None
+    app.dependency_overrides[get_current_user] = lambda: None
     with patch.multiple("app.db", **_DB_STUBS):
         yield
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture

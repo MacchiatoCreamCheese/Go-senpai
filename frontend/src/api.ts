@@ -37,6 +37,7 @@ export async function createUser(handle: string): Promise<UserT> {
 export interface CreateGameOpts {
   opponentType?: "human" | "ai";
   aiRank?: number;
+  trainingMode?: boolean;
 }
 
 export async function createGame(
@@ -49,6 +50,7 @@ export async function createGame(
   if (opts.opponentType === "ai") {
     body.opponent_type = "ai";
     body.ai_rank = opts.aiRank;
+    body.training_mode = opts.trainingMode ?? false;
   }
   const resp = await api("/api/games", {
     method: "POST",

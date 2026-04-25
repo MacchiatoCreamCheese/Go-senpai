@@ -32,5 +32,6 @@ export interface GameT {
   white_user_id: string | null;
   opponent_type: OpponentType;
   ai_rank: number | null;
+  training_mode?: boolean;
   state: GameStateT;
 }

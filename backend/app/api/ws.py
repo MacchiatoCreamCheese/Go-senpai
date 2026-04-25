@@ -4,6 +4,10 @@ import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from .. import db
+from ..engine.board import BLACK, WHITE
+from ..engine.coords import from_coord
+from ..engine.game import GameState, MoveKind
 from ..schemas import StateSchema
 from ..sessions import GameRecord, store
 
@@ -11,9 +15,30 @@ log = logging.getLogger(__name__)
 router = APIRouter()
 
 
+async def _load_record(game_id: str) -> GameRecord | None:
+    record = store.get(game_id)
+    if record:
+        return record
+    row = await db.get_game_row(game_id)
+    if not row:
+        return None
+    game = GameState.new(size=row["board_size"], komi=row["komi"])
+    for m in await db.get_moves(game_id):
+        color = BLACK if m["color"] == "B" else WHITE
+        coord: str = m["coord"]
+        if coord == "pass":
+            game.play(color, MoveKind.PASS)
+        elif coord == "resign":
+            game.play(color, MoveKind.RESIGN)
+        else:
+            r, c = from_coord(coord, game.size)
+            game.play(color, MoveKind.PLAY, point=(r, c))
+    return store.create(game_id, game)
+
+
 @router.websocket("/ws/games/{game_id}")
 async def game_socket(ws: WebSocket, game_id: str) -> None:
-    record = store.get(game_id)
+    record = await _load_record(game_id)
     if not record:
         await ws.close(code=4404)
         return
@@ -49,6 +74,10 @@ async def broadcast_players(
             "white_user_id": white_user_id,
         },
     )
+
+
+async def broadcast_move_tier(record: GameRecord, move_number: int, tier: str) -> None:
+    await _broadcast(record, {"event": "move_tier", "move_number": move_number, "tier": tier})
 
 
 async def _broadcast(record: GameRecord, payload: dict) -> None:

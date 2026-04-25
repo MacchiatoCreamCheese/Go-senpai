@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from uuid import uuid4
 
@@ -15,6 +16,8 @@ from ..engine.rules import IllegalMove
 from ..engine.sgf import export_sgf
 from ..services.katago import ai_player
 from ..services.katago.engine import get_engine
+from ..services.katago.features import classify_tier, confidence_weight
+from ..services.katago.live_analysis import analyze_single_move, position_hash_pair
 from ..schemas import (
     ConceptListItem,
     ConceptSchema,
@@ -39,7 +42,7 @@ from ..services.drills import pick_next
 from ..services.orchestrator import run_session_step
 from ..sessions import GameRecord, store
 from .auth import soft_user
-from .ws import broadcast_players, broadcast_state
+from .ws import broadcast_move_tier, broadcast_players, broadcast_state
 
 router = APIRouter(prefix="/api", tags=["games"])
 
@@ -260,6 +263,7 @@ def _game_schema(
     white_user_id: str | None,
     opponent_type: str = "human",
     ai_rank: int | None = None,
+    training_mode: bool = False,
 ) -> GameSchema:
     return GameSchema(
         id=record.id,
@@ -269,6 +273,7 @@ def _game_schema(
         white_user_id=white_user_id,
         opponent_type=opponent_type,  # type: ignore[arg-type]
         ai_rank=ai_rank,
+        training_mode=training_mode,
         state=StateSchema.from_game(record.game),
     )
 
@@ -299,6 +304,7 @@ async def create_game(req: CreateGameRequest, _user=Depends(soft_user)) -> GameS
         game.komi,
         opponent_type=req.opponent_type,
         ai_rank=req.ai_rank if req.opponent_type == "ai" else None,
+        training_mode=req.training_mode if req.opponent_type == "ai" else False,
     )
     record = store.create(game_id, game)
     return _game_schema(
@@ -307,6 +313,7 @@ async def create_game(req: CreateGameRequest, _user=Depends(soft_user)) -> GameS
         white_id,
         opponent_type=req.opponent_type,
         ai_rank=req.ai_rank,
+        training_mode=req.training_mode if req.opponent_type == "ai" else False,
     )
 
 
@@ -320,6 +327,7 @@ async def get_game(game_id: str) -> GameSchema:
         _nullable_str(row["white_user_id"]) if row else None,
         opponent_type=(row or {}).get("opponent_type") or "human",
         ai_rank=(row or {}).get("ai_rank"),
+        training_mode=bool((row or {}).get("training_mode", False)),
     )
 
 
@@ -403,6 +411,15 @@ async def play_ai_move(game_id: str, _user=Depends(soft_user)) -> StateSchema:
     # Determine which colour the AI is playing: whichever seat holds AI_USER_ID.
     ai_color = "B" if _nullable_str(row["black_user_id"]) == AI_USER_ID else "W"
 
+    # Kick off live analysis of the user's last move concurrently (training mode only).
+    analyze_task: asyncio.Task | None = None
+    if row.get("training_mode"):
+        db_moves_for_analysis = await db.get_moves(game_id)
+        if db_moves_for_analysis:
+            analyze_task = asyncio.create_task(
+                _live_analyze_and_push(game_id, row, db_moves_for_analysis, record)
+            )
+
     async with record.lock:
         if record.game.status != Status.ACTIVE:
             raise HTTPException(status_code=409, detail="game is not active")
@@ -457,7 +474,52 @@ async def play_ai_move(game_id: str, _user=Depends(soft_user)) -> StateSchema:
         state = StateSchema.from_game(record.game)
 
     await broadcast_state(record, state)
+    # analyze_task runs in background; move_tier arrives via WS after this returns
     return state
+
+
+async def _live_analyze_and_push(
+    game_id: str,
+    game_row: dict,
+    db_moves: list[dict],
+    record: GameRecord,
+) -> None:
+    """Analyze the last user move at reduced visits and broadcast the tier."""
+    engine = get_engine()
+    if engine is None:
+        return
+    log = logging.getLogger(__name__)
+    try:
+        feats = await analyze_single_move(
+            engine=engine,
+            board_size=game_row["board_size"],
+            komi=float(game_row["komi"]),
+            rules=game_row.get("ruleset", "chinese"),
+            db_moves=db_moves,
+        )
+        if feats is None:
+            return
+
+        # Build position hashes for the upsert
+        from ..services.katago.live_analysis import _to_katago_coord
+        katago_moves = [
+            (m["color"], _to_katago_coord(m["coord"]))
+            for m in db_moves
+            if m["coord"] != "resign"
+        ]
+        h_before, h_after = position_hash_pair(
+            game_row["board_size"],
+            float(game_row["komi"]),
+            game_row.get("ruleset", "chinese"),
+            katago_moves,
+        )
+        await db.upsert_move_feature(game_id, feats, h_before, h_after)
+
+        cpl = feats.confident_points_lost
+        tier = classify_tier(cpl, game_row["board_size"])
+        await broadcast_move_tier(record, feats.move_number, tier)
+    except Exception as exc:
+        logging.getLogger(__name__).warning("live analysis failed: %s", exc)
 
 
 @router.get("/games/{game_id}/sgf", response_class=PlainTextResponse)

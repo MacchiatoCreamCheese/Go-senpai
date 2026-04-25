@@ -63,6 +63,7 @@ class GameSchema(BaseModel):
     white_user_id: Optional[str] = None
     opponent_type: Literal["human", "ai"] = "human"
     ai_rank: Optional[int] = None
+    training_mode: bool = False
     state: StateSchema
 
 
@@ -76,6 +77,7 @@ class CreateGameRequest(BaseModel):
         default=None,
         description="Kyu rank for the AI opponent; negative means dan. Required when opponent_type='ai'.",
     )
+    training_mode: bool = Field(default=False, description="Enable live coaching dots during AI games.")
 
 
 class MoveRequest(BaseModel):

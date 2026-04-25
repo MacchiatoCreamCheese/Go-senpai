@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { createGame, fetchGame, playMove, requestAiMove, sgfUrl, swapColors } from "./api";
 import { GoBoard } from "./GoBoard";
 import { UserChip } from "./components/UserChip";
+import { LiveTierDot } from "./components/LiveTierDot";
 import { connectGameSocket } from "./ws";
 import type { ColorCode, GameT, GameStateT, MoveKind, PointT } from "./types";
 
@@ -50,6 +51,7 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
   const [aiThinking, setAiThinking] = useState(false);
   const [overlayDismissed, setOverlayDismissed] = useState(false);
   const [playAgainPending, setPlayAgainPending] = useState(false);
+  const [liveTiers, setLiveTiers] = useState<Map<number, "green" | "yellow" | "red">>(new Map());
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Reset overlay dismiss when switching games.
@@ -85,6 +87,7 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
   }, [game?.opponent_type, state?.turn, state?.status, role, gameId]);
 
   useEffect(() => {
+    setLiveTiers(new Map()); // reset tiers when game changes
     const close = connectGameSocket(
       gameId,
       (s) => setState(s),
@@ -98,6 +101,7 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
               }
             : prev,
         ),
+      (e) => setLiveTiers((prev) => new Map(prev).set(e.move_number, e.tier)),
     );
     return close;
   }, [gameId]);
@@ -282,6 +286,16 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
             <span style={styles.captureCount}>{state.captures.W}</span>
           </div>
         </div>
+
+        {/* Live training-mode tier strip */}
+        {game?.training_mode && game.opponent_type === "ai" && role && (
+          <LiveTierDot
+            gameId={gameId}
+            userId={localStorage.getItem(USER_ID_KEY) ?? ""}
+            tiers={liveTiers}
+            onShowOnBoard={() => {/* board not scrubable in live mode */}}
+          />
+        )}
 
         <hr className="divider" style={{ margin: "20px 0" }} />
 

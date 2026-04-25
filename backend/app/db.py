@@ -99,12 +99,13 @@ async def create_game(
     komi: float,
     opponent_type: str = "human",
     ai_rank: int | None = None,
+    training_mode: bool = False,
 ) -> None:
     await _get_pool().execute(
         """
         INSERT INTO games (id, black_user_id, white_user_id, board_size, komi,
-                           opponent_type, ai_rank)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+                           opponent_type, ai_rank, training_mode)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         """,
         game_id,
         black_user_id,
@@ -113,6 +114,7 @@ async def create_game(
         komi,
         opponent_type,
         ai_rank,
+        training_mode,
     )
 
 
@@ -234,7 +236,7 @@ async def get_game_row(game_id: str) -> dict[str, Any] | None:
     row = await _get_pool().fetchrow(
         """
         SELECT id, black_user_id, white_user_id, board_size, komi,
-               result, sgf, opponent_type, ai_rank, started_at, ended_at
+               result, sgf, opponent_type, ai_rank, training_mode, started_at, ended_at
         FROM games WHERE id = $1
         """,
         game_id,
@@ -248,6 +250,60 @@ async def get_moves(game_id: str) -> list[dict[str, Any]]:
         game_id,
     )
     return [dict(r) for r in rows]
+
+
+async def upsert_move_feature(
+    game_id: str,
+    f: Any,  # MoveFeatures dataclass; typed as Any to avoid circular import
+    position_hash_before: bytes,
+    position_hash_after: bytes,
+) -> None:
+    """Insert or update a single move_features row (used for live analysis)."""
+    await _get_pool().execute(
+        """
+        INSERT INTO move_features (
+            game_id, move_number, position_hash_before, position_hash_after,
+            points_lost, policy_rank, top_move, top_move_points_lost,
+            winrate_before, winrate_after, score_before, score_after,
+            phase, is_blunder, local_context, ownership_delta,
+            top_pv, score_stdev_before
+        ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+            NULL, NULL, $15::jsonb, $16
+        )
+        ON CONFLICT (game_id, move_number) DO UPDATE SET
+            position_hash_before = EXCLUDED.position_hash_before,
+            position_hash_after  = EXCLUDED.position_hash_after,
+            points_lost          = EXCLUDED.points_lost,
+            policy_rank          = EXCLUDED.policy_rank,
+            top_move             = EXCLUDED.top_move,
+            top_move_points_lost = EXCLUDED.top_move_points_lost,
+            winrate_before       = EXCLUDED.winrate_before,
+            winrate_after        = EXCLUDED.winrate_after,
+            score_before         = EXCLUDED.score_before,
+            score_after          = EXCLUDED.score_after,
+            phase                = EXCLUDED.phase,
+            is_blunder           = EXCLUDED.is_blunder,
+            top_pv               = EXCLUDED.top_pv,
+            score_stdev_before   = EXCLUDED.score_stdev_before
+        """,
+        game_id,
+        f.move_number,
+        position_hash_before,
+        position_hash_after,
+        f.points_lost,
+        f.policy_rank,
+        f.top_move,
+        f.top_move_points_lost,
+        f.winrate_before,
+        f.winrate_after,
+        f.score_before,
+        f.score_after,
+        f.phase,
+        f.is_blunder,
+        json.dumps(f.top_pv) if f.top_pv is not None else None,
+        f.score_stdev_before,
+    )
 
 
 async def insert_move_features(
