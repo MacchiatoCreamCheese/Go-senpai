@@ -176,6 +176,87 @@ export async function getReview(gameId: string, forUserId: string): Promise<Revi
   return asJson<ReviewResponse>(resp);
 }
 
+// ─── Phase 4: weaknesses, agent loop, drills ───────────────
+export interface WeaknessItem {
+  theme: string;
+  severity: number;
+  evidence_count: number;
+  last_seen_at: string | null;
+}
+
+export async function getWeaknesses(userId: string): Promise<WeaknessItem[]> {
+  const resp = await fetch(`/api/users/${encodeURIComponent(userId)}/weaknesses`);
+  if (!resp.ok) return [];
+  return asJson<WeaknessItem[]>(resp);
+}
+
+export interface ConceptT {
+  id: string;
+  title: string;
+  body_md: string;
+  tags: string[];
+}
+
+export interface ProblemT {
+  id: string;
+  sgf: string;
+  solution: Array<Record<string, unknown>>;
+  themes: string[];
+  difficulty: number;
+  source: string | null;
+}
+
+export type NextActionKind =
+  | "review_game"
+  | "teach_concept"
+  | "revisit_concept"
+  | "serve_drill"
+  | "idle";
+
+export interface NextActionResponse {
+  kind: NextActionKind;
+  game_id?: string;
+  problem?: ProblemT;
+  concept?: ConceptT;
+  reason?: string;
+}
+
+export async function getNextAction(userId: string): Promise<NextActionResponse> {
+  const resp = await fetch(`/api/users/${encodeURIComponent(userId)}/next-action`, {
+    method: "POST",
+  });
+  return asJson<NextActionResponse>(resp);
+}
+
+export async function getNextProblem(userId: string): Promise<ProblemT | null> {
+  const resp = await fetch(`/api/users/${encodeURIComponent(userId)}/next-problem`);
+  if (resp.status === 404) return null;
+  return asJson<ProblemT>(resp);
+}
+
+export interface DrillAttemptResp {
+  id: number;
+  user_id: string;
+  problem_id: string;
+  attempted_at: string;
+  success: boolean;
+}
+
+export async function postDrillAttempt(payload: {
+  user_id: string;
+  problem_id: string;
+  success: boolean;
+  moves_played: Array<Record<string, unknown>>;
+  hint_used: boolean;
+}): Promise<DrillAttemptResp> {
+  const resp = await fetch("/api/drill-attempts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return asJson<DrillAttemptResp>(resp);
+}
+
 export async function generateReview(
   gameId: string,
   forUserId: string,
