@@ -461,6 +461,43 @@ function AnalysisTab({
     },
   });
 
+  // These hooks must stay above all conditional returns (Rules of Hooks).
+  const nonGreenMoves = useMemo(
+    () =>
+      !features
+        ? []
+        : [...features]
+            .sort((a, b) => a.move_number - b.move_number)
+            .filter((f) => getTier(f.points_lost, boardSize) !== "green")
+            .map((f) => f.move_number),
+    [features, boardSize],
+  );
+
+  useEffect(() => {
+    if (!features) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setOpenNote(null);
+        return;
+      }
+      if (!["j", "n", "k", "p"].includes(e.key)) return;
+      if (nonGreenMoves.length === 0) return;
+      const cur = nonGreenMoves.indexOf(openNote ?? -1);
+      if (e.key === "j" || e.key === "n") {
+        const next = nonGreenMoves[(cur + 1) % nonGreenMoves.length];
+        setOpenNote(next);
+        onSelect(next - 1);
+      } else {
+        const prev =
+          nonGreenMoves[(cur - 1 + nonGreenMoves.length) % nonGreenMoves.length];
+        setOpenNote(prev);
+        onSelect(prev - 1);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [openNote, nonGreenMoves, onSelect, features]);
+
   if (loading) return <div className="viewer-panel-empty">Loading analysis…</div>;
 
   if (!features) {
@@ -492,39 +529,6 @@ function AnalysisTab({
       if (sortKey === "move") return a.move_number - b.move_number;
       return (b.points_lost ?? 0) - (a.points_lost ?? 0);
     });
-
-  const nonGreenMoves = useMemo(
-    () =>
-      [...features]
-        .sort((a, b) => a.move_number - b.move_number)
-        .filter((f) => getTier(f.points_lost, boardSize) !== "green")
-        .map((f) => f.move_number),
-    [features, boardSize],
-  );
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        setOpenNote(null);
-        return;
-      }
-      if (!["j", "n", "k", "p"].includes(e.key)) return;
-      if (nonGreenMoves.length === 0) return;
-      const cur = nonGreenMoves.indexOf(openNote ?? -1);
-      if (e.key === "j" || e.key === "n") {
-        const next = nonGreenMoves[(cur + 1) % nonGreenMoves.length];
-        setOpenNote(next);
-        onSelect(next - 1);
-      } else {
-        const prev =
-          nonGreenMoves[(cur - 1 + nonGreenMoves.length) % nonGreenMoves.length];
-        setOpenNote(prev);
-        onSelect(prev - 1);
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [openNote, nonGreenMoves, onSelect]);
 
   return (
     <div className="analysis-tab">

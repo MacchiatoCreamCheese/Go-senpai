@@ -18,12 +18,14 @@ COORDINATE_RE = re.compile(r"\b[A-HJ-T]\d{1,2}\b")
 _SPOILER_MODES = {"whats_missing", "whats_my_plan"}
 
 
-def _rank_label(rank_estimate: int | None) -> str:
-    if rank_estimate is None:
+def _rank_label(rank_estimate: int | str | None) -> str:
+    try:
+        r = int(rank_estimate)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
         return "intermediate"
-    if rank_estimate > 15:
+    if r > 15:
         return "beginner"
-    if rank_estimate > 5:
+    if r > 5:
         return "intermediate"
     return "expert"
 

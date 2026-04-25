@@ -10,12 +10,14 @@ from .retriever import RetrievedConcept, retrieve_for_moment
 from .selector import Moment
 
 
-def _rank_label(rank_estimate: int | None) -> str:
-    if rank_estimate is None:
+def _rank_label(rank_estimate: int | str | None) -> str:
+    try:
+        r = int(rank_estimate)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
         return "intermediate"
-    if rank_estimate > 15:
+    if r > 15:
         return "beginner"
-    if rank_estimate > 5:
+    if r > 5:
         return "intermediate"
     return "expert"
 
@@ -72,7 +74,7 @@ async def get_or_generate_note(
     if feature is None:
         return None
 
-    tier = classify_tier(_confident_points_lost(feature), board_size)
+    tier = classify_tier(feature.get("points_lost"), board_size)
     if tier == "green":
         return None
 

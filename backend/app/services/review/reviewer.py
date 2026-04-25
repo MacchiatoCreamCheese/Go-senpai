@@ -48,12 +48,16 @@ async def generate_review(
         )
         return stored
 
+    user_row = await db.get_user(for_user_id)
+    rank_label = _rank_label(user_row.get("rank_estimate") if user_row else None)
+
     concepts = await retrieve_for_moments(moments)
     system, user = build_review_prompt(
         game=game,
         player_color=player_color,
         moments=moments,
         concepts_per_moment=concepts,
+        rank_label=rank_label,
     )
 
     llm = client or build_default_client()
@@ -74,6 +78,18 @@ async def generate_review(
         cost_tokens=tokens,
     )
     return stored
+
+
+def _rank_label(rank_estimate: int | str | None) -> str:
+    try:
+        r = int(rank_estimate)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return "intermediate"
+    if r > 15:
+        return "beginner"
+    if r > 5:
+        return "intermediate"
+    return "expert"
 
 
 def _player_color(game: dict[str, Any], user_id: str) -> str | None:

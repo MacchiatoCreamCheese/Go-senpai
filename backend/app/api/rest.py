@@ -500,21 +500,6 @@ async def _live_analyze_and_push(
         if feats is None:
             return
 
-        # Build position hashes for the upsert
-        from ..services.katago.live_analysis import _to_katago_coord
-        katago_moves = [
-            (m["color"], _to_katago_coord(m["coord"]))
-            for m in db_moves
-            if m["coord"] != "resign"
-        ]
-        h_before, h_after = position_hash_pair(
-            game_row["board_size"],
-            float(game_row["komi"]),
-            game_row.get("ruleset", "chinese"),
-            katago_moves,
-        )
-        await db.upsert_move_feature(game_id, feats, h_before, h_after)
-
         cpl = feats.confident_points_lost
         tier = classify_tier(cpl, game_row["board_size"])
         await broadcast_move_tier(record, feats.move_number, tier)
