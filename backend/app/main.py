@@ -22,7 +22,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from slowapi import _rate_limit_exceeded_handler
 
 from . import db
-from .api import analysis, auth, rest, review, ws
+from .api import analysis, auth, coach, rest, review, ws
 from .rate_limit import limiter
 from .services.katago import KataGoEngine, get_engine, set_engine
 
@@ -76,6 +76,7 @@ def create_app() -> FastAPI:
     app.include_router(rest.router)
     app.include_router(analysis.router)
     app.include_router(review.router)
+    app.include_router(coach.router)
     app.include_router(ws.router)
     return app
 

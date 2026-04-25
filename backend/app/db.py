@@ -928,6 +928,53 @@ async def insert_move_note(
     return dict(row)  # type: ignore[arg-type]
 
 
+async def create_coach_session(game_id: str, user_id: str) -> str:
+    row = await _get_pool().fetchrow(
+        "INSERT INTO coach_sessions (game_id, user_id) VALUES ($1, $2) RETURNING id",
+        game_id,
+        user_id,
+    )
+    return str(row["id"])
+
+
+async def get_coach_turns(session_id: str, limit: int = 6) -> list[dict[str, Any]]:
+    rows = await _get_pool().fetch(
+        """
+        SELECT role, invocation_mode, user_input, assistant_output_md
+        FROM coach_turns
+        WHERE session_id = $1
+        ORDER BY turn_number DESC
+        LIMIT $2
+        """,
+        session_id,
+        limit,
+    )
+    return [dict(r) for r in reversed(rows)]  # chronological order
+
+
+async def insert_coach_turn(
+    session_id: str,
+    turn_number: int,
+    role: str,
+    mode: str,
+    user_input: str | None,
+    assistant_output_md: str | None,
+) -> None:
+    await _get_pool().execute(
+        """
+        INSERT INTO coach_turns
+            (session_id, turn_number, role, invocation_mode, user_input, assistant_output_md)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        """,
+        session_id,
+        turn_number,
+        role,
+        mode,
+        user_input,
+        assistant_output_md,
+    )
+
+
 async def list_user_games(user_id: str) -> list[dict[str, Any]]:
     rows = await _get_pool().fetch(
         """

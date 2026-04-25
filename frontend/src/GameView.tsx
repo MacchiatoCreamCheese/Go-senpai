@@ -4,6 +4,7 @@ import { createGame, fetchGame, playMove, requestAiMove, sgfUrl, swapColors } fr
 import { GoBoard } from "./GoBoard";
 import { UserChip } from "./components/UserChip";
 import { LiveTierDot } from "./components/LiveTierDot";
+import { ChatDrawer } from "./components/ChatDrawer";
 import { connectGameSocket } from "./ws";
 import type { ColorCode, GameT, GameStateT, MoveKind, PointT } from "./types";
 
@@ -52,6 +53,7 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
   const [overlayDismissed, setOverlayDismissed] = useState(false);
   const [playAgainPending, setPlayAgainPending] = useState(false);
   const [liveTiers, setLiveTiers] = useState<Map<number, "green" | "yellow" | "red">>(new Map());
+  const [chatOpen, setChatOpen] = useState(false);
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Reset overlay dismiss when switching games.
@@ -105,6 +107,18 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
     );
     return close;
   }, [gameId]);
+
+  // Keyboard shortcut: C to open/close coach drawer (not when typing in an input)
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (e.key === "c" || e.key === "C") setChatOpen((prev) => !prev);
+      if (e.key === "Escape") setChatOpen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   function copyId() {
     navigator.clipboard.writeText(gameId).catch(() => {});
@@ -297,6 +311,17 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
           />
         )}
 
+        {/* Ask Sensei coach button (AI games only) */}
+        {game?.opponent_type === "ai" && state?.status === "active" && (
+          <button
+            className="btn btn-ghost ask-coach-btn"
+            onClick={() => setChatOpen(true)}
+            title="Open the Sensei coach (C)"
+          >
+            Ask Sensei <kbd>C</kbd>
+          </button>
+        )}
+
         <hr className="divider" style={{ margin: "20px 0" }} />
 
         {/* Actions or result */}
@@ -348,6 +373,13 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
           </button>
         </div>
       </aside>
+
+      <ChatDrawer
+        gameId={gameId}
+        userId={localStorage.getItem(USER_ID_KEY) ?? ""}
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+      />
 
       {state.status !== "active" && !overlayDismissed && (
         <div className="postgame-overlay" role="dialog" aria-modal="true" onClick={() => setOverlayDismissed(true)}>

@@ -7,7 +7,7 @@ import logging
 import os
 import re
 from collections import OrderedDict
-from typing import Awaitable, Callable, Protocol, TypeVar
+from typing import AsyncGenerator, Awaitable, Callable, Protocol, TypeVar
 
 
 log = logging.getLogger(__name__)
@@ -94,6 +94,10 @@ class LLMClient(Protocol):
         """Return (raw_text, tokens_used). raw_text should be a JSON object."""
         ...
 
+    async def stream_generate(self, system: str, user: str) -> AsyncGenerator[str, None]:
+        """Yield text tokens as they arrive from the LLM."""
+        ...
+
 
 class ClaudeClient:
     def __init__(self, model: str, api_key: str, max_tokens: int = 2000) -> None:
@@ -125,6 +129,17 @@ class ClaudeClient:
         result = await _with_retry(call, label="Claude")
         _cache_put(key, result)
         return result
+
+
+    async def stream_generate(self, system: str, user: str) -> AsyncGenerator[str, None]:
+        async with self._client.messages.stream(
+            model=self.model,
+            max_tokens=400,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        ) as stream:
+            async for text in stream.text_stream:
+                yield text
 
 
 class GeminiClient:
@@ -167,6 +182,11 @@ class GeminiClient:
         result = await _with_retry(call, label="Gemini")
         _cache_put(key, result)
         return result
+
+
+    async def stream_generate(self, system: str, user: str) -> AsyncGenerator[str, None]:
+        text, _ = await self.generate_review(system, user)
+        yield text
 
 
 def build_default_client() -> LLMClient:
