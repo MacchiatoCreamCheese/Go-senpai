@@ -294,3 +294,354 @@ p {
 .copy-flash {
   animation: copyFlash 600ms ease;
 }
+
+/* ─── App shell ──────────────────────────────────────────── */
+.shell {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.shell-nav {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  padding: 18px 32px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  backdrop-filter: saturate(1.2);
+}
+
+.shell-logo {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  text-decoration: none;
+  color: var(--ink);
+}
+
+.shell-logo-mark {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  line-height: 1;
+  color: var(--seal);
+  font-weight: 300;
+}
+
+.shell-logo-text {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+}
+
+.shell-nav-links {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  margin-left: 12px;
+  flex: 1;
+}
+
+.shell-nav-link {
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--stone);
+  text-decoration: none;
+  padding: 4px 0;
+  border-bottom: 1px solid transparent;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+
+.shell-nav-link:hover {
+  color: var(--ink);
+}
+
+.shell-nav-link.is-active {
+  color: var(--ink);
+  border-bottom-color: var(--seal);
+}
+
+.user-menu {
+  position: relative;
+}
+
+.shell-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 6px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  cursor: pointer;
+  font-family: var(--font-body);
+  color: var(--ink);
+  transition: border-color 150ms;
+}
+
+.shell-user:hover {
+  border-color: var(--line-dark);
+}
+
+.shell-user-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--seal);
+  display: inline-block;
+}
+
+.shell-user-name {
+  font-size: 0.95rem;
+}
+
+.shell-user-caret {
+  font-size: 0.75rem;
+  color: var(--stone);
+}
+
+.user-menu-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 180px;
+  background: var(--bg-panel);
+  border: 1px solid var(--line-dark);
+  border-radius: 2px;
+  box-shadow: 0 8px 24px rgba(28, 23, 18, 0.12);
+  padding: 6px 0;
+  animation: fadeSlide 180ms ease;
+}
+
+.user-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 8px 16px;
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 120ms;
+}
+
+.user-menu-item:hover {
+  background: rgba(28, 23, 18, 0.05);
+}
+
+.user-menu-item-muted {
+  color: var(--stone);
+  font-style: italic;
+}
+
+.user-menu-rule {
+  height: 1px;
+  background: var(--line);
+  margin: 6px 0;
+}
+
+.shell-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ─── Coach FAB ──────────────────────────────────────────── */
+.coach-fab {
+  position: fixed;
+  right: 28px;
+  bottom: 28px;
+  z-index: 15;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px 12px 14px;
+  background: var(--ink);
+  color: var(--bg);
+  border-radius: 999px;
+  text-decoration: none;
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+  box-shadow: 0 6px 20px rgba(28, 23, 18, 0.25);
+  transition: background 150ms, transform 120ms;
+}
+
+.coach-fab:hover {
+  background: var(--seal);
+  transform: translateY(-1px);
+}
+
+.coach-fab-mark {
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  line-height: 1;
+  color: var(--board);
+}
+
+/* ─── Toasts ─────────────────────────────────────────────── */
+.toast-stack {
+  position: fixed;
+  top: 80px;
+  right: 24px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+  width: min(360px, calc(100vw - 48px));
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: stretch;
+  background: var(--bg-panel);
+  border: 1px solid var(--line-dark);
+  border-radius: 2px;
+  box-shadow: 0 8px 24px rgba(28, 23, 18, 0.12);
+  animation: toastIn 220ms ease both;
+  overflow: hidden;
+}
+
+.toast-closing {
+  animation: toastOut 280ms ease both;
+}
+
+.toast-rule {
+  width: 4px;
+  background: var(--stone);
+  flex-shrink: 0;
+}
+
+.toast-info .toast-rule { background: var(--ink-soft); }
+.toast-success .toast-rule { background: #2D6A2D; }
+.toast-warning .toast-rule { background: var(--board); }
+.toast-error .toast-rule { background: var(--seal); }
+
+.toast-body {
+  flex: 1;
+  padding: 10px 12px;
+  min-width: 0;
+}
+
+.toast-title {
+  font-family: var(--font-display);
+  font-size: 1.02rem;
+  color: var(--ink);
+  margin-bottom: 2px;
+  letter-spacing: 0.01em;
+}
+
+.toast-text {
+  font-family: var(--font-body);
+  font-size: 0.88rem;
+  color: var(--ink-soft);
+  line-height: 1.4;
+}
+
+.toast-close {
+  background: transparent;
+  border: none;
+  color: var(--stone);
+  font-size: 1.2rem;
+  width: 32px;
+  cursor: pointer;
+  transition: color 150ms;
+}
+
+.toast-close:hover {
+  color: var(--ink);
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes toastOut {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(20px); }
+}
+
+/* ─── Stub page ──────────────────────────────────────────── */
+.stub-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 96px 32px;
+  text-align: center;
+  flex: 1;
+  gap: 14px;
+}
+
+.stub-page h1 {
+  font-size: clamp(36px, 5vw, 56px);
+  font-weight: 300;
+}
+
+.stub-page p {
+  color: var(--stone);
+  max-width: 440px;
+  font-style: italic;
+}
+
+.home-stub {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 80px 32px 120px;
+  gap: 14px;
+}
+
+.home-mark {
+  font-family: var(--font-display);
+  font-size: clamp(120px, 18vw, 200px);
+  font-weight: 300;
+  color: var(--seal);
+  opacity: 0.15;
+  line-height: 1;
+  margin-bottom: 4px;
+  letter-spacing: -0.04em;
+}
+
+.home-stub h1 {
+  font-size: clamp(40px, 6vw, 64px);
+  font-weight: 300;
+  letter-spacing: 0.01em;
+}
+
+.home-tagline {
+  font-style: italic;
+  color: var(--stone);
+  max-width: 480px;
+}
+
+.home-cta-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 16px;
+}
+
+.stub-page .stub-mark {
+  font-family: var(--font-display);
+  font-size: 96px;
+  color: var(--seal);
+  opacity: 0.18;
+  line-height: 1;
+  margin-bottom: 8px;
+}
