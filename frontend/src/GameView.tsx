@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { createGame, fetchGame, playMove, requestAiMove, sgfUrl, swapColors } from "./api";
 import { GoBoard } from "./GoBoard";
+import { UserChip } from "./components/UserChip";
 import { connectGameSocket } from "./ws";
 import type { ColorCode, GameT, GameStateT, MoveKind, PointT } from "./types";
 
@@ -184,7 +185,18 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
     <div style={styles.layout}>
       {/* Board */}
       <div style={styles.boardArea}>
-        <GoBoard state={state} disabled={disabled} onPlay={(p) => send("play", p)} />
+        <div className="ai-thinking-shell">
+          <GoBoard state={state} disabled={disabled} onPlay={(p) => send("play", p)} />
+          {aiThinking && (
+            <div className="ai-thinking-overlay" aria-hidden="true">
+              <div className="ai-thinking-pill">
+                <span className="ai-thinking-mark">先</span>
+                Sensei is thinking
+                <span className="ai-thinking-dots"><span /><span /><span /></span>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Panel */}
@@ -211,18 +223,22 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
 
         <hr className="divider" style={{ margin: "20px 0" }} />
 
-        {/* Play as (server-assigned) */}
+        {/* Players */}
         <div style={styles.field}>
-          <label style={styles.fieldLabel}>Play as</label>
-          <div style={styles.turnRow}>
-            {role ? (
-              <>
-                <span className={`stone-dot ${role === "B" ? "black" : "white"}`} />
-                <span style={styles.turnText}>{role === "B" ? "Black" : "White"}</span>
-              </>
-            ) : (
-              <span style={styles.turnText}>Spectator</span>
-            )}
+          <label style={styles.fieldLabel}>Players</label>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
+            <UserChip
+              userId={game.black_user_id}
+              handle={role === "B" ? "You" : undefined}
+              aiRank={game.ai_rank}
+              color="B"
+            />
+            <UserChip
+              userId={game.white_user_id}
+              handle={role === "W" ? "You" : undefined}
+              aiRank={game.ai_rank}
+              color="W"
+            />
           </div>
           {preGame && role && (
             <button
@@ -230,7 +246,7 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
               className="btn btn-ghost"
               onClick={onSwap}
               disabled={swapping}
-              style={{ marginTop: 8, padding: "6px 12px", fontSize: "0.85rem" }}
+              style={{ marginTop: 10, padding: "6px 12px", fontSize: "0.85rem" }}
               title={bothSeated ? "Swap colours with opponent" : "Swap your seat (no opponent yet)"}
             >
               {swapping ? "swapping…" : "Swap colours"}

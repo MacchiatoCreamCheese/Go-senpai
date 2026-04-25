@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 
-import { createGame, createUser, fetchGame, joinGame } from "../api";
+import { createGame, createUser, fetchGame, getMyGames, joinGame } from "../api";
 import type { ColorCode } from "../types";
 
 const USER_ID_KEY = "senpai_user_id";
@@ -16,6 +17,14 @@ export default function Lobby() {
   const [color, setColor] = useState<ColorCode>("B");
   const [opponent, setOpponent] = useState<"human" | "ai">("human");
   const [aiRank, setAiRank] = useState<number>(10);
+
+  const userId = localStorage.getItem(USER_ID_KEY);
+  const myGames = useQuery({
+    queryKey: ["my-games", userId],
+    queryFn: () => (userId ? getMyGames(userId) : Promise.resolve([])),
+    enabled: !!userId,
+  });
+  const activeGames = (myGames.data ?? []).filter((g) => !g.result).slice(0, 6);
 
   function go(id: string) {
     navigate(`/play/${id}`);
@@ -83,6 +92,30 @@ export default function Lobby() {
         </header>
 
         <hr className="divider" />
+
+        {activeGames.length > 0 && (
+          <section style={styles.section}>
+            <div className="active-games-strip">
+              <span className="active-games-strip-label">Resume an in-progress game</span>
+              <div className="active-games-row">
+                {activeGames.map((g) => (
+                  <Link
+                    key={g.id}
+                    to={`/play/${g.id}`}
+                    className="active-game-card"
+                  >
+                    <div className="active-game-card-line">
+                      <span>{g.board_size}×{g.board_size}</span>
+                      <span className="active-game-card-resume">Resume →</span>
+                    </div>
+                    <span className="active-game-card-id">{g.id.slice(0, 8)}…</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+            <hr className="divider" />
+          </section>
+        )}
 
         <section style={{ ...styles.section, animationDelay: "40ms" }}>
           <h2 style={styles.sectionLabel}>Your name</h2>

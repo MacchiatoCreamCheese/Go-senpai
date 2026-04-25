@@ -84,6 +84,19 @@ export async function playMove(
   return asJson<GameStateT>(resp);
 }
 
+export interface UserGameListItem {
+  id: string;
+  board_size: number;
+  result: string | null;
+  started_at: string;
+}
+
+export async function getMyGames(userId: string): Promise<UserGameListItem[]> {
+  const resp = await fetch(`/api/users/${encodeURIComponent(userId)}/games`);
+  if (!resp.ok) return [];
+  return asJson<UserGameListItem[]>(resp);
+}
+
 export function sgfUrl(id: string): string {
   return `/api/games/${id}/sgf`;
 }
