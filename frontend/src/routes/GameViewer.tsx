@@ -4,19 +4,25 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   fetchGame,
+  generateReview,
   getGameAnalysis,
+  getReview,
   sgfUrl,
   triggerAnalyze,
   type MoveFeature,
+  type ReviewResponse,
 } from "../api";
 import { GoBoard } from "../GoBoard";
 import { MoveScrubber } from "../components/MoveScrubber";
 import { EngineOverlay } from "../components/EngineOverlay";
 import { ScoreLineChart } from "../components/ScoreLineChart";
+import { MomentCard } from "../components/MomentCard";
 import { useToast } from "../components/NotificationToast";
 import { boardAtMove, parseCoord } from "../lib/replay";
+import { renderMarkdown } from "../lib/markdown";
 
 const AI_USER_ID = "00000000-0000-0000-0000-0000000000a1";
+const USER_ID_KEY = "senpai_user_id";
 
 type TabId = "review" | "analysis" | "info";
 
@@ -37,7 +43,14 @@ export default function GameViewer() {
     enabled: !!gameId,
   });
 
-  const [tab, setTab] = useState<TabId>("analysis");
+  const userId = typeof window !== "undefined" ? localStorage.getItem(USER_ID_KEY) : null;
+  const review = useQuery({
+    queryKey: ["review", gameId, userId],
+    queryFn: () => (userId ? getReview(gameId, userId) : Promise.resolve(null)),
+    enabled: !!gameId,
+  });
+
+  const [tab, setTab] = useState<TabId>("review");
   const [showTopMove, setShowTopMove] = useState(true);
   const [showOwnership, setShowOwnership] = useState(false); // disabled — no data yet
   const [blundersOnly, setBlundersOnly] = useState(false);
@@ -179,7 +192,17 @@ export default function GameViewer() {
             <TabBtn id="info" label="Info" active={tab} onSelect={setTab} />
           </nav>
 
-          {tab === "review" && <ReviewPlaceholder gameId={gameId} />}
+          {tab === "review" && (
+            <ReviewTab
+              gameId={gameId}
+              userId={userId}
+              loading={review.isLoading}
+              review={review.data ?? null}
+              gameFinished={!!game.data?.state.result}
+              currentMove={currentMove}
+              onShowOnBoard={(moveNumber) => setMove(Math.max(0, moveNumber - 1))}
+            />
+          )}
 
           {tab === "analysis" && (
             <AnalysisTab
@@ -237,12 +260,140 @@ function TabBtn({
   );
 }
 
-function ReviewPlaceholder({ gameId: _gameId }: { gameId: string }) {
+interface ReviewTabProps {
+  gameId: string;
+  userId: string | null;
+  loading: boolean;
+  review: ReviewResponse | null;
+  gameFinished: boolean;
+  currentMove: number;
+  onShowOnBoard: (moveNumber: number) => void;
+}
+
+function ReviewTab({
+  gameId,
+  userId,
+  loading,
+  review,
+  gameFinished,
+  currentMove,
+  onShowOnBoard,
+}: ReviewTabProps) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+
+  const generate = useMutation({
+    mutationFn: ({ force }: { force: boolean }) => {
+      if (!userId) throw new Error("Sign in (set a name in the Lobby) before requesting a review.");
+      return generateReview(gameId, userId, force);
+    },
+    onSuccess: (res) => {
+      toast.push({
+        kind: "success",
+        title: "Review ready",
+        body: `${res.moments.length} moment${res.moments.length === 1 ? "" : "s"} from ${res.model}.`,
+      });
+      queryClient.setQueryData(["review", gameId, userId], res);
+    },
+    onError: (err) => {
+      toast.push({ kind: "error", title: "Review failed", body: String(err) });
+    },
+  });
+
+  if (loading) return <div className="viewer-panel-empty">Loading review…</div>;
+
+  if (!userId) {
+    return (
+      <div className="viewer-review-empty">
+        <div className="viewer-review-mark">評</div>
+        <h2>Sign in first</h2>
+        <p>Reviews are written for one player at a time. Set a name in the Lobby, then come back.</p>
+      </div>
+    );
+  }
+
+  if (!review) {
+    return (
+      <div className="viewer-review-empty">
+        <div className="viewer-review-mark">評</div>
+        <h2>No review yet</h2>
+        <p>
+          {gameFinished
+            ? "Generate a review for your perspective. KataGo features need to exist first — run analysis from the Analysis tab if you haven't."
+            : "Reviews are generated once a game has finished."}
+        </p>
+        {gameFinished && (
+          <button
+            className="btn btn-primary"
+            onClick={() => generate.mutate({ force: false })}
+            disabled={generate.isPending}
+          >
+            {generate.isPending ? "Generating (~30s)…" : "Generate review"}
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  // Determine perspective from for_user_id matching one of the seats — but we
+  // don't have the seats here, so just show the model + timestamp.
+  const generatedAt = new Date(review.generated_at);
+  const generatedLabel = generatedAt.toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+
   return (
-    <div className="viewer-review-empty">
-      <div className="viewer-review-mark">評</div>
-      <h2>No review yet</h2>
-      <p>LLM-authored moments will appear here in Sub-phase 2.</p>
+    <div className="review-tab">
+      <header className="review-head">
+        <div>
+          <div className="review-head-eyebrow">Reviewed for you</div>
+          <div className="review-head-meta">
+            <span className="mono dim">{review.model}</span>
+            <span className="viewer-meta-sep">·</span>
+            <span>{generatedLabel}</span>
+          </div>
+        </div>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={() => generate.mutate({ force: true })}
+          disabled={generate.isPending}
+          title="Regenerate from scratch"
+        >
+          {generate.isPending ? "Regenerating…" : "Regenerate"}
+        </button>
+      </header>
+
+      {review.summary_md && (
+        <section
+          className="review-summary"
+          dangerouslySetInnerHTML={{ __html: renderMarkdown(review.summary_md) }}
+        />
+      )}
+
+      <div className="review-moments">
+        {review.moments.length === 0 ? (
+          <div className="review-empty-line">
+            No notable moments — the model didn't flag anything for this perspective.
+          </div>
+        ) : (
+          review.moments.map((m) => (
+            <MomentCard
+              key={`${m.move_number}-${m.coord}`}
+              moment={m}
+              currentMove={currentMove}
+              onShowOnBoard={() => onShowOnBoard(m.move_number)}
+            />
+          ))
+        )}
+      </div>
+
+      <footer className="review-foot">
+        <span className="dim">
+          Feedback (helpful / not helpful) — coming with the eval phase.
+        </span>
+      </footer>
     </div>
   );
 }

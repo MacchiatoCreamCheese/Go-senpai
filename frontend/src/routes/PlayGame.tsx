@@ -9,5 +9,12 @@ export default function PlayGame() {
     navigate("/lobby", { replace: true });
     return null;
   }
-  return <GameView gameId={gameId} onExit={() => navigate("/lobby")} />;
+  return (
+    <GameView
+      gameId={gameId}
+      onExit={() => navigate("/lobby")}
+      onPlayAgain={(id) => navigate(`/play/${id}`)}
+      onOpenReview={(id) => navigate(`/games/${id}`)}
+    />
+  );
 }

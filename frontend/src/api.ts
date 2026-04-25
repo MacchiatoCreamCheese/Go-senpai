@@ -131,3 +131,45 @@ export async function triggerAnalyze(id: string, force = false): Promise<Analyze
   const url = `/api/games/${id}/analyze${force ? "?force=true" : ""}`;
   return asJson<AnalyzeResponse>(await fetch(url, { method: "POST" }));
 }
+
+// ─── Review (Phase 2 backend) ──────────────────────────────
+export interface ReviewMoment {
+  move_number: number;
+  coord: string;
+  color: ColorCode;
+  top_move: string | null;
+  points_lost: number;
+  phase: Phase;
+  /** Severity tier the backend assigned: "blunder" | "mistake" | "inaccuracy" | etc. */
+  kind: string;
+  explanation_md: string;
+  concept_ids: string[];
+}
+
+export interface ReviewResponse {
+  id: string;
+  game_id: string;
+  for_user_id: string;
+  generated_at: string;
+  model: string;
+  summary_md: string;
+  moments: ReviewMoment[];
+  cost_tokens: number | null;
+}
+
+export async function getReview(gameId: string, forUserId: string): Promise<ReviewResponse | null> {
+  const resp = await fetch(`/api/games/${gameId}/review?for_user_id=${encodeURIComponent(forUserId)}`);
+  if (resp.status === 404) return null;
+  return asJson<ReviewResponse>(resp);
+}
+
+export async function generateReview(
+  gameId: string,
+  forUserId: string,
+  force = false,
+): Promise<ReviewResponse> {
+  const params = new URLSearchParams({ for_user_id: forUserId });
+  if (force) params.set("force", "true");
+  const resp = await fetch(`/api/games/${gameId}/review?${params}`, { method: "POST" });
+  return asJson<ReviewResponse>(resp);
+}

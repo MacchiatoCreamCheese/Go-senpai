@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { fetchGame, playMove, requestAiMove, sgfUrl, swapColors } from "./api";
+import { createGame, fetchGame, playMove, requestAiMove, sgfUrl, swapColors } from "./api";
 import { GoBoard } from "./GoBoard";
 import { connectGameSocket } from "./ws";
 import type { ColorCode, GameT, GameStateT, MoveKind, PointT } from "./types";
@@ -10,6 +10,10 @@ const USER_ID_KEY = "senpai_user_id";
 interface Props {
   gameId: string;
   onExit: () => void;
+  /** Hand off to a new game with the same settings (AI games only). */
+  onPlayAgain?: (newGameId: string) => void;
+  /** Push the user to the completed-game viewer. */
+  onOpenReview?: (gameId: string) => void;
 }
 
 function deriveRole(game: GameT | null, userId: string | null): ColorCode | null {
@@ -36,14 +40,19 @@ function CheckIcon() {
   );
 }
 
-export function GameView({ gameId, onExit }: Props) {
+export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
   const [game, setGame] = useState<GameT | null>(null);
   const [state, setState] = useState<GameStateT | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [swapping, setSwapping] = useState(false);
   const [aiThinking, setAiThinking] = useState(false);
+  const [overlayDismissed, setOverlayDismissed] = useState(false);
+  const [playAgainPending, setPlayAgainPending] = useState(false);
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Reset overlay dismiss when switching games.
+  useEffect(() => { setOverlayDismissed(false); }, [gameId]);
 
   const role = deriveRole(game, localStorage.getItem(USER_ID_KEY));
 
@@ -143,6 +152,25 @@ export function GameView({ gameId, onExit }: Props) {
         <span style={styles.loadingText}>Loading…</span>
       </div>
     );
+  }
+
+  async function handlePlayAgain() {
+    if (!game || !role) return;
+    if (game.opponent_type !== "ai") return;
+    const userId = localStorage.getItem(USER_ID_KEY);
+    if (!userId) return;
+    setPlayAgainPending(true);
+    try {
+      const next = await createGame(game.size as 9 | 13 | 19, userId, role, {
+        opponentType: "ai",
+        aiRank: game.ai_rank ?? 10,
+      });
+      onPlayAgain ? onPlayAgain(next.id) : (window.location.href = `/play/${next.id}`);
+    } catch (e) {
+      setError(`Couldn't start a new game: ${e}`);
+    } finally {
+      setPlayAgainPending(false);
+    }
   }
 
   const disabled = !role || state.status !== "active" || state.turn !== role;
@@ -290,6 +318,50 @@ export function GameView({ gameId, onExit }: Props) {
           </button>
         </div>
       </aside>
+
+      {state.status !== "active" && !overlayDismissed && (
+        <div className="postgame-overlay" role="dialog" aria-modal="true" onClick={() => setOverlayDismissed(true)}>
+          <div className="postgame-modal" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="postgame-close"
+              type="button"
+              onClick={() => setOverlayDismissed(true)}
+              aria-label="Dismiss"
+            >×</button>
+            <div className="postgame-eyebrow">Game over</div>
+            <h2 className="postgame-result">{state.result ?? state.status}</h2>
+            <p className="postgame-sub">
+              {role
+                ? `You played ${role === "B" ? "Black" : "White"}${
+                    game.opponent_type === "ai" ? ` against Sensei AI ${game.ai_rank ?? "?"}k.` : "."
+                  }`
+                : "You watched as a spectator."}
+            </p>
+            <div className="postgame-actions">
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => (onOpenReview ? onOpenReview(gameId) : (window.location.href = `/games/${gameId}`))}
+              >
+                Review this game
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={onExit}>
+                Back to lobby
+              </button>
+              {game.opponent_type === "ai" && role && (
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={handlePlayAgain}
+                  disabled={playAgainPending}
+                >
+                  {playAgainPending ? "Starting…" : "Play again"}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

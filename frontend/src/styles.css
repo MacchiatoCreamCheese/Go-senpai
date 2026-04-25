@@ -1061,6 +1061,338 @@ p {
 
 .btn-sm { padding: 5px 12px; font-size: 0.85rem; }
 
+/* ─── Post-game overlay ──────────────────────────────────── */
+.postgame-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(28, 23, 18, 0.45);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: fadeSlide 200ms ease both;
+  backdrop-filter: blur(2px);
+}
+
+.postgame-modal {
+  position: relative;
+  background: var(--bg-panel);
+  border: 1px solid var(--line-dark);
+  border-radius: 2px;
+  padding: 36px 40px 28px;
+  max-width: 460px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  animation: fadeSlide 280ms ease both;
+}
+
+.postgame-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  background: transparent;
+  border: none;
+  color: var(--stone);
+  font-size: 1.4rem;
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  line-height: 1;
+}
+
+.postgame-close:hover { color: var(--ink); }
+
+.postgame-eyebrow {
+  font-family: var(--font-body);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.75rem;
+  color: var(--seal);
+  margin-bottom: 8px;
+}
+
+.postgame-result {
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-size: clamp(28px, 4vw, 40px);
+  letter-spacing: 0.01em;
+  line-height: 1.15;
+  color: var(--ink);
+  text-transform: none;
+}
+
+.postgame-sub {
+  font-family: var(--font-body);
+  font-style: italic;
+  color: var(--stone);
+  margin: 8px 0 22px;
+  font-size: 0.95rem;
+}
+
+.postgame-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* ─── Review tab ─────────────────────────────────────────── */
+.review-tab {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.review-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.review-head-eyebrow {
+  font-family: var(--font-body);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--stone);
+}
+
+.review-head-meta {
+  font-family: var(--font-body);
+  font-size: 0.88rem;
+  color: var(--ink-soft);
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-top: 4px;
+}
+
+.review-head-meta .mono {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
+.review-head-meta .dim { color: var(--stone); }
+
+.review-summary {
+  padding: 12px 18px;
+  background: rgba(201, 169, 110, 0.08);
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-body);
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+.review-summary p { color: var(--ink-soft); margin: 0 0 0.6em; }
+.review-summary p:last-child { margin-bottom: 0; }
+.review-summary em { color: var(--seal); font-style: italic; }
+
+.review-moments {
+  flex: 1;
+  overflow: auto;
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 520px;
+}
+
+.review-empty-line {
+  font-style: italic;
+  color: var(--stone);
+  text-align: center;
+  padding: 28px 12px;
+}
+
+.review-foot {
+  padding: 8px 16px 12px;
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  color: var(--stone);
+  font-style: italic;
+  border-top: 1px solid var(--line);
+}
+
+.review-foot .dim { color: var(--stone); }
+
+/* ─── MomentCard ─────────────────────────────────────────── */
+.moment-card {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-dark);
+  border-radius: 2px;
+  background: var(--bg-panel);
+  padding: 10px 14px 12px;
+  transition: border-color 150ms, transform 120ms;
+}
+
+.moment-card.is-active {
+  border-left-color: var(--seal);
+  background: rgba(139, 58, 42, 0.04);
+}
+
+.moment-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.moment-card-num {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--stone);
+  letter-spacing: 0.04em;
+}
+
+.moment-card-kind {
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--ink);
+  padding: 2px 8px;
+  border: 1px solid var(--line-dark);
+  border-radius: 999px;
+  background: var(--bg);
+}
+
+.moment-card-kind.kind-blunder {
+  color: var(--seal);
+  border-color: var(--seal);
+  background: rgba(139, 58, 42, 0.06);
+}
+
+.moment-card-kind.kind-mistake {
+  color: var(--ink);
+  border-color: var(--board);
+}
+
+.moment-card-kind.kind-inaccuracy {
+  color: var(--ink-soft);
+}
+
+.moment-card-kind.kind-good,
+.moment-card-kind.kind-excellent {
+  color: #2D6A2D;
+  border-color: #2D6A2D;
+  background: rgba(45, 106, 45, 0.05);
+}
+
+.moment-card-lost {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 500;
+}
+
+.moment-card-coord {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+
+.moment-card-arrow {
+  margin: 0 4px;
+  color: var(--stone);
+}
+
+.moment-card-top {
+  display: inline-flex;
+  align-items: center;
+  color: var(--seal);
+  font-weight: 500;
+}
+
+.moment-card-body {
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+.moment-card-body p {
+  color: var(--ink-soft);
+  margin: 0 0 0.55em;
+}
+
+.moment-card-body p:last-child { margin-bottom: 0; }
+.moment-card-body code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: rgba(28, 23, 18, 0.06);
+  padding: 1px 5px;
+  border-radius: 2px;
+}
+.moment-card-body strong { color: var(--ink); font-weight: 600; }
+.moment-card-body em { font-style: italic; }
+
+.moment-card-concepts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.moment-card-foot {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+}
+
+.link-btn {
+  background: transparent;
+  border: none;
+  color: var(--seal);
+  font-family: var(--font-body);
+  font-size: 0.86rem;
+  cursor: pointer;
+  padding: 0;
+  border-bottom: 1px solid transparent;
+  transition: border-color 150ms;
+}
+.link-btn:hover { border-bottom-color: var(--seal); }
+
+/* ─── ConceptBadge ───────────────────────────────────────── */
+.concept-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  background: rgba(201, 169, 110, 0.18);
+  border: 1px solid var(--board);
+  border-radius: 2px;
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+  transition: background 150ms, color 150ms;
+}
+
+.concept-badge:hover {
+  background: rgba(201, 169, 110, 0.3);
+  color: var(--ink);
+}
+
+.concept-badge-mark {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  color: var(--seal);
+  line-height: 1;
+}
+
 /* ─── Info tab ───────────────────────────────────────────── */
 .info-tab {
   padding: 18px;
