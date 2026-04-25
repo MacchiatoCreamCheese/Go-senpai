@@ -21,6 +21,7 @@ import { useToast } from "../components/NotificationToast";
 import { boardAtMove, parseCoord } from "../lib/replay";
 import { renderMarkdown } from "../lib/markdown";
 import { useIdentity } from "../lib/auth";
+import type { MoveT } from "../types";
 
 const AI_USER_ID = "00000000-0000-0000-0000-0000000000a1";
 
@@ -200,6 +201,8 @@ export default function GameViewer() {
               review={review.data ?? null}
               gameFinished={!!game.data?.state.result}
               currentMove={currentMove}
+              boardSize={game.data?.size ?? 19}
+              gameMoves={game.data?.state.moves ?? []}
               onShowOnBoard={(moveNumber) => setMove(Math.max(0, moveNumber - 1))}
             />
           )}
@@ -267,6 +270,8 @@ interface ReviewTabProps {
   review: ReviewResponse | null;
   gameFinished: boolean;
   currentMove: number;
+  boardSize: number;
+  gameMoves: MoveT[];
   onShowOnBoard: (moveNumber: number) => void;
 }
 
@@ -277,6 +282,8 @@ function ReviewTab({
   review,
   gameFinished,
   currentMove,
+  boardSize,
+  gameMoves,
   onShowOnBoard,
 }: ReviewTabProps) {
   const queryClient = useQueryClient();
@@ -383,6 +390,8 @@ function ReviewTab({
               key={`${m.move_number}-${m.coord}`}
               moment={m}
               currentMove={currentMove}
+              boardSize={boardSize}
+              moves={gameMoves}
               onShowOnBoard={() => onShowOnBoard(m.move_number)}
             />
           ))

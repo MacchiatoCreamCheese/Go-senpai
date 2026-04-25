@@ -119,6 +119,7 @@ def _normalize_moments(
                 "kind": base.kind,
                 "explanation_md": explanation,
                 "concept_ids": concept_ids,
+                "top_pv": base.top_pv,
             }
         )
     return out

@@ -26,6 +26,7 @@ class ReviewMoment(BaseModel):
     kind: str
     explanation_md: str
     concept_ids: list[str]
+    top_pv: list[str] | None = None
 
 
 class ReviewResponse(BaseModel):

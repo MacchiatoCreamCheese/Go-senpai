@@ -128,6 +128,7 @@ export interface MoveFeature {
   score_after: number | null;
   phase: Phase;
   is_blunder: boolean;
+  top_pv?: string[] | null;
 }
 
 export interface AnalysisResponse {
@@ -168,6 +169,7 @@ export interface ReviewMoment {
   kind: string;
   explanation_md: string;
   concept_ids: string[];
+  top_pv?: string[] | null;
 }
 
 export interface ReviewResponse {

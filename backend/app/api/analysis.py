@@ -43,6 +43,7 @@ class MoveFeatureSchema(BaseModel):
     score_after: float | None
     phase: Literal["opening", "middlegame", "endgame"]
     is_blunder: bool
+    top_pv: list[str] | None = None
 
 
 class AnalysisResponse(BaseModel):
@@ -167,6 +168,7 @@ async def get_analysis(game_id: str) -> AnalysisResponse:
             score_after=r["score_after"],
             phase=r["phase"],
             is_blunder=r["is_blunder"],
+            top_pv=r.get("top_pv"),
         )
         for r in rows
     ]
