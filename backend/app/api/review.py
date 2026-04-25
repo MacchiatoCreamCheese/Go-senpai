@@ -4,12 +4,13 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from .. import db
 from ..services.review.llm import LLMError
 from ..services.review.reviewer import ReviewError, generate_review
+from .auth import soft_user
 
 
 router = APIRouter(prefix="/api", tags=["review"])
@@ -56,6 +57,7 @@ async def create_review(
     game_id: str,
     for_user_id: str = Query(..., description="User to generate the review for"),
     force: bool = Query(False, description="Regenerate even if a review exists"),
+    _user=Depends(soft_user),
 ) -> ReviewResponse:
     if not force:
         existing = await db.get_review(game_id, for_user_id)

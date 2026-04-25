@@ -1,4 +1,6 @@
 import type { ColorCode, GameT, GameStateT, MoveKind, PointT } from "./types";
+import { api } from "./lib/http";
+export { api } from "./lib/http";
 export type { ColorCode } from "./types";
 
 async function asJson<T>(resp: Response): Promise<T> {
@@ -14,8 +16,17 @@ export interface UserT {
   handle: string;
 }
 
+export async function updateMyHandle(handle: string): Promise<UserT> {
+  const resp = await api("/api/users/me", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ handle }),
+  });
+  return asJson<UserT>(resp);
+}
+
 export async function createUser(handle: string): Promise<UserT> {
-  const resp = await fetch("/api/users", {
+  const resp = await api("/api/users", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ handle }),
@@ -39,7 +50,7 @@ export async function createGame(
     body.opponent_type = "ai";
     body.ai_rank = opts.aiRank;
   }
-  const resp = await fetch("/api/games", {
+  const resp = await api("/api/games", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -48,21 +59,21 @@ export async function createGame(
 }
 
 export async function requestAiMove(id: string): Promise<GameStateT> {
-  const resp = await fetch(`/api/games/${id}/ai-move`, { method: "POST" });
+  const resp = await api(`/api/games/${id}/ai-move`, { method: "POST" });
   return asJson<GameStateT>(resp);
 }
 
 export async function swapColors(id: string): Promise<GameT> {
-  const resp = await fetch(`/api/games/${id}/swap_colors`, { method: "POST" });
+  const resp = await api(`/api/games/${id}/swap_colors`, { method: "POST" });
   return asJson<GameT>(resp);
 }
 
 export async function fetchGame(id: string): Promise<GameT> {
-  return asJson<GameT>(await fetch(`/api/games/${id}`));
+  return asJson<GameT>(await api(`/api/games/${id}`));
 }
 
 export async function joinGame(id: string, userId: string): Promise<GameT> {
-  const resp = await fetch(`/api/games/${id}/join`, {
+  const resp = await api(`/api/games/${id}/join`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ user_id: userId }),
@@ -76,7 +87,7 @@ export async function playMove(
   kind: MoveKind,
   point: PointT | null,
 ): Promise<GameStateT> {
-  const resp = await fetch(`/api/games/${id}/moves`, {
+  const resp = await api(`/api/games/${id}/moves`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ color, kind, point }),
@@ -92,7 +103,7 @@ export interface UserGameListItem {
 }
 
 export async function getMyGames(userId: string): Promise<UserGameListItem[]> {
-  const resp = await fetch(`/api/users/${encodeURIComponent(userId)}/games`);
+  const resp = await api(`/api/users/${encodeURIComponent(userId)}/games`);
   if (!resp.ok) return [];
   return asJson<UserGameListItem[]>(resp);
 }
@@ -125,7 +136,7 @@ export interface AnalysisResponse {
 }
 
 export async function getGameAnalysis(id: string): Promise<AnalysisResponse | null> {
-  const resp = await fetch(`/api/games/${id}/analysis`);
+  const resp = await api(`/api/games/${id}/analysis`);
   if (resp.status === 404) return null;
   return asJson<AnalysisResponse>(resp);
 }
@@ -142,7 +153,7 @@ export interface AnalyzeResponse {
 
 export async function triggerAnalyze(id: string, force = false): Promise<AnalyzeResponse> {
   const url = `/api/games/${id}/analyze${force ? "?force=true" : ""}`;
-  return asJson<AnalyzeResponse>(await fetch(url, { method: "POST" }));
+  return asJson<AnalyzeResponse>(await api(url, { method: "POST" }));
 }
 
 // ─── Review (Phase 2 backend) ──────────────────────────────
@@ -171,7 +182,7 @@ export interface ReviewResponse {
 }
 
 export async function getReview(gameId: string, forUserId: string): Promise<ReviewResponse | null> {
-  const resp = await fetch(`/api/games/${gameId}/review?for_user_id=${encodeURIComponent(forUserId)}`);
+  const resp = await api(`/api/games/${gameId}/review?for_user_id=${encodeURIComponent(forUserId)}`);
   if (resp.status === 404) return null;
   return asJson<ReviewResponse>(resp);
 }
@@ -185,7 +196,7 @@ export interface WeaknessItem {
 }
 
 export async function getWeaknesses(userId: string): Promise<WeaknessItem[]> {
-  const resp = await fetch(`/api/users/${encodeURIComponent(userId)}/weaknesses`);
+  const resp = await api(`/api/users/${encodeURIComponent(userId)}/weaknesses`);
   if (!resp.ok) return [];
   return asJson<WeaknessItem[]>(resp);
 }
@@ -222,14 +233,14 @@ export interface NextActionResponse {
 }
 
 export async function getNextAction(userId: string): Promise<NextActionResponse> {
-  const resp = await fetch(`/api/users/${encodeURIComponent(userId)}/next-action`, {
+  const resp = await api(`/api/users/${encodeURIComponent(userId)}/next-action`, {
     method: "POST",
   });
   return asJson<NextActionResponse>(resp);
 }
 
 export async function getNextProblem(userId: string): Promise<ProblemT | null> {
-  const resp = await fetch(`/api/users/${encodeURIComponent(userId)}/next-problem`);
+  const resp = await api(`/api/users/${encodeURIComponent(userId)}/next-problem`);
   if (resp.status === 404) return null;
   return asJson<ProblemT>(resp);
 }
@@ -249,7 +260,7 @@ export async function postDrillAttempt(payload: {
   moves_played: Array<Record<string, unknown>>;
   hint_used: boolean;
 }): Promise<DrillAttemptResp> {
-  const resp = await fetch("/api/drill-attempts", {
+  const resp = await api("/api/drill-attempts", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -264,6 +275,6 @@ export async function generateReview(
 ): Promise<ReviewResponse> {
   const params = new URLSearchParams({ for_user_id: forUserId });
   if (force) params.set("force", "true");
-  const resp = await fetch(`/api/games/${gameId}/review?${params}`, { method: "POST" });
+  const resp = await api(`/api/games/${gameId}/review?${params}`, { method: "POST" });
   return asJson<ReviewResponse>(resp);
 }

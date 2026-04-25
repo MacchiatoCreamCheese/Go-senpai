@@ -4,6 +4,7 @@ import type { GhostStone, VertexMarker } from "@sabaki/shudan";
 
 import type { GameStateT, PointT } from "./types";
 import type { Cell } from "./lib/replay";
+import { useSettings } from "./lib/settings";
 
 interface Props {
   state?: GameStateT;
@@ -45,13 +46,15 @@ export function GoBoard({
   onPlay,
   disabled,
   vertexSize = 28,
-  showCoordinates = true,
+  showCoordinates,
   lastMove,
   topMove,
   variation,
   variationStartColor = "B",
   heatMap,
 }: Props) {
+  const [settings] = useSettings();
+  const coords = showCoordinates ?? settings.showCoordinates;
   const signMap: number[][] = signMapProp
     ? signMapProp
     : board
@@ -88,7 +91,7 @@ export function GoBoard({
         markerMap={markers}
         ghostStoneMap={ghosts}
         heatMap={heatMap}
-        showCoordinates={showCoordinates}
+        showCoordinates={coords}
         busy={disabled}
         onVertexClick={(_evt, [x, y]) => {
           if (!onPlay || disabled) return;

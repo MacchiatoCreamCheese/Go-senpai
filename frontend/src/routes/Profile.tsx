@@ -5,16 +5,15 @@ import { useQuery } from "@tanstack/react-query";
 import { getMyGames, getWeaknesses } from "../api";
 import { WeaknessBar } from "../components/WeaknessBar";
 import { UserChip } from "../components/UserChip";
-
-const USER_ID_KEY = "senpai_user_id";
-const HANDLE_KEY = "senpai_user_handle";
+import { HandleEditor } from "../components/HandleEditor";
+import { useAuth, useIdentity } from "../lib/auth";
 
 type TabId = "weaknesses" | "games" | "concepts" | "progress";
 
 export default function Profile() {
   const { userId: paramId } = useParams<{ userId: string }>();
-  const meId = localStorage.getItem(USER_ID_KEY);
-  const meHandle = localStorage.getItem(HANDLE_KEY) ?? "Guest";
+  const { profile, legacy } = useAuth();
+  const { userId: meId, displayName: meHandle } = useIdentity();
   const userId = paramId ?? meId;
   const isMe = !paramId || paramId === meId;
   const [tab, setTab] = useState<TabId>("weaknesses");
@@ -51,6 +50,11 @@ export default function Profile() {
       <header className="profile-head">
         <div className="profile-head-id">
           <UserChip userId={userId} handle={isMe ? meHandle : undefined} />
+          {isMe && !legacy && profile && (
+            <div style={{ marginTop: 14, maxWidth: 320 }}>
+              <HandleEditor />
+            </div>
+          )}
         </div>
         <div className="profile-head-stats">
           <Stat label="Games" value={(games.data ?? []).length.toString()} />

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
 
 from .. import db
@@ -34,6 +34,7 @@ from ..schemas import (
 from ..services.drills import pick_next
 from ..services.orchestrator import run_session_step
 from ..sessions import GameRecord, store
+from .auth import soft_user
 from .ws import broadcast_players, broadcast_state
 
 router = APIRouter(prefix="/api", tags=["games"])
@@ -47,6 +48,22 @@ router = APIRouter(prefix="/api", tags=["games"])
 @router.post("/users", response_model=UserSchema, status_code=201)
 async def create_user(req: CreateUserRequest) -> UserSchema:
     row = await db.create_user(req.handle)
+    return UserSchema(id=str(row["id"]), handle=row["handle"])
+
+
+class UpdateHandleRequest(CreateUserRequest):
+    pass
+
+
+@router.patch("/users/me", response_model=UserSchema)
+async def update_my_handle(
+    req: UpdateHandleRequest, user=Depends(soft_user)
+) -> UserSchema:
+    if not user:
+        raise HTTPException(status_code=401, detail="auth required to set handle")
+    row = await db.update_user_handle(str(user["id"]), req.handle.strip())
+    if not row:
+        raise HTTPException(status_code=404, detail="user not found")
     return UserSchema(id=str(row["id"]), handle=row["handle"])
 
 
@@ -80,7 +97,9 @@ async def get_next_problem(user_id: str) -> ProblemSchema:
 
 
 @router.post("/drill-attempts", response_model=DrillAttemptSchema, status_code=201)
-async def create_drill_attempt(req: DrillAttemptRequest) -> DrillAttemptSchema:
+async def create_drill_attempt(
+    req: DrillAttemptRequest, _user=Depends(soft_user)
+) -> DrillAttemptSchema:
     row = await db.record_drill_attempt(
         req.user_id,
         req.problem_id,
@@ -98,7 +117,7 @@ async def create_drill_attempt(req: DrillAttemptRequest) -> DrillAttemptSchema:
 
 
 @router.post("/users/{user_id}/next-action", response_model=NextActionResponse)
-async def next_action(user_id: str) -> NextActionResponse:
+async def next_action(user_id: str, _user=Depends(soft_user)) -> NextActionResponse:
     result = await run_session_step(user_id)
     kind = result["kind"]
     if kind == "review_game":
@@ -204,7 +223,7 @@ def _game_schema(
 
 
 @router.post("/games", response_model=GameSchema, status_code=201)
-async def create_game(req: CreateGameRequest) -> GameSchema:
+async def create_game(req: CreateGameRequest, _user=Depends(soft_user)) -> GameSchema:
     game_id = str(uuid4())
     game = GameState.new(size=req.size, komi=req.komi)
 
@@ -276,7 +295,7 @@ async def swap_colors(game_id: str) -> GameSchema:
 
 
 @router.post("/games/{game_id}/moves", response_model=StateSchema)
-async def play_move(game_id: str, req: MoveRequest) -> StateSchema:
+async def play_move(game_id: str, req: MoveRequest, _user=Depends(soft_user)) -> StateSchema:
     record = await _get_record(game_id)
 
     async with record.lock:
@@ -315,7 +334,7 @@ async def play_move(game_id: str, req: MoveRequest) -> StateSchema:
 
 
 @router.post("/games/{game_id}/ai-move", response_model=StateSchema)
-async def play_ai_move(game_id: str) -> StateSchema:
+async def play_ai_move(game_id: str, _user=Depends(soft_user)) -> StateSchema:
     row = await db.get_game_row(game_id)
     if not row:
         raise HTTPException(status_code=404, detail="game not found")

@@ -3,8 +3,7 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { getMyGames } from "../api";
-
-const USER_ID_KEY = "senpai_user_id";
+import { useIdentity } from "../lib/auth";
 
 type Status = "any" | "in_progress" | "finished";
 type Size = 0 | 9 | 13 | 19;
@@ -12,7 +11,7 @@ type Size = 0 | 9 | 13 | 19;
 const PAGE = 25;
 
 export default function Games() {
-  const userId = localStorage.getItem(USER_ID_KEY);
+  const { userId } = useIdentity();
   const [status, setStatus] = useState<Status>("any");
   const [size, setSize] = useState<Size>(0);
   const [page, setPage] = useState(0);

@@ -4,13 +4,14 @@ import logging
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from .. import db
 from ..services.katago import get_engine
 from ..services.katago.analyzer import analyze_game, default_rules, default_visits
 from ..services.weakness import apply_evidence, extract_evidence
+from .auth import soft_user
 
 router = APIRouter(prefix="/api", tags=["analysis"])
 
@@ -53,6 +54,7 @@ class AnalysisResponse(BaseModel):
 async def analyze(
     game_id: str,
     force: bool = Query(False, description="Re-run even if features already exist"),
+    _user=Depends(soft_user),
 ) -> AnalyzeResponse:
     game = await db.get_game_row(game_id)
     if not game:

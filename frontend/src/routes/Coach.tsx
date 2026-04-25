@@ -4,11 +4,10 @@ import { useMutation } from "@tanstack/react-query";
 import { getNextAction, type NextActionResponse } from "../api";
 import { ActionCard } from "../components/ActionCard";
 import { useToast } from "../components/NotificationToast";
-
-const USER_ID_KEY = "senpai_user_id";
+import { useIdentity } from "../lib/auth";
 
 export default function Coach() {
-  const userId = localStorage.getItem(USER_ID_KEY);
+  const { userId } = useIdentity();
   const toast = useToast();
 
   const planner = useMutation({

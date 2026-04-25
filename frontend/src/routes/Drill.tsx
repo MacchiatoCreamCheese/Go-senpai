@@ -7,9 +7,8 @@ import { GoBoard } from "../GoBoard";
 import { useToast } from "../components/NotificationToast";
 import { boardAtMove, formatCoord, parseCoord, type Cell } from "../lib/replay";
 import { parseProblemSgf, setupToBoard } from "../lib/sgf";
+import { useIdentity } from "../lib/auth";
 import type { MoveT } from "../types";
-
-const USER_ID_KEY = "senpai_user_id";
 
 interface SolutionStep {
   color: "B" | "W";
@@ -19,7 +18,7 @@ interface SolutionStep {
 export default function Drill() {
   const { problemId } = useParams<{ problemId?: string }>();
   const navigate = useNavigate();
-  const userId = localStorage.getItem(USER_ID_KEY);
+  const { userId } = useIdentity();
   const queryClient = useQueryClient();
 
   const next = useQuery({

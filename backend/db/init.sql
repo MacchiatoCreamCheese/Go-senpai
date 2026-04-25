@@ -4,6 +4,8 @@ CREATE EXTENSION IF NOT EXISTS vector;
 CREATE TABLE users (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     handle      TEXT NOT NULL UNIQUE,
+    email       TEXT UNIQUE,
+    created_via TEXT NOT NULL DEFAULT 'local',
     rank_estimate TEXT,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

@@ -45,8 +45,48 @@ async def create_user(handle: str) -> dict[str, Any]:
 
 async def get_user(user_id: str) -> dict[str, Any] | None:
     row = await _get_pool().fetchrow(
-        "SELECT id, handle, rank_estimate, created_at FROM users WHERE id = $1",
+        "SELECT id, handle, email, rank_estimate, created_at FROM users WHERE id = $1",
         user_id,
+    )
+    return dict(row) if row else None
+
+
+async def get_or_create_user_from_auth(
+    supabase_user_id: str, email: str | None
+) -> dict[str, Any]:
+    """Mirror a Supabase user into our local ``users`` table.
+
+    The Supabase ``auth.users.id`` becomes our ``users.id`` so all FK columns
+    (games, drill_attempts, etc.) join cleanly with the JWT's ``sub`` claim.
+
+    Handle defaults to the local-part of the email; users can change it via
+    ``update_user_handle``.
+    """
+    pool = _get_pool()
+    handle_default = (email.split("@", 1)[0] if email else f"user-{supabase_user_id[:8]}")[:32]
+    row = await pool.fetchrow(
+        """
+        INSERT INTO users (id, handle, email, created_via)
+        VALUES ($1, $2, $3, 'supabase')
+        ON CONFLICT (id) DO UPDATE
+          SET email = COALESCE(EXCLUDED.email, users.email)
+        RETURNING id, handle, email, rank_estimate, created_at
+        """,
+        supabase_user_id,
+        handle_default,
+        email,
+    )
+    return dict(row)
+
+
+async def update_user_handle(user_id: str, handle: str) -> dict[str, Any] | None:
+    row = await _get_pool().fetchrow(
+        """
+        UPDATE users SET handle = $2 WHERE id = $1
+        RETURNING id, handle, email, rank_estimate, created_at
+        """,
+        user_id,
+        handle,
     )
     return dict(row) if row else None
 

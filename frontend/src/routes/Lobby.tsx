@@ -4,12 +4,11 @@ import { useQuery } from "@tanstack/react-query";
 
 import { createGame, createUser, fetchGame, getMyGames, joinGame } from "../api";
 import type { ColorCode } from "../types";
-
-const USER_ID_KEY = "senpai_user_id";
-const USER_HANDLE_KEY = "senpai_user_handle";
+import { HANDLE_KEY as USER_HANDLE_KEY, USER_ID_KEY, useAuth } from "../lib/auth";
 
 export default function Lobby() {
   const navigate = useNavigate();
+  const { user, legacy } = useAuth();
   const [joinInput, setJoinInput] = useState("");
   const [handle, setHandle] = useState(() => localStorage.getItem(USER_HANDLE_KEY) ?? "");
   const [error, setError] = useState<string | null>(null);
@@ -18,7 +17,9 @@ export default function Lobby() {
   const [opponent, setOpponent] = useState<"human" | "ai">("human");
   const [aiRank, setAiRank] = useState<number>(10);
 
-  const userId = localStorage.getItem(USER_ID_KEY);
+  const supabaseUserId = !legacy && user ? user.id : null;
+  const userId = supabaseUserId ?? localStorage.getItem(USER_ID_KEY);
+
   const myGames = useQuery({
     queryKey: ["my-games", userId],
     queryFn: () => (userId ? getMyGames(userId) : Promise.resolve([])),
@@ -31,11 +32,18 @@ export default function Lobby() {
   }
 
   async function ensureUser(): Promise<string> {
+    if (supabaseUserId) {
+      // Backend mirrors the user row from the JWT on first authenticated
+      // request — we just need the id.
+      localStorage.setItem(USER_ID_KEY, supabaseUserId);
+      if (user?.email) localStorage.setItem(USER_HANDLE_KEY, user.email);
+      return supabaseUserId;
+    }
     const name = handle.trim() || "anonymous";
-    const user = await createUser(name);
-    localStorage.setItem(USER_ID_KEY, user.id);
-    localStorage.setItem(USER_HANDLE_KEY, user.handle);
-    return user.id;
+    const u = await createUser(name);
+    localStorage.setItem(USER_ID_KEY, u.id);
+    localStorage.setItem(USER_HANDLE_KEY, u.handle);
+    return u.id;
   }
 
   async function join(id: string) {
@@ -117,26 +125,30 @@ export default function Lobby() {
           </section>
         )}
 
-        <section style={{ ...styles.section, animationDelay: "40ms" }}>
-          <h2 style={styles.sectionLabel}>Your name</h2>
-          <p style={styles.hint}>
-            This is who you play as. Change it before joining to play as a different person.
-          </p>
-          <div style={styles.joinRow}>
-            <input
-              className="input"
-              value={handle}
-              onChange={(e) => setHandle(e.target.value)}
-              placeholder="nickname"
-              style={{ flex: 1 }}
-              autoComplete="off"
-              spellCheck={false}
-              maxLength={32}
-            />
-          </div>
-        </section>
+        {legacy && (
+          <>
+            <section style={{ ...styles.section, animationDelay: "40ms" }}>
+              <h2 style={styles.sectionLabel}>Your name</h2>
+              <p style={styles.hint}>
+                This is who you play as. Change it before joining to play as a different person.
+              </p>
+              <div style={styles.joinRow}>
+                <input
+                  className="input"
+                  value={handle}
+                  onChange={(e) => setHandle(e.target.value)}
+                  placeholder="nickname"
+                  style={{ flex: 1 }}
+                  autoComplete="off"
+                  spellCheck={false}
+                  maxLength={32}
+                />
+              </div>
+            </section>
 
-        <hr className="divider" />
+            <hr className="divider" />
+          </>
+        )}
 
         <section style={{ ...styles.section, animationDelay: "80ms" }}>
           <h2 style={styles.sectionLabel}>New game</h2>
@@ -205,7 +217,7 @@ export default function Lobby() {
                 key={size}
                 className="btn btn-primary"
                 onClick={() => create(size)}
-                disabled={creating || !handle.trim()}
+                disabled={creating || (legacy && !handle.trim())}
                 style={styles.sizeBtn}
               >
                 <span style={styles.stoneDot} />
@@ -240,7 +252,7 @@ export default function Lobby() {
               <button
                 type="submit"
                 className="btn btn-ghost"
-                disabled={!joinInput.trim() || !handle.trim()}
+                disabled={!joinInput.trim() || (legacy && !handle.trim())}
               >
                 Join
               </button>

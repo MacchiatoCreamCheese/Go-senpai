@@ -20,9 +20,9 @@ import { MomentCard } from "../components/MomentCard";
 import { useToast } from "../components/NotificationToast";
 import { boardAtMove, parseCoord } from "../lib/replay";
 import { renderMarkdown } from "../lib/markdown";
+import { useIdentity } from "../lib/auth";
 
 const AI_USER_ID = "00000000-0000-0000-0000-0000000000a1";
-const USER_ID_KEY = "senpai_user_id";
 
 type TabId = "review" | "analysis" | "info";
 
@@ -43,7 +43,7 @@ export default function GameViewer() {
     enabled: !!gameId,
   });
 
-  const userId = typeof window !== "undefined" ? localStorage.getItem(USER_ID_KEY) : null;
+  const { userId } = useIdentity();
   const review = useQuery({
     queryKey: ["review", gameId, userId],
     queryFn: () => (userId ? getReview(gameId, userId) : Promise.resolve(null)),

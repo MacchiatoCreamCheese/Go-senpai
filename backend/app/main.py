@@ -10,14 +10,17 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 from dotenv import load_dotenv
+
+# Load .env BEFORE importing any submodule that reads os.environ at import
+# time — auth.py evaluates SUPABASE_PROJECT_REF at module scope.
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import db
-from .api import analysis, rest, review, ws
+from .api import analysis, auth, rest, review, ws
 from .services.katago import KataGoEngine, get_engine, set_engine
-
-load_dotenv()
 
 
 def _katago_enabled() -> bool:
@@ -62,6 +65,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.include_router(auth.router)
     app.include_router(rest.router)
     app.include_router(analysis.router)
     app.include_router(review.router)

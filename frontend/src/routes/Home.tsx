@@ -11,13 +11,10 @@ import {
 import { ActionCard } from "../components/ActionCard";
 import { WeaknessBar } from "../components/WeaknessBar";
 import { useToast } from "../components/NotificationToast";
-
-const USER_ID_KEY = "senpai_user_id";
-const HANDLE_KEY = "senpai_user_handle";
+import { useIdentity } from "../lib/auth";
 
 export default function Home() {
-  const userId = localStorage.getItem(USER_ID_KEY);
-  const handle = localStorage.getItem(HANDLE_KEY) ?? "Guest";
+  const { userId, displayName: handle } = useIdentity();
   const toast = useToast();
 
   const games = useQuery({

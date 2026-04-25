@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
-const HANDLE_KEY = "senpai_user_handle";
+import { HANDLE_KEY, useAuth } from "../lib/auth";
 
 const NAV = [
   { to: "/", label: "Home", end: true },
@@ -13,20 +13,19 @@ const NAV = [
   { to: "/profile", label: "Profile" },
 ];
 
-function readHandle(): string {
-  return (typeof window !== "undefined" && localStorage.getItem(HANDLE_KEY)) || "";
-}
-
 export function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [handle, setHandle] = useState(readHandle);
+  const { user, profile, legacy, signOut } = useAuth();
+  const [legacyHandle, setLegacyHandle] = useState(
+    () => localStorage.getItem(HANDLE_KEY) ?? "",
+  );
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // Re-read handle when location changes (lobby flow may set it).
+  // Re-read legacy handle when location changes (lobby flow may set it).
   useEffect(() => {
-    setHandle(readHandle());
-  }, [location.pathname]);
+    if (legacy) setLegacyHandle(localStorage.getItem(HANDLE_KEY) ?? "");
+  }, [location.pathname, legacy]);
 
   // Close menu on outside click.
   useEffect(() => {
@@ -39,9 +38,22 @@ export function AppShell() {
     return () => document.removeEventListener("mousedown", onDoc);
   }, [menuOpen]);
 
-  // Hide the persistent shell on the live game screen — that view owns the
-  // viewport and shouldn't compete with global chrome.
   const minimalChrome = location.pathname.startsWith("/play/");
+
+  const displayName = legacy
+    ? legacyHandle || "Guest"
+    : user
+      ? profile?.handle ?? profile?.email ?? user.email ?? "Signed in"
+      : "Sign in";
+
+  const isSignedIn = legacy ? !!legacyHandle : !!user;
+
+  async function handleSignOut() {
+    await signOut();
+    setLegacyHandle("");
+    setMenuOpen(false);
+    navigate(legacy ? "/lobby" : "/login");
+  }
 
   return (
     <div className="shell">
@@ -70,15 +82,21 @@ export function AppShell() {
           <div className="user-menu">
             <button
               className="shell-user"
-              onClick={() => setMenuOpen((v) => !v)}
+              onClick={() => {
+                if (!isSignedIn && !legacy) {
+                  navigate("/login");
+                  return;
+                }
+                setMenuOpen((v) => !v);
+              }}
               aria-haspopup="menu"
               aria-expanded={menuOpen}
             >
               <span className="shell-user-dot" aria-hidden="true" />
-              <span className="shell-user-name">{handle || "Guest"}</span>
-              <span className="shell-user-caret" aria-hidden="true">▾</span>
+              <span className="shell-user-name">{displayName}</span>
+              {isSignedIn && <span className="shell-user-caret" aria-hidden="true">▾</span>}
             </button>
-            {menuOpen && (
+            {menuOpen && isSignedIn && (
               <div className="user-menu-pop" role="menu">
                 <button
                   className="user-menu-item"
@@ -95,13 +113,7 @@ export function AppShell() {
                 <div className="user-menu-rule" />
                 <button
                   className="user-menu-item user-menu-item-muted"
-                  onClick={() => {
-                    localStorage.removeItem(HANDLE_KEY);
-                    localStorage.removeItem("senpai_user_id");
-                    setHandle("");
-                    setMenuOpen(false);
-                    navigate("/lobby");
-                  }}
+                  onClick={handleSignOut}
                 >
                   Sign out
                 </button>
