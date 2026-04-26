@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { createGame, fetchGame, getPlayerNotes, playMove, requestAiMove, sgfUrl, swapColors } from "./api";
 import { GoBoard } from "./GoBoard";
@@ -9,6 +9,7 @@ import { MoveHistory } from "./components/MoveHistory";
 import { PlayerNoteInput } from "./components/PlayerNoteInput";
 import { connectGameSocket } from "./ws";
 import type { ColorCode, GameT, GameStateT, MoveKind, PointT } from "./types";
+import type { GhostStone } from "@sabaki/shudan";
 
 const USER_ID_KEY = "senpai_user_id";
 
@@ -58,6 +59,7 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
   const [chatOpen, setChatOpen] = useState(false);
   const [senseiThinking, setSenseiThinking] = useState(false);
   const [playerNotes, setPlayerNotes] = useState<Record<number, string>>({});
+  const [ownershipRaw, setOwnershipRaw] = useState<{ data: number[]; boardSize: number } | null>(null);
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Reset overlay dismiss when switching games.
@@ -70,6 +72,19 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
   }, [gameId]);
 
   const role = deriveRole(game, localStorage.getItem(USER_ID_KEY));
+
+  const ownershipGhosts = useMemo((): (GhostStone | null)[][] | undefined => {
+    if (!ownershipRaw) return undefined;
+    const { data, boardSize } = ownershipRaw;
+    return Array.from({ length: boardSize }, (_, row) =>
+      Array.from({ length: boardSize }, (_, col) => {
+        const v = data[row * boardSize + col];
+        if (v > 0.5)  return { sign:  1 as const, type: "good" as const, faint: true };
+        if (v < -0.5) return { sign: -1 as const, type: "good" as const, faint: true };
+        return null;
+      }),
+    );
+  }, [ownershipRaw]);
 
   useEffect(() => {
     let cancelled = false;
@@ -214,7 +229,12 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
       {/* Board */}
       <div style={styles.boardArea}>
         <div className="ai-thinking-shell">
-          <GoBoard state={state} disabled={disabled} onPlay={(p) => send("play", p)} />
+          <GoBoard
+            state={state}
+            disabled={disabled}
+            onPlay={(p) => send("play", p)}
+            ownershipGhosts={ownershipGhosts}
+          />
           {aiThinking && (
             <div className="ai-thinking-overlay" aria-hidden="true">
               <div className="ai-thinking-pill">
@@ -412,8 +432,9 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
         gameId={gameId}
         userId={localStorage.getItem(USER_ID_KEY) ?? ""}
         open={chatOpen}
-        onClose={() => setChatOpen(false)}
+        onClose={() => { setChatOpen(false); setOwnershipRaw(null); }}
         onStreamingChange={setSenseiThinking}
+        onOwnership={(data, boardSize) => setOwnershipRaw({ data, boardSize })}
       />
 
       {state.status !== "active" && !overlayDismissed && (

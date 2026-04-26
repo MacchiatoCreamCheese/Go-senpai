@@ -72,26 +72,15 @@ async def get_or_create_session(
     return await db.create_coach_session(game_id, user_id)
 
 
-async def run_coach_turn(
-    *,
+async def fetch_coach_position(
     game_id: str,
     user_id: str,
-    session_id: str,
-    mode: str,
-    user_input: str | None,
     board_size: int,
     komi: float,
-) -> AsyncGenerator[str, None]:
-    """Async generator that yields LLM tokens for a single coach turn."""
-
-    # 1. Load DB state
+    include_ownership: bool = False,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    """Load moves from DB and run a KataGo query. Returns (db_moves, katago_resp)."""
     db_moves = await db.get_moves(game_id)
-    prior_turns = await db.get_coach_turns(session_id, limit=6)
-    player_notes = await db.get_player_move_notes(game_id, user_id)
-    user_row = await db.get_user(user_id)
-    rank_label = _rank_label(user_row.get("rank_estimate") if user_row else None)
-
-    # 2. Engine query (skip if KataGo not running)
     engine = get_engine()
     katago_resp = None
     if engine and db_moves:
@@ -102,12 +91,41 @@ async def run_coach_turn(
                 komi=komi,
                 rules="chinese",
                 db_moves=db_moves,
-                include_ownership=(mode == "whats_my_plan"),
+                include_ownership=include_ownership,
             )
         except Exception as exc:
             log.warning("coach engine query failed: %s", exc)
+    return db_moves, katago_resp
 
-    # 3. Concept retrieval (best-effort)
+
+async def run_coach_turn(
+    *,
+    game_id: str,
+    user_id: str,
+    session_id: str,
+    mode: str,
+    user_input: str | None,
+    board_size: int,
+    komi: float,
+    pre_position: tuple[list[dict[str, Any]], dict[str, Any] | None] | None = None,
+) -> AsyncGenerator[str, None]:
+    """Async generator that yields LLM tokens for a single coach turn."""
+
+    # 1. Load DB state — reuse pre-fetched position if supplied
+    if pre_position is not None:
+        db_moves, katago_resp = pre_position
+    else:
+        db_moves, katago_resp = await fetch_coach_position(
+            game_id, user_id, board_size, komi,
+            include_ownership=(mode == "whats_my_plan"),
+        )
+
+    prior_turns = await db.get_coach_turns(session_id, limit=6)
+    player_notes = await db.get_player_move_notes(game_id, user_id)
+    user_row = await db.get_user(user_id)
+    rank_label = _rank_label(user_row.get("rank_estimate") if user_row else None)
+
+    # 2. Concept retrieval (best-effort)
     concepts: list[dict] = []
     if db_moves:
         try:
@@ -133,7 +151,7 @@ async def run_coach_turn(
         except Exception as exc:
             log.debug("coach concept retrieval failed: %s", exc)
 
-    # 4. Build prompt
+    # 3. Build prompt
     move_count = len(db_moves)
     game_summary = {
         "board_size": board_size,
@@ -159,11 +177,11 @@ async def run_coach_turn(
         retrieved_concepts=concepts,
     )
 
-    # 5. Persist user turn
+    # 4. Persist user turn
     turn_number = len(prior_turns) + 1
     await db.insert_coach_turn(session_id, turn_number, "user", mode, user_input, None)
 
-    # 6. Stream LLM tokens; accumulate for guardrail + persistence
+    # 5. Stream LLM tokens; accumulate for guardrail + persistence
     llm = build_default_client()
     accumulated: list[str] = []
 
@@ -173,13 +191,13 @@ async def run_coach_turn(
 
     full_text = "".join(accumulated)
 
-    # 7. Coordinate guardrail for no-spoiler modes
+    # 6. Coordinate guardrail for no-spoiler modes
     if mode in _SPOILER_MODES and COORDINATE_RE.search(full_text):
         suffix = "\n\n_(Coach note: specific moves omitted — try to find them yourself!)_"
         yield suffix
         full_text += suffix
 
-    # 8. Persist assistant turn
+    # 7. Persist assistant turn
     await db.insert_coach_turn(
         session_id, turn_number + 1, "assistant", mode, None, full_text
     )

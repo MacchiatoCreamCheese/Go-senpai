@@ -13,10 +13,11 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onStreamingChange?: (streaming: boolean) => void;
+  onOwnership?: (data: number[], boardSize: number) => void;
 }
 
-export function ChatDrawer({ gameId, userId, open, onClose, onStreamingChange }: Props) {
-  const { messages, isStreaming, send, reset } = useChatStream(gameId, userId);
+export function ChatDrawer({ gameId, userId, open, onClose, onStreamingChange, onOwnership }: Props) {
+  const { messages, isStreaming, ownership, send, reset } = useChatStream(gameId, userId);
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -25,6 +26,10 @@ export function ChatDrawer({ gameId, userId, open, onClose, onStreamingChange }:
   useEffect(() => {
     onStreamingChange?.(isStreaming);
   }, [isStreaming]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (ownership) onOwnership?.(ownership.data, ownership.boardSize);
+  }, [ownership]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });

@@ -25,6 +25,8 @@ interface Props {
   variationStartColor?: "B" | "W";
   /** Optional heat overlay (used for ownership when available). */
   heatMap?: ({ strength: number; text?: string } | null)[][];
+  /** Territory ghost stones from KataGo ownership (live game only). */
+  ownershipGhosts?: (GhostStone | null)[][];
 }
 
 function toSignMap(board: number[][]): number[][] {
@@ -52,6 +54,7 @@ export function GoBoard({
   variation,
   variationStartColor = "B",
   heatMap,
+  ownershipGhosts,
 }: Props) {
   const [settings] = useSettings();
   const coords = showCoordinates ?? settings.showCoordinates;
@@ -73,14 +76,16 @@ export function GoBoard({
     markers[topMove.row][topMove.col] = { type: "label", label: "★" };
   }
 
-  // Variation ghost stones
-  const ghosts = emptyGhostMap(size);
+  // Ghost stones: variation takes priority; ownership ghosts used when no variation
+  let ghosts = emptyGhostMap(size);
   if (variation && size) {
     let sign: 1 | -1 = variationStartColor === "B" ? 1 : -1;
     for (const v of variation) {
       ghosts[v.row][v.col] = { sign, type: "good", faint: true };
       sign = (sign === 1 ? -1 : 1) as 1 | -1;
     }
+  } else if (ownershipGhosts && ownershipGhosts.length === size) {
+    ghosts = ownershipGhosts;
   }
 
   return (

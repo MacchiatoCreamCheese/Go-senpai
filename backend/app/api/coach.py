@@ -9,7 +9,11 @@ from pydantic import BaseModel
 
 from .. import db
 from .auth import soft_user
-from ..services.coach.session import get_or_create_session, run_coach_turn
+from ..services.coach.session import (
+    fetch_coach_position,
+    get_or_create_session,
+    run_coach_turn,
+)
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -43,6 +47,28 @@ async def invoke_coach(
 
     async def event_stream():
         yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
+
+        # For "whats_my_plan": fetch position with ownership once, emit the
+        # ownership map to the frontend, then reuse the result in run_coach_turn.
+        pre_position = None
+        if body.mode == "whats_my_plan":
+            try:
+                db_moves, katago_resp = await fetch_coach_position(
+                    game_id,
+                    body.user_id,
+                    game["board_size"],
+                    game["komi"],
+                    include_ownership=True,
+                )
+                pre_position = (db_moves, katago_resp)
+                ownership = katago_resp.get("ownership") if katago_resp else None
+                if ownership:
+                    yield (
+                        f"data: {json.dumps({'type': 'ownership', 'data': ownership, 'board_size': game['board_size']})}\n\n"
+                    )
+            except Exception as exc:
+                log.warning("ownership pre-fetch failed: %s", exc)
+
         try:
             async for token in run_coach_turn(
                 game_id=game_id,
@@ -52,6 +78,7 @@ async def invoke_coach(
                 user_input=body.user_input,
                 board_size=game["board_size"],
                 komi=game["komi"],
+                pre_position=pre_position,
             ):
                 yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
         except Exception as exc:

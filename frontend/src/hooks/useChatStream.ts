@@ -8,10 +8,16 @@ export interface ChatMessage {
   streaming?: boolean;
 }
 
+export interface OwnershipData {
+  data: number[];
+  boardSize: number;
+}
+
 export function useChatStream(gameId: string, userId: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [ownership, setOwnership] = useState<OwnershipData | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const send = useCallback(
@@ -28,6 +34,8 @@ export function useChatStream(gameId: string, userId: string) {
         { role: "assistant", mode, text: "", streaming: true },
       ]);
       setIsStreaming(true);
+      // Clear previous ownership when starting a new invoke
+      if (mode !== "followup") setOwnership(null);
 
       try {
         const resp = await api(`/api/games/${gameId}/coach/invoke`, {
@@ -66,6 +74,11 @@ export function useChatStream(gameId: string, userId: string) {
             }
             if (msg.type === "session") {
               setSessionId(msg.session_id as string);
+            } else if (msg.type === "ownership") {
+              setOwnership({
+                data: msg.data as number[],
+                boardSize: msg.board_size as number,
+              });
             } else if (msg.type === "token") {
               const content = msg.content as string;
               setMessages((prev) => {
@@ -129,7 +142,8 @@ export function useChatStream(gameId: string, userId: string) {
     setMessages([]);
     setSessionId(null);
     setIsStreaming(false);
+    setOwnership(null);
   }, []);
 
-  return { messages, isStreaming, send, reset };
+  return { messages, isStreaming, ownership, send, reset };
 }
