@@ -43,42 +43,83 @@ flowchart LR
     player(( Player ))
     katago[[ KataGo engine ]]
     llm[[ LLM provider ]]
+    supabase[[ Supabase Auth ]]
 
     subgraph Go-senpai
-        uc1([ Register / log in ])
-        uc2([ Play vs human ])
-        uc3([ Play vs AI ])
-        uc4([ Export SGF ])
-        uc5([ Request game analysis ])
-        uc6([ Receive weakness report ])
-        uc7([ Run assigned drill ])
-        uc8([ Read LLM review ])
-        uc9([ Ask Sensei coaching chat ])
-        uc10([ View session history ])
+
+        subgraph auth_group [Authentication]
+            uc1([ Register / log in ])
+        end
+
+        subgraph play_group [Playing]
+            uc2([ Play vs human ])
+            uc3([ Play vs AI ])
+            uc3t([ Training mode:\nlive tier feedback ])
+            uc3u([ Undo last move ])
+            uc4([ Export SGF ])
+            uc4n([ Annotate moves ])
+        end
+
+        subgraph analysis_group [Analysis & Review]
+            uc5([ Request game analysis ])
+            uc5o([ View ownership map ])
+            uc6([ View weakness report ])
+            uc8([ Read LLM game review ])
+            uc8m([ Read per-move notes ])
+        end
+
+        subgraph coaching_group [Coaching]
+            uc9([ Ask Sensei chat ])
+            uc10([ Request next action ])
+            uc7([ Run assigned drill ])
+            uc11([ Browse concept library ])
+        end
+
+        subgraph profile_group [Profile]
+            uc12([ View session history ])
+            uc13([ View progress & stats ])
+        end
+
     end
 
     player --- uc1
     player --- uc2
     player --- uc3
+    uc3 --- uc3t
+    uc3 --- uc3u
     player --- uc4
+    player --- uc4n
     player --- uc5
+    uc5 --- uc5o
     player --- uc6
-    player --- uc7
     player --- uc8
+    uc8 --- uc8m
     player --- uc9
     player --- uc10
+    player --- uc7
+    player --- uc11
+    player --- uc12
+    player --- uc13
 
+    uc1 --- supabase
     uc3 --- katago
+    uc3t --- katago
     uc5 --- katago
-    uc6 --- katago
+    uc5o --- katago
     uc9 --- katago
     uc8 --- llm
-    uc7 --- llm
+    uc8m --- llm
     uc9 --- llm
-    uc5 -.feeds.-> uc6
+    uc10 --- llm
+
+    uc5 -.feeds weaknesses.-> uc6
+    uc6 -.informs.-> uc10
+    uc10 -.assigns.-> uc7
+    uc10 -.assigns.-> uc8
+    uc10 -.assigns.-> uc11
 ```
 
-The player is the only human actor. KataGo participates in any use case that needs a ground-truth evaluation of the board (AI opponent, post-game analysis, weakness detection). The LLM provider participates only in pedagogical use cases (drill selection, written review), never in move generation.
+The player is the only human actor. KataGo provides grounded numerical evaluation for any use case touching the board (AI opponent, training feedback, post-game analysis, coaching chat context). The LLM is used only for prose generation (game review, per-move notes, coaching chat, next-action orchestration) — never for board reading. The dashed arrows show the coaching data flow: analysis feeds the weakness model, which informs the orchestrator, which assigns the next action.
 
 ---
 
@@ -322,7 +363,7 @@ Go-senpai/
 │   │   ├── db.py                 ← asyncpg pool, query helpers
 │   │   ├── schemas.py            ← Pydantic request / response models
 │   │   └── sessions.py           ← Cookie-based session auth
-│   └── db/init.sql               ← Schema, runs on first container boot
+│   └── db/init.sql               ← Consolidated schema (run once in Supabase SQL Editor)
 ├── frontend/                     ← React 18 + Vite + TypeScript
 │   └── src/
 │       ├── App.tsx               ← Router + auth bootstrap
@@ -381,7 +422,6 @@ Flow B is what makes this project "agentic". The orchestrator is a plain Python 
 ### 5. How to run and debug things
 
 ```bash
-docker compose up -d db            # Postgres + pgvector
 cd backend && uvicorn app.main:app --reload
 cd frontend && npm run dev
 ```
@@ -389,7 +429,7 @@ cd frontend && npm run dev
 - **Backend logs:** watch the uvicorn terminal. Weakness detectors and the orchestrator log every decision at INFO level.
 - **KataGo not responding?** Run `katago.exe analysis -config ...` manually in a terminal first. OpenCL tuning takes ~5 minutes the first time and looks like a hang but isn't.
 - **Frontend blank page?** 99% of the time it's the Preact alias. Check `frontend/vite.config.ts`.
-- **DB schema out of date?** `docker compose down -v && docker compose up -d db` wipes and recreates. You will lose local games — that is fine in dev.
+- **DB schema out of date?** Re-run `backend/db/init.sql` in the Supabase SQL Editor (wipes and recreates all tables).
 - **Tests:** `pytest -q` from `backend/`. Expect **41 passed**. If you touch `engine/` or `services/`, add a test. The engine tests are fast and deterministic; please keep them that way.
 
 ### 6. Conventions we have converged on
@@ -421,7 +461,7 @@ Six-person team, class project. Decisions that affect more than one module shoul
 |---|---|
 | Frontend | React 18 + Vite + TypeScript + @sabaki/shudan |
 | Backend | FastAPI + asyncpg + Python 3.11 |
-| Database | PostgreSQL 16 + pgvector (via Docker) |
+| Database | PostgreSQL 16 + pgvector (Supabase) |
 | Analysis | KataGo (runs on host) |
 | LLM review | Anthropic Claude or Google Gemini |
 
@@ -429,7 +469,6 @@ Six-person team, class project. Decisions that affect more than one module shoul
 
 ## Prerequisites
 
-- **Docker Desktop**
 - **Python 3.11+**
 - **Node 18+**
 - **KataGo** binary + network file *(optional — only needed for post-game analysis)*
@@ -438,33 +477,19 @@ Six-person team, class project. Decisions that affect more than one module shoul
 
 ## Getting started
 
-### 1. Start the database
-
-From the repo root:
-
-```bash
-docker compose up -d db
-```
-
-The schema in `backend/db/init.sql` is applied automatically on first creation. If you pull schema changes later, recreate the volume:
-
-```bash
-docker compose down -v && docker compose up -d db
-```
-
-### 2. Configure and run the backend
+### 1. Configure and run the backend
 
 ```bash
 cd backend
 cp .env.example .env
 ```
 
-Edit `.env`. Minimum to run without analysis:
+Edit `.env`: set `DATABASE_URL` to the shared Supabase connection string (get it from a teammate). `KATAGO_ENABLED=false` is already the default.
 
-```
-DATABASE_URL=postgresql://senpai:senpai@localhost:5432/senpai
-KATAGO_ENABLED=false
-```
+> **Password has special characters?** (`@`, `#`, `[`, `]`, etc.) Percent-encode it:
+> ```python
+> from urllib.parse import quote_plus; print(quote_plus("your_password"))
+> ```
 
 Install and verify:
 
@@ -476,7 +501,7 @@ uvicorn app.main:app --reload
 
 The server listens on `http://localhost:8000`.
 
-### 3. Run the frontend
+### 2. Run the frontend
 
 ```bash
 cd frontend
@@ -486,7 +511,7 @@ npm run dev
 
 Open `http://localhost:5173`. Create a user, create a game, and play.
 
-### 4. Drive the coaching loop (curl walkthrough)
+### 3. Drive the coaching loop (curl walkthrough)
 
 Once you have played at least one game to completion, the backend exposes a single endpoint that drives the whole coaching pipeline. It decides the *next action* for the user by consulting a deterministic rule table:
 
@@ -522,15 +547,12 @@ Peek at the state the orchestrator just updated:
 ```bash
 :: Current weaknesses with their EMA severities
 curl -s http://localhost:8000/api/users/{user_id}/weaknesses | python -m json.tool
-
-:: Concepts we've taught this user (and whether they've demonstrated each one)
-docker compose exec db psql -U senpai -d senpai -c "SELECT concept_id, times_taught, last_taught_at, user_demonstrated FROM user_concepts_seen WHERE user_id = '{user_id}';"
 ```
 
-Tip: to force the `teach_concept` branch in a test DB where no weakness has crossed the 0.2 threshold yet, bump one directly:
+Tip: to force the `teach_concept` branch when no weakness has crossed the 0.2 threshold yet, bump one directly in the Supabase SQL Editor:
 
-```bash
-docker compose exec db psql -U senpai -d senpai -c "UPDATE user_weaknesses SET severity = 0.5 WHERE user_id = '{user_id}' AND theme = 'low_consistency_opening';"
+```sql
+UPDATE user_weaknesses SET severity = 0.5 WHERE user_id = '{user_id}' AND theme = 'low_consistency_opening';
 ```
 
 ---
@@ -597,7 +619,6 @@ Go-senpai/
 │   └── src/
 │       ├── components/   # GoBoard, GameView
 │       └── api.ts / ws.ts
-└── docker-compose.yml    # PostgreSQL + pgvector
 ```
 
 ---

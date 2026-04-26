@@ -7,8 +7,7 @@ FastAPI server for the Sensei Go coaching platform. Phase 0 (persistence) and Ph
 ## Prerequisites
 
 - **Python 3.11+**
-- **Docker Desktop** (for Postgres)
-- **KataGo** + a network file (only required if you want to run analysis; the server runs without it)
+- **KataGo** + a network file (optional — only needed if you want to run move analysis)
 
 ---
 
@@ -38,12 +37,18 @@ KataGo runs on the **host**, not in Docker (needs GPU access on Windows).
 
 The project uses a shared Supabase database — no Docker needed.
 
-Get `DATABASE_URL` from a teammate (or the project chat). It looks like:
+Get the `DATABASE_URL` from a teammate. It looks like:
 ```
-postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
+postgresql://postgres.vrsogktirpdmbkjvyxky:[YOUR-PASSWORD]@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres
 ```
 
-**First-time schema setup** (only needs to be done once per Supabase project):
+> **Password has special characters?** (`@`, `#`, `[`, `]`, etc.) Percent-encode it first:
+> ```python
+> from urllib.parse import quote_plus; print(quote_plus("your_password"))
+> ```
+> Use the output in place of `[YOUR-PASSWORD]`.
+
+**First-time schema setup** (only needs to be done once for the whole team):
 1. Open Supabase Dashboard → SQL Editor
 2. Paste the full contents of `backend/db/init.sql` and run it
 
@@ -56,13 +61,9 @@ cd backend
 cp .env.example .env
 ```
 
-Edit `.env`. Minimum to run the server (no analysis):
-```
-DATABASE_URL=postgresql://senpai:senpai@localhost:5432/senpai
-KATAGO_ENABLED=false
-```
+Edit `.env`: set `DATABASE_URL` to the Supabase connection string from step 2. Everything else defaults to sensible values (`KATAGO_ENABLED=false`, no LLM keys required to run the server).
 
-To enable analysis (Phase 1):
+To enable KataGo analysis:
 ```
 KATAGO_ENABLED=true
 KATAGO_BIN=C:\tools\katago\katago.exe
@@ -135,7 +136,7 @@ Re-running `/analyze` returns `"cached": true` instantly. Add `?force=true` to r
 | `400 game is not finished` | Game has no `ended_at`. Resign or play to two passes first. |
 | First `/analyze` is slow | Normal — KataGo loads the network into VRAM on first request. |
 | `points_lost` differs run-to-run by ±0.5 | `numSearchThreadsPerAnalysisThread > 1` in `analysis.cfg`. Set it to 1. |
-| `relation "move_features" does not exist` | Schema is out of date. `docker compose down -v && docker compose up -d db`. |
+| `relation "move_features" does not exist` | Schema is out of date. Re-run `backend/db/init.sql` in the Supabase SQL Editor. |
 | First KataGo run hangs for several minutes | OpenCL auto-tuning. One-time; let it finish. |
 
 ---
