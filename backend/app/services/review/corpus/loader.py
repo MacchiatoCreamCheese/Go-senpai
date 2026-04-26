@@ -95,7 +95,8 @@ async def ingest(directory: Path = CONCEPTS_DIR) -> dict[str, int]:
 async def _main() -> None:
     from dotenv import load_dotenv
 
-    load_dotenv()
+    load_dotenv(Path(__file__).resolve().parents[4] / ".env")
+    load_dotenv()  # fallback: cwd or already-set env
     dsn = os.environ["DATABASE_URL"]
     await db.connect(dsn)
     try:

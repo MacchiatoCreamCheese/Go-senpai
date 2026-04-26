@@ -20,6 +20,25 @@ WEAKNESS_TO_PROBLEM_THEMES: dict[str, tuple[str, ...]] = {
     "low_consistency_endgame": ("endgame_tesuji",),
 }
 
+# Reverse: given a problem theme, which weakness themes does solving it address?
+_PROBLEM_THEME_TO_WEAKNESSES: dict[str, tuple[str, ...]] = {}
+for _wt, _pts in WEAKNESS_TO_PROBLEM_THEMES.items():
+    for _pt in _pts:
+        _PROBLEM_THEME_TO_WEAKNESSES.setdefault(_pt, ())
+        _PROBLEM_THEME_TO_WEAKNESSES[_pt] = _PROBLEM_THEME_TO_WEAKNESSES[_pt] + (_wt,)
+
+
+def weakness_themes_for_problem(problem_themes: list[str]) -> list[str]:
+    """Return weakness theme names addressed by a problem's themes (deduped)."""
+    seen: set[str] = set()
+    result: list[str] = []
+    for pt in problem_themes:
+        for wt in _PROBLEM_THEME_TO_WEAKNESSES.get(pt, ()):
+            if wt not in seen:
+                seen.add(wt)
+                result.append(wt)
+    return result
+
 RECENCY_PENALTY = 1.0
 DIFFICULTY_PENALTY_PER_STEP = 0.25
 

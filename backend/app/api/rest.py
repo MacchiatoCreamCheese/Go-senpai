@@ -16,6 +16,7 @@ from ..engine.game import GameState, MoveKind, Status
 from ..engine.rules import IllegalMove
 from ..engine.sgf import export_sgf
 from ..services.katago import ai_player
+from ..services.weakness import apply_evidence, extract_evidence
 from ..services.katago.engine import get_engine
 from ..services.katago.features import classify_tier, confidence_weight
 from ..services.katago.live_analysis import analyze_single_move, position_hash_pair
@@ -41,6 +42,7 @@ from ..schemas import (
     color_from_code,
 )
 from ..services.drills import pick_next
+from ..services.drills.selector import weakness_themes_for_problem
 from ..services.orchestrator import run_session_step
 from ..sessions import GameRecord, store
 from .auth import soft_user
@@ -162,6 +164,8 @@ async def get_problem_by_id(problem_id: str) -> ProblemSchema:
     )
 
 
+_DRILL_EMA_ALPHA = 0.15  # softer than game-analysis alpha (0.3) — drill evidence is one move
+
 @router.post("/drill-attempts", response_model=DrillAttemptSchema, status_code=201)
 async def create_drill_attempt(
     req: DrillAttemptRequest, _user=Depends(soft_user)
@@ -173,6 +177,18 @@ async def create_drill_attempt(
         req.moves_played,
         req.hint_used,
     )
+    # On success, feed a score=0 EMA update for each weakness theme the drill
+    # addresses — this decays severity toward 0, signalling improving skill.
+    # On failure we leave severities alone; game analysis already captures that.
+    if req.success:
+        problem = await db.get_problem(req.problem_id)
+        if problem:
+            themes = weakness_themes_for_problem(list(problem.get("themes") or []))
+            for theme in themes:
+                try:
+                    await db.upsert_user_weakness(req.user_id, theme, 0.0, _DRILL_EMA_ALPHA)
+                except Exception:
+                    pass
     return DrillAttemptSchema(
         id=int(row["id"]),
         user_id=str(row["user_id"]),
@@ -389,8 +405,37 @@ async def swap_colors(game_id: str) -> GameSchema:
     return _game_schema(record, seats["black_user_id"], seats["white_user_id"])
 
 
+async def _update_weaknesses_from_training_game(game_id: str, game_row: dict) -> None:
+    """Run weakness evidence extraction for a just-finished training game.
+
+    Training games accumulate move_features via live analysis during play but
+    the weakness updater only runs on explicit /analyze calls. This closes the
+    loop automatically on game end. Fire-and-forget — never raises to caller.
+    """
+    try:
+        features = await db.get_move_features(game_id)
+        if not features:
+            return
+        seats = [
+            (game_row.get("black_user_id"), "B"),
+            (game_row.get("white_user_id"), "W"),
+        ]
+        for user_id, color in seats:
+            if user_id is None:
+                continue
+            uid = str(user_id)
+            if uid == AI_USER_ID:
+                continue
+            player_features = [f for f in features if f.get("color") == color]
+            evidence = extract_evidence(player_features)
+            await apply_evidence(uid, game_id, evidence)
+    except Exception as exc:
+        logging.getLogger(__name__).warning("training weakness update failed game=%s: %s", game_id, exc)
+
+
 @router.post("/games/{game_id}/moves", response_model=StateSchema)
 async def play_move(game_id: str, req: MoveRequest, _user=Depends(soft_user)) -> StateSchema:
+    row = await db.get_game_row(game_id)
     record = await _get_record(game_id)
 
     async with record.lock:
@@ -418,11 +463,15 @@ async def play_move(game_id: str, req: MoveRequest, _user=Depends(soft_user)) ->
             coord,
         )
 
-        if record.game.status != Status.ACTIVE:
+        game_just_ended = record.game.status != Status.ACTIVE
+        if game_just_ended:
             sgf = export_sgf(record.game).decode()
             await db.finish_game(record.id, record.game.result, sgf)  # type: ignore[arg-type]
 
         state = StateSchema.from_game(record.game)
+
+    if game_just_ended and row.get("training_mode"):
+        asyncio.create_task(_update_weaknesses_from_training_game(game_id, row))
 
     await broadcast_state(record, state)
     return state
@@ -503,11 +552,15 @@ async def play_ai_move(game_id: str, _user=Depends(soft_user)) -> StateSchema:
             coord,
         )
 
-        if record.game.status != Status.ACTIVE:
+        ai_game_just_ended = record.game.status != Status.ACTIVE
+        if ai_game_just_ended:
             sgf = export_sgf(record.game).decode()
             await db.finish_game(record.id, record.game.result, sgf)  # type: ignore[arg-type]
 
         state = StateSchema.from_game(record.game)
+
+    if ai_game_just_ended and row.get("training_mode"):
+        asyncio.create_task(_update_weaknesses_from_training_game(game_id, row))
 
     await broadcast_state(record, state)
     # analyze_task runs in background; move_tier arrives via WS after this returns

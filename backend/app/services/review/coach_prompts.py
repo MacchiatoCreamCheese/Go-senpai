@@ -8,6 +8,10 @@ Hard rules:
 - Every claim must reference the provided board features (move count, phase, recent moves).
 - Respond in plain prose or a short bullet list. No headers.
 - For off-topic questions: redirect briefly — "Let's stay focused on the game — here's what I see..."
+- If "student_context" is present: reference the student's top weaknesses and recent concepts
+  naturally when relevant. For example, if they have a "blunder middlegame" weakness and you see
+  a tactical slip, connect it. If a concept they recently studied appears in the position, note
+  it — "you've been working on this pattern." Never list the context mechanically.
 
 TONE — match the "rank" field exactly:
 
@@ -85,6 +89,7 @@ def build_coach_prompt(
     user_input: str | None,
     rank_label: str,
     retrieved_concepts: list[dict],
+    user_learning_context: dict | None = None,
 ) -> tuple[str, str]:
     """Return (system_prompt, user_json_str) for the coach LLM call."""
     system = _SYSTEM_BY_MODE.get(mode, FOLLOWUP_SYSTEM)
@@ -97,6 +102,8 @@ def build_coach_prompt(
         "user_message": user_input,
         "retrieved_concepts": retrieved_concepts,
     }
+    if user_learning_context:
+        payload["student_context"] = user_learning_context
     if ownership_map is not None:
         payload["ownership_sample"] = ownership_map
 

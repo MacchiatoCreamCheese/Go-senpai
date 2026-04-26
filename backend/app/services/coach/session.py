@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
+from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncGenerator
 
 from ... import db
@@ -120,9 +122,13 @@ async def run_coach_turn(
             include_ownership=(mode == "whats_my_plan"),
         )
 
-    prior_turns = await db.get_coach_turns(session_id, limit=6)
-    player_notes = await db.get_player_move_notes(game_id, user_id)
-    user_row = await db.get_user(user_id)
+    prior_turns, player_notes, user_row, weaknesses, concepts_seen = await asyncio.gather(
+        db.get_coach_turns(session_id, limit=6),
+        db.get_player_move_notes(game_id, user_id),
+        db.get_user(user_id),
+        db.list_user_weaknesses(user_id),
+        db.list_concepts_seen(user_id),
+    )
     rank_label = _rank_label(user_row.get("rank_estimate") if user_row else None)
 
     # 2. Concept retrieval (best-effort)
@@ -166,6 +172,23 @@ async def run_coach_turn(
             if mn >= move_count - 8
         ],
     }
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    user_learning_context = {
+        "top_weaknesses": [
+            {"theme": w["theme"].replace("_", " "), "severity": round(float(w["severity"]), 2)}
+            for w in weaknesses[:3]
+            if float(w.get("severity") or 0) >= 0.2
+        ],
+        "recent_concepts": [
+            {"concept_id": c["concept_id"], "times_taught": c["times_taught"]}
+            for c in concepts_seen
+            if c.get("last_taught_at") and (
+                c["last_taught_at"] if isinstance(c["last_taught_at"], datetime)
+                else datetime.fromisoformat(str(c["last_taught_at"]))
+            ).replace(tzinfo=timezone.utc) >= cutoff
+        ],
+    }
+
     system, user_prompt = build_coach_prompt(
         mode=mode,
         game_summary=game_summary,
@@ -175,6 +198,7 @@ async def run_coach_turn(
         user_input=user_input,
         rank_label=rank_label,
         retrieved_concepts=concepts,
+        user_learning_context=user_learning_context,
     )
 
     # 4. Persist user turn
@@ -201,3 +225,11 @@ async def run_coach_turn(
     await db.insert_coach_turn(
         session_id, turn_number + 1, "assistant", mode, None, full_text
     )
+
+    # 8. Mark retrieved concepts as taught — the user just received an
+    # explanation that referenced them, so they count as a teaching event.
+    for concept in concepts:
+        try:
+            await db.record_concept_taught(user_id, concept["id"])
+        except Exception:
+            pass

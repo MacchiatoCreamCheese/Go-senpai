@@ -109,6 +109,11 @@ async def get_move_note(
         raise HTTPException(status_code=503, detail=str(e)) from e
     if note is None:
         raise HTTPException(status_code=404, detail="no note for green moves")
+    for concept_id in note.get("concept_ids") or []:
+        try:
+            await db.record_concept_taught(for_user_id, concept_id)
+        except Exception:
+            pass
     return MoveNoteResponse(**note)
 
 

@@ -5,6 +5,9 @@ import react from "@vitejs/plugin-react";
 // against React by aliasing `preact` → `react` (see the package's own
 // demo-react build). React exports `createElement`, `Component`, and
 // `useCallback` at the top level, matching what shudan imports.
+const backendHttp = process.env.VITE_API_URL ?? "http://localhost:8000";
+const backendWs = backendHttp.replace(/^http/, "ws");
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -16,8 +19,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": "http://localhost:8000",
-      "/ws": { target: "ws://localhost:8000", ws: true },
+      "/api": backendHttp,
+      "/ws": { target: backendWs, ws: true },
     },
   },
 });
