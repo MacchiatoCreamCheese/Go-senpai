@@ -4,8 +4,9 @@ import asyncio
 import logging
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
+from pydantic import BaseModel
 
 from .. import db
 from ..rate_limit import NEXT_ACTION_LIMIT, limiter
@@ -517,3 +518,40 @@ async def export_game_sgf(game_id: str) -> PlainTextResponse:
         media_type="application/x-go-sgf",
         headers={"Content-Disposition": f'attachment; filename="{game_id}.sgf"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# Player move notes
+# ---------------------------------------------------------------------------
+
+
+class PlayerNoteBody(BaseModel):
+    user_id: str
+    body: str
+
+
+@router.put("/games/{game_id}/moves/{move_number}/player-note", status_code=204)
+async def put_player_note(
+    game_id: str,
+    move_number: int,
+    req: PlayerNoteBody,
+    _user=Depends(soft_user),
+) -> None:
+    if not req.body.strip():
+        raise HTTPException(400, "body cannot be empty")
+    if len(req.body) > 300:
+        raise HTTPException(400, "note too long (max 300 chars)")
+    game = await db.get_game_row(game_id)
+    if not game:
+        raise HTTPException(404, "game not found")
+    await db.upsert_player_move_note(game_id, move_number, req.user_id, req.body.strip())
+
+
+@router.get("/games/{game_id}/player-notes")
+async def get_player_notes(
+    game_id: str,
+    user_id: str = Query(...),
+    _user=Depends(soft_user),
+) -> dict[str, str]:
+    raw = await db.get_player_move_notes(game_id, user_id)
+    return {str(k): v for k, v in raw.items()}

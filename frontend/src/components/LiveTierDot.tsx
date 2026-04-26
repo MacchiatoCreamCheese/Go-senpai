@@ -7,14 +7,15 @@ interface Props {
   gameId: string;
   userId: string;
   tiers: Map<number, Tier>;
+  pendingCount?: number;
   onShowOnBoard: (moveNumber: number) => void;
 }
 
-export function LiveTierDot({ gameId, userId, tiers, onShowOnBoard }: Props) {
+export function LiveTierDot({ gameId, userId, tiers, pendingCount = 0, onShowOnBoard }: Props) {
   const [dismissed, setDismissed] = useState<number | null>(null);
   const [openNote, setOpenNote] = useState<number | null>(null);
 
-  if (tiers.size === 0) return null;
+  if (tiers.size === 0 && pendingCount === 0) return null;
 
   const green = [...tiers.values()].filter((t) => t === "green").length;
   const yellow = [...tiers.values()].filter((t) => t === "yellow").length;
@@ -46,6 +47,12 @@ export function LiveTierDot({ gameId, userId, tiers, onShowOnBoard }: Props) {
           <span className="tier-dot tier-dot--red" />
           {red}
         </span>
+        {pendingCount > 0 && (
+          <span className="live-tier-count live-tier-count--pending" title="Analyzing…">
+            <span className="tier-dot tier-dot--pending" />
+            {pendingCount}
+          </span>
+        )}
       </div>
 
       {/* Latest non-green dot — dismissible */}

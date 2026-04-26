@@ -87,6 +87,7 @@ async def run_coach_turn(
     # 1. Load DB state
     db_moves = await db.get_moves(game_id)
     prior_turns = await db.get_coach_turns(session_id, limit=6)
+    player_notes = await db.get_player_move_notes(game_id, user_id)
     user_row = await db.get_user(user_id)
     rank_label = _rank_label(user_row.get("rank_estimate") if user_row else None)
 
@@ -133,12 +134,18 @@ async def run_coach_turn(
             log.debug("coach concept retrieval failed: %s", exc)
 
     # 4. Build prompt
+    move_count = len(db_moves)
     game_summary = {
         "board_size": board_size,
-        "move_count": len(db_moves),
-        "phase": _infer_phase(len(db_moves), board_size),
+        "move_count": move_count,
+        "phase": _infer_phase(move_count, board_size),
         "recent_moves": [
             {"color": m["color"], "coord": m["coord"]} for m in db_moves[-3:]
+        ],
+        "player_notes": [
+            {"move_number": mn, "thought": body}
+            for mn, body in sorted(player_notes.items())
+            if mn >= move_count - 8
         ],
     }
     system, user_prompt = build_coach_prompt(

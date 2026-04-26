@@ -12,14 +12,19 @@ interface Props {
   userId: string;
   open: boolean;
   onClose: () => void;
+  onStreamingChange?: (streaming: boolean) => void;
 }
 
-export function ChatDrawer({ gameId, userId, open, onClose }: Props) {
+export function ChatDrawer({ gameId, userId, open, onClose, onStreamingChange }: Props) {
   const { messages, isStreaming, send, reset } = useChatStream(gameId, userId);
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const hasMessages = messages.length > 0;
+
+  useEffect(() => {
+    onStreamingChange?.(isStreaming);
+  }, [isStreaming]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -63,6 +68,7 @@ export function ChatDrawer({ gameId, userId, open, onClose }: Props) {
             ×
           </button>
         </div>
+        {isStreaming && <div className="chat-loading-bar" aria-hidden="true" />}
 
         {!hasMessages && (
           <div className="chat-mode-buttons">

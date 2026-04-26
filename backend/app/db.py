@@ -975,6 +975,32 @@ async def insert_coach_turn(
     )
 
 
+async def upsert_player_move_note(
+    game_id: str, move_number: int, user_id: str, body: str
+) -> None:
+    await _get_pool().execute(
+        """
+        INSERT INTO player_move_notes (game_id, move_number, user_id, body)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (game_id, move_number, user_id) DO UPDATE
+          SET body = EXCLUDED.body, updated_at = NOW()
+        """,
+        game_id,
+        move_number,
+        user_id,
+        body,
+    )
+
+
+async def get_player_move_notes(game_id: str, user_id: str) -> dict[int, str]:
+    rows = await _get_pool().fetch(
+        "SELECT move_number, body FROM player_move_notes WHERE game_id=$1 AND user_id=$2",
+        game_id,
+        user_id,
+    )
+    return {r["move_number"]: r["body"] for r in rows}
+
+
 async def list_user_games(user_id: str) -> list[dict[str, Any]]:
     rows = await _get_pool().fetch(
         """

@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 
-import { createGame, fetchGame, playMove, requestAiMove, sgfUrl, swapColors } from "./api";
+import { createGame, fetchGame, getPlayerNotes, playMove, requestAiMove, sgfUrl, swapColors } from "./api";
 import { GoBoard } from "./GoBoard";
 import { UserChip } from "./components/UserChip";
 import { LiveTierDot } from "./components/LiveTierDot";
 import { ChatDrawer } from "./components/ChatDrawer";
+import { MoveHistory } from "./components/MoveHistory";
+import { PlayerNoteInput } from "./components/PlayerNoteInput";
 import { connectGameSocket } from "./ws";
 import type { ColorCode, GameT, GameStateT, MoveKind, PointT } from "./types";
 
@@ -54,10 +56,18 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
   const [playAgainPending, setPlayAgainPending] = useState(false);
   const [liveTiers, setLiveTiers] = useState<Map<number, "green" | "yellow" | "red">>(new Map());
   const [chatOpen, setChatOpen] = useState(false);
+  const [senseiThinking, setSenseiThinking] = useState(false);
+  const [playerNotes, setPlayerNotes] = useState<Record<number, string>>({});
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Reset overlay dismiss when switching games.
   useEffect(() => { setOverlayDismissed(false); }, [gameId]);
+
+  // Load player notes on mount
+  useEffect(() => {
+    const uid = localStorage.getItem(USER_ID_KEY);
+    if (uid) getPlayerNotes(gameId, uid).then(setPlayerNotes);
+  }, [gameId]);
 
   const role = deriveRole(game, localStorage.getItem(USER_ID_KEY));
 
@@ -307,7 +317,29 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
             gameId={gameId}
             userId={localStorage.getItem(USER_ID_KEY) ?? ""}
             tiers={liveTiers}
+            pendingCount={Math.max(0, state.moves.length - liveTiers.size)}
             onShowOnBoard={() => {/* board not scrubable in live mode */}}
+          />
+        )}
+
+        {/* Move history */}
+        {state.moves.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <label style={styles.fieldLabel}>Move history</label>
+            <MoveHistory moves={state.moves} boardSize={game?.size ?? 19} />
+          </div>
+        )}
+
+        {/* Player strategy note */}
+        {role && state.status === "active" && game?.opponent_type === "ai" && (
+          <PlayerNoteInput
+            gameId={gameId}
+            userId={localStorage.getItem(USER_ID_KEY) ?? ""}
+            moveNumber={state.moves.length}
+            existingNote={playerNotes[state.moves.length]}
+            onSaved={(mn, body) =>
+              setPlayerNotes((prev) => ({ ...prev, [mn]: body }))
+            }
           />
         )}
 
@@ -318,7 +350,8 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
             onClick={() => setChatOpen(true)}
             title="Open the Sensei coach (C)"
           >
-            Ask Sensei <kbd>C</kbd>
+            {chatOpen && senseiThinking ? "Sensei is thinking…" : "Ask Sensei"}{" "}
+            <kbd>C</kbd>
           </button>
         )}
 
@@ -379,6 +412,7 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
         userId={localStorage.getItem(USER_ID_KEY) ?? ""}
         open={chatOpen}
         onClose={() => setChatOpen(false)}
+        onStreamingChange={setSenseiThinking}
       />
 
       {state.status !== "active" && !overlayDismissed && (

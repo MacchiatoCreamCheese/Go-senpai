@@ -355,3 +355,28 @@ export async function generateReview(
   const resp = await api(`/api/games/${gameId}/review?${params}`, { method: "POST" });
   return asJson<ReviewResponse>(resp);
 }
+
+export async function putPlayerNote(
+  gameId: string,
+  moveNumber: number,
+  userId: string,
+  body: string,
+): Promise<void> {
+  await api(`/api/games/${gameId}/moves/${moveNumber}/player-note`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: userId, body }),
+  });
+}
+
+export async function getPlayerNotes(
+  gameId: string,
+  userId: string,
+): Promise<Record<number, string>> {
+  const resp = await api(
+    `/api/games/${gameId}/player-notes?user_id=${encodeURIComponent(userId)}`,
+  );
+  if (!resp.ok) return {};
+  const raw: Record<string, string> = await resp.json();
+  return Object.fromEntries(Object.entries(raw).map(([k, v]) => [Number(k), v]));
+}
