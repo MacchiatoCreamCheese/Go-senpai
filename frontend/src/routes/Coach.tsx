@@ -1,19 +1,57 @@
 import { Link } from "react-router-dom";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { getNextAction, type NextActionResponse } from "../api";
+import { getNextAction, getActionHistory, type NextActionResponse, type ActionHistoryItem } from "../api";
 import { ActionCard } from "../components/ActionCard";
 import { useToast } from "../components/NotificationToast";
 import { useIdentity } from "../lib/auth";
 
+const KIND_LABEL: Record<string, string> = {
+  review_game: "Review game",
+  serve_drill: "Drill",
+  teach_concept: "Learn concept",
+  revisit_concept: "Revisit concept",
+  idle: "Idle",
+};
+
+function HistoryFeed({ items }: { items: ActionHistoryItem[] }) {
+  if (items.length === 0) return null;
+  return (
+    <section className="coach-history">
+      <h2 className="coach-history-title">Past picks</h2>
+      <ul className="coach-history-list">
+        {items.map((item) => (
+          <li key={item.id} className="coach-history-item">
+            <span className="coach-history-kind">{KIND_LABEL[item.kind] ?? item.kind}</span>
+            {item.reason && <span className="coach-history-reason dim">{item.reason}</span>}
+            <span className="coach-history-time dim">
+              {new Date(item.picked_at).toLocaleString()}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export default function Coach() {
   const { userId } = useIdentity();
   const toast = useToast();
+  const queryClient = useQueryClient();
+
+  const history = useQuery({
+    queryKey: ["action-history", userId],
+    queryFn: () => (userId ? getActionHistory(userId) : Promise.resolve([])),
+    enabled: !!userId,
+  });
 
   const planner = useMutation({
     mutationFn: () => {
       if (!userId) throw new Error("Sign in first");
       return getNextAction(userId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["action-history", userId] });
     },
     onError: (err) =>
       toast.push({ kind: "error", title: "Planner failed", body: String(err) }),
@@ -82,12 +120,7 @@ export default function Coach() {
         )}
       </div>
 
-      <footer className="coach-foot">
-        <span className="dim">
-          Action history (a chronological feed of past picks) lands once the backend
-          exposes <code>/users/:id/action-history</code>.
-        </span>
-      </footer>
+      <HistoryFeed items={history.data ?? []} />
     </div>
   );
 }

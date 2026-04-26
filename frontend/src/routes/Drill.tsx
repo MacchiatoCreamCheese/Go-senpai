@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { getNextProblem, postDrillAttempt, type ProblemT } from "../api";
+import { getNextProblem, getProblem, postDrillAttempt, type ProblemT } from "../api";
 import { GoBoard } from "../GoBoard";
 import { useToast } from "../components/NotificationToast";
 import { boardAtMove, formatCoord, parseCoord, type Cell } from "../lib/replay";
@@ -22,13 +22,19 @@ export default function Drill() {
   const queryClient = useQueryClient();
 
   const next = useQuery({
-    queryKey: ["next-problem", userId, problemId],
+    queryKey: ["next-problem", userId],
     queryFn: () => (userId ? getNextProblem(userId) : Promise.resolve(null)),
     enabled: !!userId && !problemId,
   });
 
-  // problemId path is not implemented (no GET /problems/:id) — fall through.
-  const problem: ProblemT | null = next.data ?? null;
+  const direct = useQuery({
+    queryKey: ["problem", problemId],
+    queryFn: () => getProblem(problemId!),
+    enabled: !!problemId,
+  });
+
+  const isLoading = problemId ? direct.isLoading : next.isLoading;
+  const problem: ProblemT | null = (problemId ? direct.data : next.data) ?? null;
 
   if (!userId) {
     return (
@@ -41,7 +47,7 @@ export default function Drill() {
     );
   }
 
-  if (next.isLoading) {
+  if (isLoading) {
     return (
       <div className="stub-page">
         <div className="stub-mark">練</div>
@@ -54,11 +60,8 @@ export default function Drill() {
     return (
       <div className="stub-page">
         <div className="stub-mark">練</div>
-        <h1>Direct problem links</h1>
-        <p>
-          Backend doesn't yet expose <code>GET /problems/:id</code>; for now use the
-          generic next-problem flow.
-        </p>
+        <h1>Problem not found</h1>
+        <p>No problem with that ID exists in the database.</p>
         <Link to="/drill" className="btn btn-primary">Get next problem</Link>
       </div>
     );
@@ -80,7 +83,7 @@ export default function Drill() {
       problem={problem}
       userId={userId}
       onNext={() => {
-        queryClient.invalidateQueries({ queryKey: ["next-problem", userId, problemId] });
+        queryClient.invalidateQueries({ queryKey: ["next-problem", userId] });
         navigate("/drill", { replace: true });
       }}
     />

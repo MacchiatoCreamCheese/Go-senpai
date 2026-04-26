@@ -46,20 +46,54 @@ def _seen_map(concepts_seen: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return {row["concept_id"]: row for row in concepts_seen}
 
 
+def _recently_picked(history: list[dict[str, Any]], kind: str, minutes: int, now: datetime) -> bool:
+    cutoff = now - timedelta(minutes=minutes)
+    for entry in history:
+        if entry.get("kind") != kind:
+            continue
+        picked = entry.get("picked_at")
+        if picked is None:
+            continue
+        if isinstance(picked, str):
+            try:
+                picked = datetime.fromisoformat(picked)
+            except ValueError:
+                continue
+        if picked.tzinfo is None:
+            picked = picked.replace(tzinfo=timezone.utc)
+        if picked >= cutoff:
+            return True
+    return False
+
+
+def _last_n_kinds(history: list[dict[str, Any]], n: int) -> list[str]:
+    return [e["kind"] for e in history[:n] if "kind" in e]
+
+
 def choose_next_action(
     weaknesses: list[dict[str, Any]],
     unreviewed_games: list[dict[str, Any]],
     concepts_seen: list[dict[str, Any]],
     has_candidate_drill: bool,
+    recent_history: list[dict[str, Any]] | None = None,
     now: datetime | None = None,
 ) -> Action:
     current = now or _now()
     seen = _seen_map(concepts_seen)
+    history = recent_history or []
 
     # 1. review_game: freshest evidence first.
+    # Skip if the same game was already suggested within the last 15 min —
+    # user is likely not going to act on it right now, try something else.
     if unreviewed_games:
         game = unreviewed_games[0]
-        return {"kind": "review_game", "game_id": str(game["id"])}
+        same_game_recent = any(
+            e.get("kind") == "review_game" and str(e.get("game_id")) == str(game["id"])
+            for e in history
+            if _recently_picked([e], "review_game", 15, current)
+        )
+        if not same_game_recent:
+            return {"kind": "review_game", "game_id": str(game["id"])}
 
     # 2. revisit_concept: taught but not yet demonstrated, and recent enough.
     for row in concepts_seen:
@@ -112,6 +146,10 @@ def choose_next_action(
             return {"kind": "teach_concept", "concept_id": concept_id}
 
     # 4. serve_drill (or idle if nothing available).
-    if has_candidate_drill:
+    # Avoid hammering drills: if the last 2 picks were both serve_drill, skip
+    # this round so the session stays varied.
+    last_two = _last_n_kinds(history, 2)
+    drill_streak = len(last_two) == 2 and all(k == "serve_drill" for k in last_two)
+    if has_candidate_drill and not drill_streak:
         return {"kind": "serve_drill"}
     return {"kind": "idle", "reason": "no content available"}

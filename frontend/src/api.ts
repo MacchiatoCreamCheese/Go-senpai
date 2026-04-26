@@ -241,6 +241,22 @@ export interface NextActionResponse {
   reason?: string;
 }
 
+export interface ActionHistoryItem {
+  id: number;
+  kind: NextActionKind | string;
+  game_id?: string;
+  problem_id?: string;
+  concept_id?: string;
+  reason?: string;
+  picked_at: string;
+}
+
+export async function getActionHistory(userId: string, limit = 20): Promise<ActionHistoryItem[]> {
+  const resp = await api(`/api/users/${encodeURIComponent(userId)}/action-history?limit=${limit}`);
+  if (!resp.ok) return [];
+  return asJson<ActionHistoryItem[]>(resp);
+}
+
 export async function getNextAction(userId: string): Promise<NextActionResponse> {
   const resp = await api(`/api/users/${encodeURIComponent(userId)}/next-action`, {
     method: "POST",
@@ -250,6 +266,12 @@ export async function getNextAction(userId: string): Promise<NextActionResponse>
 
 export async function getNextProblem(userId: string): Promise<ProblemT | null> {
   const resp = await api(`/api/users/${encodeURIComponent(userId)}/next-problem`);
+  if (resp.status === 404) return null;
+  return asJson<ProblemT>(resp);
+}
+
+export async function getProblem(problemId: string): Promise<ProblemT | null> {
+  const resp = await api(`/api/problems/${encodeURIComponent(problemId)}`);
   if (resp.status === 404) return null;
   return asJson<ProblemT>(resp);
 }

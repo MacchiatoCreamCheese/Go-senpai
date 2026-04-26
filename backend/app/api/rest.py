@@ -20,6 +20,7 @@ from ..services.katago.engine import get_engine
 from ..services.katago.features import classify_tier, confidence_weight
 from ..services.katago.live_analysis import analyze_single_move, position_hash_pair
 from ..schemas import (
+    ActionHistoryItem,
     ConceptListItem,
     ConceptSchema,
     CreateGameRequest,
@@ -146,6 +147,21 @@ async def get_next_problem(user_id: str) -> ProblemSchema:
     )
 
 
+@router.get("/problems/{problem_id}", response_model=ProblemSchema)
+async def get_problem_by_id(problem_id: str) -> ProblemSchema:
+    problem = await db.get_problem(problem_id)
+    if problem is None:
+        raise HTTPException(status_code=404, detail="problem not found")
+    return ProblemSchema(
+        id=problem["id"],
+        sgf=problem["sgf"],
+        solution=problem["solution"],
+        themes=list(problem["themes"] or []),
+        difficulty=int(problem["difficulty"]),
+        source=problem.get("source"),
+    )
+
+
 @router.post("/drill-attempts", response_model=DrillAttemptSchema, status_code=201)
 async def create_drill_attempt(
     req: DrillAttemptRequest, _user=Depends(soft_user)
@@ -176,11 +192,12 @@ async def next_action(
     result = await run_session_step(user_id)
     kind = result["kind"]
     if kind == "review_game":
-        return NextActionResponse(kind="review_game", game_id=str(result["game_id"]))
+        return NextActionResponse(kind="review_game", game_id=str(result["game_id"]), reason=result.get("reason", ""))
     if kind == "serve_drill":
         p = result["problem"]
         return NextActionResponse(
             kind="serve_drill",
+            reason=result.get("reason", ""),
             problem=ProblemSchema(
                 id=p["id"],
                 sgf=p["sgf"],
@@ -194,6 +211,7 @@ async def next_action(
         c = result["concept"]
         return NextActionResponse(
             kind=kind,
+            reason=result.get("reason", ""),
             concept=ConceptSchema(
                 id=c["id"],
                 title=c["title"],
@@ -202,6 +220,23 @@ async def next_action(
             ),
         )
     return NextActionResponse(kind="idle", reason=result.get("reason", ""))
+
+
+@router.get("/users/{user_id}/action-history", response_model=list[ActionHistoryItem])
+async def get_action_history(user_id: str, limit: int = 20) -> list[ActionHistoryItem]:
+    rows = await db.list_action_history(user_id, limit=limit)
+    return [
+        ActionHistoryItem(
+            id=r["id"],
+            kind=r["kind"],
+            game_id=str(r["game_id"]) if r.get("game_id") else None,
+            problem_id=r.get("problem_id"),
+            concept_id=r.get("concept_id"),
+            reason=r.get("reason"),
+            picked_at=r["picked_at"].isoformat(),
+        )
+        for r in rows
+    ]
 
 
 @router.get("/users/{user_id}/games", response_model=list[GameListItem])

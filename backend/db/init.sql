@@ -151,3 +151,15 @@ CREATE TABLE user_concepts_seen (
     PRIMARY KEY (user_id, concept_id)
 );
 CREATE INDEX idx_user_concepts_seen_user ON user_concepts_seen (user_id);
+
+CREATE TABLE action_history (
+    id          BIGSERIAL PRIMARY KEY,
+    user_id     UUID  NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind        TEXT  NOT NULL,
+    game_id     UUID,
+    problem_id  TEXT,
+    concept_id  TEXT,
+    reason      TEXT,
+    picked_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_action_history_user_time ON action_history (user_id, picked_at DESC);

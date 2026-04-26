@@ -696,6 +696,43 @@ async def list_candidate_problems(
     return out
 
 
+async def insert_action_history(
+    user_id: str,
+    kind: str,
+    game_id: str | None = None,
+    problem_id: str | None = None,
+    concept_id: str | None = None,
+    reason: str | None = None,
+) -> None:
+    await _get_pool().execute(
+        """
+        INSERT INTO action_history (user_id, kind, game_id, problem_id, concept_id, reason)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        """,
+        user_id,
+        kind,
+        game_id,
+        problem_id,
+        concept_id,
+        reason,
+    )
+
+
+async def list_action_history(user_id: str, limit: int = 20) -> list[dict[str, Any]]:
+    rows = await _get_pool().fetch(
+        """
+        SELECT id, kind, game_id, problem_id, concept_id, reason, picked_at
+        FROM action_history
+        WHERE user_id = $1
+        ORDER BY picked_at DESC
+        LIMIT $2
+        """,
+        user_id,
+        limit,
+    )
+    return [dict(r) for r in rows]
+
+
 async def record_drill_attempt(
     user_id: str,
     problem_id: str,

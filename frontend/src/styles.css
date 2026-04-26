@@ -1163,21 +1163,50 @@ p {
   font-style: italic;
 }
 
-.coach-foot {
-  margin-top: auto;
+.coach-history {
+  margin-top: 32px;
   border-top: 1px dashed var(--line);
-  padding-top: 12px;
-  font-family: var(--font-body);
-  font-size: 0.82rem;
-  color: var(--stone);
+  padding-top: 16px;
 }
 
-.coach-foot code {
-  font-family: var(--font-mono);
-  font-size: 0.82em;
-  background: rgba(28, 23, 18, 0.05);
-  padding: 1px 5px;
-  border-radius: 2px;
+.coach-history-title {
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--stone);
+  margin: 0 0 10px;
+}
+
+.coach-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.coach-history-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 0.85rem;
+}
+
+.coach-history-kind {
+  font-weight: 600;
+  min-width: 110px;
+  flex-shrink: 0;
+}
+
+.coach-history-reason {
+  flex: 1;
+  font-style: italic;
+}
+
+.coach-history-time {
+  white-space: nowrap;
+  font-size: 0.78rem;
 }
 
 /* ─── Profile page ───────────────────────────────────────── */

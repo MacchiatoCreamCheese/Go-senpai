@@ -176,3 +176,13 @@ class NextActionResponse(BaseModel):
     problem: Optional[ProblemSchema] = None
     concept: Optional[ConceptSchema] = None
     reason: Optional[str] = None
+
+
+class ActionHistoryItem(BaseModel):
+    id: int
+    kind: str
+    game_id: Optional[str] = None
+    problem_id: Optional[str] = None
+    concept_id: Optional[str] = None
+    reason: Optional[str] = None
+    picked_at: str
