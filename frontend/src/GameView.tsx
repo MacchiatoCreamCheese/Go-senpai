@@ -317,7 +317,8 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
             gameId={gameId}
             userId={localStorage.getItem(USER_ID_KEY) ?? ""}
             tiers={liveTiers}
-            pendingCount={Math.max(0, state.moves.length - liveTiers.size)}
+            pendingCount={state.moves.reduce((n, m, i) =>
+              m.color === role && !liveTiers.has(i + 1) ? n + 1 : n, 0)}
             onShowOnBoard={() => {/* board not scrubable in live mode */}}
           />
         )}

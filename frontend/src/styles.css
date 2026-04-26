@@ -3176,32 +3176,30 @@ p {
   font-family: var(--font-mono);
   font-size: 0.78rem;
   scrollbar-width: thin;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
-.move-history-pair {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 2px;
-}
-
-.move-history-cell {
+.move-history-row {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   padding: 1px 4px;
   border-radius: 3px;
   color: var(--ink);
 }
 
-.move-history-cell--latest {
+.move-history-row--latest {
   background: var(--line-dark);
   font-weight: 600;
 }
 
 .move-history-num {
-  color: var(--stone);
-  min-width: 18px;
+  min-width: 22px;
+  text-align: right;
   opacity: 0.6;
+  color: var(--stone);
 }
 
 .stone-dot--black {

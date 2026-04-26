@@ -24,34 +24,22 @@ export function MoveHistory({ moves, boardSize }: Props) {
 
   if (moves.length === 0) return null;
 
-  // Pair moves: [black, white] per row
-  const pairs: [MoveT, number, MoveT | null, number][] = [];
-  for (let i = 0; i < moves.length; i += 2) {
-    pairs.push([moves[i], i + 1, moves[i + 1] ?? null, i + 2]);
-  }
-
   return (
     <div className="move-history">
-      {pairs.map(([black, bNum, white, wNum]) => (
-        <div key={bNum} className="move-history-pair">
+      {moves.map((move, i) => {
+        const num = i + 1;
+        const isLatest = num === moves.length;
+        return (
           <div
-            className={`move-history-cell${bNum === moves.length ? " move-history-cell--latest" : ""}`}
+            key={num}
+            className={`move-history-row${isLatest ? " move-history-row--latest" : ""}`}
           >
-            <span className="move-history-num">{bNum}.</span>
-            <span className="stone-dot stone-dot--black" />
-            <span>{moveLabel(black, boardSize)}</span>
+            <span className="move-history-num">{num}</span>
+            <span className={`stone-dot stone-dot--${move.color === "B" ? "black" : "white"}`} />
+            <span>{moveLabel(move, boardSize)}</span>
           </div>
-          {white && (
-            <div
-              className={`move-history-cell${wNum === moves.length ? " move-history-cell--latest" : ""}`}
-            >
-              <span className="move-history-num">{wNum}.</span>
-              <span className="stone-dot stone-dot--white" />
-              <span>{moveLabel(white, boardSize)}</span>
-            </div>
-          )}
-        </div>
-      ))}
+        );
+      })}
       <div ref={endRef} />
     </div>
   );
