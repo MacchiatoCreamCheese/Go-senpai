@@ -995,6 +995,26 @@ async def insert_coach_turn(
     )
 
 
+async def truncate_moves(game_id: str, from_move_number: int) -> None:
+    """Delete moves >= from_move_number and their analysis rows."""
+    pool = _get_pool()
+    await pool.execute(
+        "DELETE FROM move_features WHERE game_id=$1 AND move_number>=$2",
+        game_id,
+        from_move_number,
+    )
+    await pool.execute(
+        "DELETE FROM player_move_notes WHERE game_id=$1 AND move_number>=$2",
+        game_id,
+        from_move_number,
+    )
+    await pool.execute(
+        "DELETE FROM moves WHERE game_id=$1 AND move_number>=$2",
+        game_id,
+        from_move_number,
+    )
+
+
 async def upsert_player_move_note(
     game_id: str, move_number: int, user_id: str, body: str
 ) -> None:

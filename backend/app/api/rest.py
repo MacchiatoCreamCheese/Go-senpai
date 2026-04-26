@@ -479,6 +479,50 @@ async def play_ai_move(game_id: str, _user=Depends(soft_user)) -> StateSchema:
     return state
 
 
+@router.post("/games/{game_id}/undo", response_model=StateSchema)
+async def undo_move(game_id: str, _user=Depends(soft_user)) -> StateSchema:
+    row = await db.get_game_row(game_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="game not found")
+    if row["opponent_type"] != "ai":
+        raise HTTPException(status_code=400, detail="undo only available in AI games")
+    if row["ended_at"] is not None:
+        raise HTTPException(status_code=400, detail="game is already finished")
+
+    black_id = _nullable_str(row["black_user_id"])
+    player_color = "W" if black_id == AI_USER_ID else "B"
+    ai_color = "B" if player_color == "W" else "W"
+
+    record = await _get_record(game_id)
+    async with record.lock:
+        moves = await db.get_moves(game_id)
+        if len(moves) < 2:
+            raise HTTPException(status_code=400, detail="nothing to undo")
+        last, second_last = moves[-1], moves[-2]
+        if last["color"] != ai_color or second_last["color"] != player_color:
+            raise HTTPException(status_code=400, detail="cannot undo right now")
+
+        await db.truncate_moves(game_id, second_last["move_number"])
+
+        # Rebuild game state in-place from remaining moves
+        game = GameState.new(size=row["board_size"], komi=row["komi"])
+        for m in await db.get_moves(game_id):
+            color = BLACK if m["color"] == "B" else WHITE
+            coord: str = m["coord"]
+            if coord == "pass":
+                game.play(color, MoveKind.PASS)
+            elif coord == "resign":
+                game.play(color, MoveKind.RESIGN)
+            else:
+                r, c = from_coord(coord, game.size)
+                game.play(color, MoveKind.PLAY, point=(r, c))
+        record.game = game
+        state = StateSchema.from_game(record.game)
+
+    await broadcast_state(record, state)
+    return state
+
+
 async def _live_analyze_and_push(
     game_id: str,
     game_row: dict,

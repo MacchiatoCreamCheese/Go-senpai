@@ -105,6 +105,16 @@ p {
   background: rgba(28, 23, 18, 0.05);
 }
 
+.action-btn--undo {
+  color: var(--ink-faint, #888);
+  border-color: var(--line, #ccc);
+}
+
+.action-btn--undo:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
 .btn-seal {
   background: var(--seal);
   color: #FAF7F2;

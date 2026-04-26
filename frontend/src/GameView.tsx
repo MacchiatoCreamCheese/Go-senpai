@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { createGame, fetchGame, getPlayerNotes, playMove, requestAiMove, sgfUrl, swapColors } from "./api";
+import { createGame, fetchGame, getPlayerNotes, playMove, requestAiMove, sgfUrl, swapColors, undoMove } from "./api";
 import { GoBoard } from "./GoBoard";
 import { UserChip } from "./components/UserChip";
 import { LiveTierDot } from "./components/LiveTierDot";
@@ -181,6 +181,25 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
     }
   }
 
+  async function handleUndo() {
+    setError(null);
+    try {
+      const newState = await undoMove(gameId);
+      setState(newState);
+      // Remove liveTier entries for the two undone moves
+      const undonePlayer = newState.moves.length + 1;
+      const undoneAi = newState.moves.length + 2;
+      setLiveTiers((prev) => {
+        const next = new Map(prev);
+        next.delete(undonePlayer);
+        next.delete(undoneAi);
+        return next;
+      });
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   if (error && !state) {
     return (
       <div style={styles.errorPage}>
@@ -219,6 +238,8 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
 
   const disabled = !role || state.status !== "active" || state.turn !== role;
   const isMyTurn = !!role && state.status === "active" && state.turn === role;
+  const isAiGame = game?.opponent_type === "ai";
+  const canUndo = isAiGame && isMyTurn && state.moves.length >= 2;
   const turnLabel = state.turn === "B" ? "Black" : "White";
   const turnColorClass = state.turn === "B" ? "black" : "white";
   const preGame = state.moves.length === 0 && state.status === "active";
@@ -388,6 +409,15 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
             >
               Pass
             </button>
+            {isAiGame && (
+              <button
+                className="btn btn-ghost action-btn--undo"
+                onClick={handleUndo}
+                disabled={!canUndo}
+              >
+                Undo
+              </button>
+            )}
             <button
               className="btn btn-ghost"
               onClick={() => send("resign", null)}

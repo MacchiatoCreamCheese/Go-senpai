@@ -65,6 +65,11 @@ export async function requestAiMove(id: string): Promise<GameStateT> {
   return asJson<GameStateT>(resp);
 }
 
+export async function undoMove(id: string): Promise<GameStateT> {
+  const resp = await api(`/api/games/${id}/undo`, { method: "POST" });
+  return asJson<GameStateT>(resp);
+}
+
 export async function swapColors(id: string): Promise<GameT> {
   const resp = await api(`/api/games/${id}/swap_colors`, { method: "POST" });
   return asJson<GameT>(resp);
