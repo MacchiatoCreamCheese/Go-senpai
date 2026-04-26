@@ -1,6 +1,6 @@
 # Go-senpai backend
 
-FastAPI server for the Sensei Go coaching platform. Phase 0 (persistence) and Phase 1 (KataGo feature pipeline) are implemented.
+FastAPI server for the Sensei Go coaching platform. Full feature set is implemented: game engine, KataGo analysis pipeline, weakness detection, LLM review, SSE coaching chat, agentic orchestrator, and drill selector.
 
 ---
 
@@ -85,7 +85,18 @@ Expect 41 passed.
 
 ---
 
-## 5. Run the server
+## 5. Seed the database
+
+Run once (safe to re-run — both commands upsert):
+
+```bash
+python scripts/load_problems.py                 # tsumego problems
+python -m app.services.review.corpus.loader     # Go concepts + embeddings
+```
+
+---
+
+## 6. Run the server
 
 ```bash
 uvicorn app.main:app --reload
@@ -95,7 +106,7 @@ If `KATAGO_ENABLED=true`, the KataGo subprocess is launched at app startup and t
 
 ---
 
-## 6. Verify Phase 1 end-to-end
+## 7. Verify end-to-end
 
 In another terminal (or via the frontend, which is easier):
 
@@ -104,9 +115,9 @@ In another terminal (or via the frontend, which is easier):
 curl -X POST localhost:8000/api/users -H "Content-Type: application/json" -d '{"handle":"me"}'
 # → { "id": "<USER_ID>", ... }
 
-# create a 9x9 game (use the same id for both seats for solo testing)
+# create a 9x9 game vs AI
 curl -X POST localhost:8000/api/games -H "Content-Type: application/json" \
-  -d '{"size":9,"komi":5.5,"black_user_id":"<USER_ID>","white_user_id":"<USER_ID>"}'
+  -d '{"size":9,"komi":5.5,"user_id":"<USER_ID>","color":"B","opponent_type":"ai","ai_rank":20}'
 # → { "id": "<GAME_ID>", ... }
 ```
 

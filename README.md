@@ -390,7 +390,7 @@ Go-senpai/
 │       │   ├── Sparkline.tsx     ← Progress mini-charts
 │       │   └── PlayerNoteInput.tsx ← Per-move annotations
 │       └── lib/                  ← Auth, replay, SGF, HTTP helpers
-└── docker-compose.yml            ← Postgres 16 + pgvector
+└── backend/db/init.sql           ← Run once in Supabase SQL Editor to create the schema
 ```
 
 **The golden rule of the backend layers:** `api/` may call `services/` and `engine/`; `services/` may call `engine/` and the DB; `engine/` depends on nothing. If you find yourself importing `app.db` from inside `engine/`, stop — you are about to break a test.
@@ -430,6 +430,7 @@ cd frontend && npm run dev
 - **KataGo not responding?** Run `katago.exe analysis -config ...` manually in a terminal first. OpenCL tuning takes ~5 minutes the first time and looks like a hang but isn't.
 - **Frontend blank page?** 99% of the time it's the Preact alias. Check `frontend/vite.config.ts`.
 - **DB schema out of date?** Re-run `backend/db/init.sql` in the Supabase SQL Editor (wipes and recreates all tables).
+- **Concepts or problems missing?** Run `python scripts/load_problems.py` and `python -m app.services.review.corpus.loader` from `backend/`. Both are safe to re-run.
 - **Tests:** `pytest -q` from `backend/`. Expect **41 passed**. If you touch `engine/` or `services/`, add a test. The engine tests are fast and deterministic; please keep them that way.
 
 ### 6. Conventions we have converged on
@@ -471,6 +472,7 @@ Six-person team, class project. Decisions that affect more than one module shoul
 
 - **Python 3.11+**
 - **Node 18+**
+- **Supabase account** — the database is hosted on Supabase; get the project URL, anon key, and connection string from a teammate (or create your own project at supabase.com)
 - **KataGo** binary + network file *(optional — only needed for post-game analysis)*
 
 ---
@@ -501,17 +503,32 @@ uvicorn app.main:app --reload
 
 The server listens on `http://localhost:8000`.
 
-### 2. Run the frontend
+### 2. Seed the database
+
+Run once after the schema is in place (both commands are safe to re-run — they upsert):
+
+```bash
+cd backend
+python scripts/load_problems.py                  # tsumego problems
+python -m app.services.review.corpus.loader      # Go concepts + embeddings
+```
+
+The concept loader downloads a small sentence-transformer model on first run (~90 MB). If you have `REVIEW_EMBEDDING_MODEL` unset it defaults to `sentence-transformers/all-MiniLM-L6-v2`.
+
+### 3. Run the frontend
 
 ```bash
 cd frontend
 npm install
+cp .env.example .env.local
+# Edit .env.local: fill in VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY
+# (Supabase dashboard → Project Settings → API)
 npm run dev
 ```
 
 Open `http://localhost:5173`. Create a user, create a game, and play.
 
-### 3. Drive the coaching loop (curl walkthrough)
+### 4. Drive the coaching loop (curl walkthrough)
 
 Once you have played at least one game to completion, the backend exposes a single endpoint that drives the whole coaching pipeline. It decides the *next action* for the user by consulting a deterministic rule table:
 
@@ -586,9 +603,13 @@ Required only for post-game analysis (`POST /api/games/{id}/analyze`). KataGo ru
 
 ## Environment variables
 
+**Backend (`backend/.env`):**
+
 | Variable | Required | Description |
 |---|---|---|
-| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `DATABASE_URL` | Yes | Supabase PostgreSQL connection string (Session pooler URL) |
+| `SUPABASE_PROJECT_REF` | No | Enables JWT auth; your Supabase project ref (e.g. `vrsogktirpdmbkjvyxky`). When unset, auth is disabled (dev mode). |
+| `CORS_ORIGINS` | No | Comma-separated allowed origins (default: `http://localhost:5173,http://localhost:5174`) |
 | `KATAGO_ENABLED` | No | Enable KataGo analysis (`true`/`false`) |
 | `KATAGO_BIN` | If enabled | Path to `katago.exe` |
 | `KATAGO_CONFIG` | If enabled | Path to `analysis.cfg` |
@@ -600,26 +621,14 @@ Required only for post-game analysis (`POST /api/games/{id}/analyze`). KataGo ru
 | `REVIEW_LLM_MODEL` | No | e.g. `gemini-2.5-flash`, `claude-sonnet-4-6` |
 | `GOOGLE_API_KEY` | If Gemini | Gemini API key |
 | `ANTHROPIC_API_KEY` | If Anthropic | Anthropic API key |
-| `REVIEW_EMBEDDING_MODEL` | No | Sentence-transformer model for concept retrieval |
+| `REVIEW_EMBEDDING_MODEL` | No | Sentence-transformer model for concept retrieval (default: `all-MiniLM-L6-v2`) |
 
----
+**Frontend (`frontend/.env.local`):**
 
-## Project structure
-
-```
-Go-senpai/
-├── backend/          # FastAPI server
-│   ├── app/
-│   │   ├── api/      # HTTP + WebSocket endpoints
-│   │   ├── engine/   # Go rules, board logic, SGF I/O
-│   │   └── services/ # KataGo, weakness detection, orchestration, LLM review
-│   ├── db/           # init.sql schema + seed data
-│   └── README.md     # Backend-specific setup and API docs
-├── frontend/         # React + Vite app
-│   └── src/
-│       ├── components/   # GoBoard, GameView
-│       └── api.ts / ws.ts
-```
+| Variable | Required | Description |
+|---|---|---|
+| `VITE_SUPABASE_URL` | Yes | `https://<project-ref>.supabase.co` |
+| `VITE_SUPABASE_ANON_KEY` | Yes | Public anon key from Supabase → Project Settings → API |
 
 ---
 
