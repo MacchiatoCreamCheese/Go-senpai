@@ -152,6 +152,16 @@ async def _run_weakness_update(game_id: str, game: dict) -> None:
         log.warning("weakness update failed for game %s: %s", game_id, exc)
 
 
+@router.get("/games/{game_id}/moves/{move_number}/ownership")
+async def get_move_ownership(game_id: str, move_number: int) -> dict:
+    if move_number < 1:
+        raise HTTPException(status_code=404, detail="no ownership for move 0")
+    ownership = await db.get_move_ownership(game_id, move_number)
+    if ownership is None:
+        raise HTTPException(status_code=404, detail="ownership data not available — run analysis first")
+    return {"ownership": ownership}
+
+
 @router.get("/games/{game_id}/analysis", response_model=AnalysisResponse)
 async def get_analysis(game_id: str) -> AnalysisResponse:
     rows = await db.get_move_features(game_id)

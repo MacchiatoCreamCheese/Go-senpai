@@ -6,12 +6,14 @@ import {
   fetchGame,
   generateReview,
   getGameAnalysis,
+  getMoveOwnership,
   getReview,
   sgfUrl,
   triggerAnalyze,
   type MoveFeature,
   type ReviewResponse,
 } from "../api";
+import type { GhostStone } from "@sabaki/shudan";
 import { GoBoard } from "../GoBoard";
 import { MoveScrubber } from "../components/MoveScrubber";
 import { EngineOverlay } from "../components/EngineOverlay";
@@ -55,7 +57,8 @@ export default function GameViewer() {
 
   const [tab, setTab] = useState<TabId>("review");
   const [showTopMove, setShowTopMove] = useState(true);
-  const [showOwnership, setShowOwnership] = useState(false); // disabled — no data yet
+  const [showOwnership, setShowOwnership] = useState(false);
+  const [ownershipRaw, setOwnershipRaw] = useState<number[] | null>(null);
   const [blundersOnly, setBlundersOnly] = useState(false);
   const [sortKey, setSortKey] = useState<"move" | "lost">("move");
 
@@ -103,6 +106,32 @@ export default function GameViewer() {
     if (!f?.top_move) return null;
     return parseCoord(f.top_move, game.data.size);
   }, [showTopMove, game.data, featuresByMove, currentMove]);
+
+  // Fetch ownership from the backend when the toggle is on or the move changes.
+  useEffect(() => {
+    if (!showOwnership || !gameId || currentMove < 1) {
+      setOwnershipRaw(null);
+      return;
+    }
+    let cancelled = false;
+    getMoveOwnership(gameId, currentMove).then((data) => {
+      if (!cancelled) setOwnershipRaw(data);
+    });
+    return () => { cancelled = true; };
+  }, [showOwnership, gameId, currentMove]);
+
+  const ownershipGhosts = useMemo((): (GhostStone | null)[][] | undefined => {
+    if (!ownershipRaw || !game.data) return undefined;
+    const size = game.data.size;
+    return Array.from({ length: size }, (_, row) =>
+      Array.from({ length: size }, (_, col) => {
+        const v = ownershipRaw[row * size + col];
+        if (v > 0.5)  return { sign:  1 as const, type: "good" as const, faint: true };
+        if (v < -0.5) return { sign: -1 as const, type: "good" as const, faint: true };
+        return null;
+      }),
+    );
+  }, [ownershipRaw, game.data]);
 
   return (
     <div className="viewer-root">
@@ -153,8 +182,8 @@ export default function GameViewer() {
                       id: "own",
                       label: "Ownership map",
                       enabled: showOwnership,
-                      available: false,
-                      hint: "Backend doesn't store ownership data yet",
+                      available: !!analysis.data,
+                      hint: "Run analysis first",
                     },
                   ]}
                   onToggle={(id, v) => {
@@ -168,6 +197,7 @@ export default function GameViewer() {
                 board={replay.cells}
                 lastMove={replay.last}
                 topMove={overlayTop}
+                ownershipGhosts={ownershipGhosts}
                 disabled
                 showCoordinates
               />

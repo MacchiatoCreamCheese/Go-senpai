@@ -356,6 +356,16 @@ export async function generateReview(
   return asJson<ReviewResponse>(resp);
 }
 
+export async function getMoveOwnership(
+  gameId: string,
+  moveNumber: number,
+): Promise<number[] | null> {
+  const resp = await api(`/api/games/${gameId}/moves/${moveNumber}/ownership`);
+  if (!resp.ok) return null;
+  const data: { ownership: number[] } = await resp.json();
+  return data.ownership ?? null;
+}
+
 export async function putPlayerNote(
   gameId: string,
   moveNumber: number,

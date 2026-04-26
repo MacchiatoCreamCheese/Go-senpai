@@ -379,6 +379,26 @@ async def get_move_features(game_id: str) -> list[dict[str, Any]]:
     return out
 
 
+async def get_move_ownership(game_id: str, move_number: int) -> list[float] | None:
+    """Return the ownership array for the board position after move_number."""
+    row = await _get_pool().fetchrow(
+        """
+        SELECT pa.raw_response
+        FROM move_features mf
+        JOIN position_analyses pa ON pa.position_hash = mf.position_hash_after
+        WHERE mf.game_id = $1 AND mf.move_number = $2
+        """,
+        game_id,
+        move_number,
+    )
+    if not row:
+        return None
+    raw = row["raw_response"]
+    if isinstance(raw, str):
+        raw = json.loads(raw)
+    return raw.get("ownership")
+
+
 async def get_cached_analyses(hashes: list[bytes]) -> dict[bytes, dict[str, Any]]:
     """Return {position_hash: raw_response} for any hashes already analyzed."""
     if not hashes:
