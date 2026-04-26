@@ -275,21 +275,37 @@ The LLM's job is **language** (explain, coach, narrate). The agent's job is **st
 
 ### Weakness lifecycle
 ```
-Game ends
+Any game ends (including training mode games)
   → extract_evidence(move_features)   [pure function, 6 theme scores]
-  → apply_evidence(user_id, game_id)  [EMA update per theme in DB]
+  → apply_evidence(user_id, game_id)  [EMA update per theme, α=0.3; deduped by game_id]
   → planner reads weaknesses          [on next /next-action call]
-  → coach prompt includes top-3       [in each coach turn]
+  → coach prompt includes top-3       [in each coach turn, W4]
   → drill picker maps theme → problem [on /next-problem call]
+
+Drill attempt succeeds (W3)
+  → weakness_themes_for_problem(problem.themes)  [reverse map]
+  → EMA decay toward 0 for each matched theme, α=0.15
 ```
 
 ### Concept lifecycle
 ```
-Planner fires teach_concept
-  → concept row fetched from DB
-  → returned to frontend (body_md shown to user)
-  → record_concept_taught(user_id, concept_id)  [times_taught += 1]
-  → coach may reference concept in next session
+Three triggers write to user_concepts_seen:
+
+1. Planner fires teach_concept
+     → concept row fetched from DB
+     → returned to frontend (body_md shown to user)
+     → record_concept_taught(user_id, concept_id)  [times_taught += 1]
+
+2. Move note fetched (GET /games/{id}/moves/{n}/note)  [W1]
+     → LLM generates note with concept_ids
+     → record_concept_taught() for each concept_id in the note
+
+3. Coach turn completes  [W2]
+     → retriever finds top-2 concepts for this position
+     → record_concept_taught() for each retrieved concept
+
+After any of the above:
+  → coach prompt includes concepts taught in last 7 days  [W4]
   → if not demonstrated after 24h → revisit_concept action
   → if not demonstrated after 7 days → reteach
 ```
