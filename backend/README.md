@@ -34,16 +34,18 @@ KataGo runs on the **host**, not in Docker (needs GPU access on Windows).
 
 ---
 
-## 2. Start Postgres
+## 2. Database
 
-From the repo root:
-```bash
-docker compose up -d db
+The project uses a shared Supabase database — no Docker needed.
+
+Get `DATABASE_URL` from a teammate (or the project chat). It looks like:
 ```
-The schema in `backend/db/init.sql` is applied automatically on first creation. **If you pull updates that change the schema, recreate the volume:**
-```bash
-docker compose down -v && docker compose up -d db
+postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
 ```
+
+**First-time schema setup** (only needs to be done once per Supabase project):
+1. Open Supabase Dashboard → SQL Editor
+2. Paste the full contents of `backend/db/init.sql` and run it
 
 ---
 

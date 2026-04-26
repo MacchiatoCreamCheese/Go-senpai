@@ -163,3 +163,46 @@ CREATE TABLE action_history (
     picked_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX idx_action_history_user_time ON action_history (user_id, picked_at DESC);
+
+ALTER TABLE games ADD COLUMN IF NOT EXISTS training_mode BOOLEAN NOT NULL DEFAULT false;
+
+CREATE TABLE IF NOT EXISTS move_notes (
+  game_id       UUID    NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  move_number   INT     NOT NULL,
+  for_user_id   UUID    NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  tier          TEXT    NOT NULL CHECK (tier IN ('yellow', 'red')),
+  body_md       TEXT    NOT NULL,
+  concept_ids   TEXT[]  NOT NULL DEFAULT '{}',
+  model         TEXT    NOT NULL,
+  generated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (game_id, move_number, for_user_id)
+);
+
+CREATE TABLE IF NOT EXISTS player_move_notes (
+  game_id     UUID        NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  move_number INT         NOT NULL,
+  user_id     UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  body        TEXT        NOT NULL CHECK (char_length(body) <= 300),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (game_id, move_number, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS coach_sessions (
+  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  game_id     UUID        NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  user_id     UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  started_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ended_at    TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS coach_turns (
+  id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id          UUID        NOT NULL REFERENCES coach_sessions(id) ON DELETE CASCADE,
+  turn_number         INT         NOT NULL,
+  role                TEXT        NOT NULL CHECK (role IN ('user', 'assistant')),
+  invocation_mode     TEXT        NOT NULL,
+  user_input          TEXT,
+  assistant_output_md TEXT,
+  generated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

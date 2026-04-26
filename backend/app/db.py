@@ -10,7 +10,11 @@ pool: asyncpg.Pool | None = None
 
 async def connect(dsn: str) -> None:
     global pool
-    pool = await asyncpg.create_pool(dsn=dsn, min_size=2, max_size=10)
+    use_ssl = "localhost" not in dsn and "127.0.0.1" not in dsn
+    pool = await asyncpg.create_pool(
+        dsn=dsn, min_size=2, max_size=10,
+        ssl="require" if use_ssl else None,
+    )
 
 
 async def close() -> None:
