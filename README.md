@@ -2,7 +2,7 @@
 
 An agentic Go coach that pairs KataGo with an LLM to help you play, review, and drill.
 
-> **Status:** Work in progress — game engine, analysis pipeline, and coaching backend are implemented. UI design has not been done yet; the frontend is functional but unstyled.
+> **Status:** Core feature set is complete: game engine, analysis pipeline, coaching backend, and a styled React frontend. KataGo and LLM keys are optional — the game layer works without them.
 
 ---
 
@@ -21,12 +21,18 @@ The game of Go has a famously long learning curve. A strong human teacher can po
 
 - Play Go (9×9, 13×13, 19×19) against another human or a KataGo AI opponent
 - Real-time board sync over WebSocket
-- Post-game analysis via KataGo (points lost, top-move comparison, per-move features)
+- Training mode: live coaching tier-dots during AI games (green/yellow/red per move)
+- Undo last move pair in AI games
+- Post-game analysis via KataGo (points lost, top-move comparison, per-move features, ownership map overlay)
+- LLM game review using Anthropic or Gemini — move-by-move explanations with concept links, displayed in the game viewer
 - Weakness detection across 6 themes: opening/middlegame/endgame blunders, top-move avoidance, consistency
-- Coaching orchestration: weakness → concept teaching → drill assignment
+- Coaching orchestration: weakness → concept teaching → drill assignment, with action-history feedback loop that prevents the planner from repeating the same suggestion
 - Agent orchestrator endpoint `POST /api/users/{id}/next-action`: dispatches between review, teach, revisit, and drill actions via an explicit rule table
-- SGF import/export
-- LLM game review using Anthropic or Gemini (backend complete; not yet wired to the frontend)
+- Interactive coaching chat ("Ask Sensei") — SSE-streamed responses in 4 modes: what's missing, help read a fight, what's my plan, follow-up
+- Player move notes: personal annotations on individual moves, persisted per user
+- Direct drill links via `GET /api/problems/:id` — shareable URLs to specific tsumego problems
+- Session history feed: `GET /api/users/{id}/action-history` — reverse-chrono log of every planner pick
+- SGF export
 
 ---
 
@@ -42,11 +48,13 @@ flowchart LR
         uc1([ Register / log in ])
         uc2([ Play vs human ])
         uc3([ Play vs AI ])
-        uc4([ Import / export SGF ])
+        uc4([ Export SGF ])
         uc5([ Request game analysis ])
         uc6([ Receive weakness report ])
         uc7([ Run assigned drill ])
         uc8([ Read LLM review ])
+        uc9([ Ask Sensei coaching chat ])
+        uc10([ View session history ])
     end
 
     player --- uc1
@@ -57,12 +65,17 @@ flowchart LR
     player --- uc6
     player --- uc7
     player --- uc8
+    player --- uc9
+    player --- uc10
 
     uc3 --- katago
     uc5 --- katago
     uc6 --- katago
+    uc9 --- katago
     uc8 --- llm
     uc7 --- llm
+    uc9 --- llm
+    uc5 -.feeds.-> uc6
 ```
 
 The player is the only human actor. KataGo participates in any use case that needs a ground-truth evaluation of the board (AI opponent, post-game analysis, weakness detection). The LLM provider participates only in pedagogical use cases (drill selection, written review), never in move generation.
@@ -113,10 +126,13 @@ classDiagram
         +select(weakness) Drill
     }
     class Orchestrator {
-        +run(game) CoachingPlan
+        +choose(weaknesses, history) Action
     }
     class ReviewService {
         +generate(game) Review
+    }
+    class CoachService {
+        +invoke(game, mode, input) StreamingResponse
     }
 
     class User
@@ -152,6 +168,44 @@ classDiagram
         +summary_md
         +moments
     }
+    class PlayerNote {
+        +game_id
+        +move_number
+        +user_id
+        +body
+    }
+    class Problem {
+        +id
+        +sgf
+        +solution
+        +themes
+        +difficulty
+    }
+    class DrillAttempt {
+        +user_id
+        +problem_id
+        +success
+        +hint_used
+    }
+    class UserWeakness {
+        +user_id
+        +theme
+        +severity
+        +evidence_count
+    }
+    class UserConcept {
+        +user_id
+        +concept_id
+        +times_taught
+        +demonstrated
+    }
+    class ActionHistory {
+        +user_id
+        +kind
+        +game_id
+        +reason
+        +picked_at
+    }
 
     Game "1" --> "*" Move
     Game "1" --> "1" Board
@@ -161,17 +215,26 @@ classDiagram
 
     GameRecord "1" --> "*" Move
     GameRecord "1" --> "*" MoveFeature
+    GameRecord "1" --> "*" PlayerNote
     MoveFeature "*" --> "1" PositionAnalysis
     Review "*" --> "1" GameRecord
     User "1" --> "*" GameRecord
+    User "1" --> "*" UserWeakness
+    User "1" --> "*" UserConcept
+    User "1" --> "*" ActionHistory
+    User "1" --> "*" DrillAttempt
+    DrillAttempt "*" --> "1" Problem
 
     Orchestrator ..> WeaknessDetector
     Orchestrator ..> DrillSelector
     Orchestrator ..> GoConcept
+    Orchestrator ..> ActionHistory
     WeaknessDetector ..> MoveFeature
     KataGoClient ..> PositionAnalysis
     ReviewService ..> MoveFeature
     ReviewService ..> GoConcept
+    CoachService ..> KataGoClient
+    CoachService ..> GoConcept
 ```
 
 The diagram separates three concerns: the pure **engine** classes (`Board`, `Group`, `Rules`, `Game`, `SGF`, `Scoring`) live under `backend/app/engine/`; the **service** classes (`KataGoClient`, `WeaknessDetector`, `Orchestrator`, `DrillSelector`, `ReviewService`) live under `backend/app/services/`; the **persistence** entities (`User`, `GameRecord`, `Move`, `MoveFeature`, `PositionAnalysis`, `GoConcept`, `Review`) are defined in `backend/db/init.sql`.
@@ -187,8 +250,8 @@ flowchart TB
     end
 
     subgraph Server [FastAPI backend]
-        API[api/<br/>rest, ws, analysis, review]
-        SVC[services/<br/>katago, weakness, orchestrator, drills, review]
+        API[api/<br/>rest, ws, analysis, review, coach]
+        SVC[services/<br/>katago, weakness, orchestrator, drills, review, coach]
         ENG[engine/<br/>board, rules, sgf, scoring]
     end
 
@@ -203,6 +266,7 @@ flowchart TB
 
     FE -- REST --> API
     FE <-. WebSocket .-> API
+    FE -- SSE --> API
     API --> SVC
     API --> ENG
     SVC --> ENG
@@ -215,7 +279,7 @@ flowchart TB
 Two request flows matter most:
 
 - **Live play.** The browser opens a WebSocket to `api/ws`, every move is validated by the `engine/` layer, persisted as a `Move` row, and broadcast to the opponent. If the opponent is AI, `services/katago/` generates the reply.
-- **Post-game analysis and coaching.** `POST /api/games/{id}/analyze` sends every position to the KataGo process, stores raw responses in `position_analyses`, derives per-move metrics into `move_features`, and hands the result to `services/orchestrator/`. The orchestrator calls `services/weakness/` to classify the player's mistakes, `services/drills/` to pick follow-up practice, and optionally `services/review/` to ask the LLM for a natural-language summary grounded in those features and the `go_concepts` library (retrieved via pgvector similarity search).
+- **Post-game analysis and coaching.** `POST /api/games/{id}/analyze` sends every position to the KataGo process, stores raw responses in `position_analyses`, derives per-move metrics into `move_features`, and hands the result to `services/orchestrator/`. The orchestrator reads the user's recent action history to avoid repeating suggestions, then calls `services/weakness/` to classify the player's mistakes, `services/drills/` to pick follow-up practice, and optionally `services/review/` to ask the LLM for a natural-language summary grounded in those features and the `go_concepts` library (retrieved via pgvector similarity search). Results are surfaced in the game viewer's analysis and review tabs.
 
 ---
 
@@ -235,10 +299,11 @@ Go-senpai/
 │   ├── app/
 │   │   ├── main.py               ← FastAPI app factory, CORS, startup hooks
 │   │   ├── api/                  ← HTTP and WebSocket endpoints
-│   │   │   ├── rest.py           ← users, games, moves, SGF import/export
+│   │   │   ├── rest.py           ← users, games, moves, drills, action-history
 │   │   │   ├── ws.py             ← live-play WebSocket
-│   │   │   ├── analysis.py       ← POST /games/{id}/analyze
-│   │   │   └── review.py         ← LLM review endpoint
+│   │   │   ├── analysis.py       ← POST /games/{id}/analyze, ownership
+│   │   │   ├── review.py         ← LLM review + per-move notes
+│   │   │   └── coach.py          ← SSE coaching chat (Ask Sensei)
 │   │   ├── engine/               ← Pure Go rules, no I/O, no DB
 │   │   │   ├── board.py          ← Board state, Zobrist hashing
 │   │   │   ├── group.py          ← Stone groups, liberty counting
@@ -248,23 +313,42 @@ Go-senpai/
 │   │   │   ├── scoring.py        ← Area / Chinese scoring
 │   │   │   └── sgf.py            ← SGF parse and dump
 │   │   ├── services/             ← Where the "agentic" part lives
-│   │   │   ├── katago/           ← Subprocess client, request queue
+│   │   │   ├── katago/           ← Subprocess client, request queue, live analysis
 │   │   │   ├── weakness/         ← 6 theme detectors
 │   │   │   ├── drills/           ← Tsumego selection
-│   │   │   ├── orchestrator/     ← Deterministic coaching planner
-│   │   │   └── review/           ← LLM prompt building + call
+│   │   │   ├── orchestrator/     ← Deterministic coaching planner + action history
+│   │   │   ├── review/           ← LLM prompt building + call
+│   │   │   └── coach/            ← SSE session manager, multi-turn coaching
 │   │   ├── db.py                 ← asyncpg pool, query helpers
 │   │   ├── schemas.py            ← Pydantic request / response models
 │   │   └── sessions.py           ← Cookie-based session auth
 │   └── db/init.sql               ← Schema, runs on first container boot
 ├── frontend/                     ← React 18 + Vite + TypeScript
 │   └── src/
-│       ├── App.tsx               ← Router + session bootstrap
-│       ├── GameView.tsx          ← Page: active game, move list, controls
-│       ├── GoBoard.tsx           ← Wrapper around @sabaki/shudan
+│       ├── App.tsx               ← Router + auth bootstrap
 │       ├── api.ts                ← typed fetch helpers
 │       ├── ws.ts                 ← WebSocket client
-│       └── types.ts              ← shared TypeScript types
+│       ├── types.ts              ← shared TypeScript types
+│       ├── routes/               ← Page components
+│       │   ├── Home.tsx          ← Dashboard: recent games, weaknesses, Sensei card
+│       │   ├── Lobby.tsx         ← Create / join game
+│       │   ├── PlayGame.tsx      ← Active game shell
+│       │   ├── GameViewer.tsx    ← Replay + analysis + review tabs
+│       │   ├── Coach.tsx         ← Sensei planner + action history feed
+│       │   ├── Drill.tsx         ← Tsumego practice
+│       │   ├── Profile.tsx       ← Weaknesses, concepts, progress charts
+│       │   ├── Games.tsx         ← Game history list
+│       │   ├── Concepts.tsx      ← Concept library
+│       │   └── Settings.tsx      ← Board theme, stone style, preferences
+│       ├── components/           ← Shared UI components
+│       │   ├── GoBoard.tsx       ← Wrapper around @sabaki/shudan
+│       │   ├── MoveHistory.tsx   ← Sidebar move list
+│       │   ├── ChatDrawer.tsx    ← Ask Sensei streaming chat
+│       │   ├── ActionCard.tsx    ← Rendered coaching action
+│       │   ├── WeaknessBar.tsx   ← Severity bar
+│       │   ├── Sparkline.tsx     ← Progress mini-charts
+│       │   └── PlayerNoteInput.tsx ← Per-move annotations
+│       └── lib/                  ← Auth, replay, SGF, HTTP helpers
 └── docker-compose.yml            ← Postgres 16 + pgvector
 ```
 
@@ -321,9 +405,9 @@ cd frontend && npm run dev
 
 Pick one of these depending on your interest; all three are real, unblocked tickets:
 
-1. **Frontend styling.** The UI works but looks like 1998. Any visual-design improvement to `GameView` or `GoBoard` is welcome. Good first task.
-2. **Wire the LLM review into the UI.** Backend endpoint already returns markdown + moments; the frontend currently ignores it. Needs a panel on the game page.
-3. **Add a weakness detector.** The framework is in `services/weakness/`; each detector is ~50 lines. Ideas: "ignores ko threats", "plays too slowly in the opening", "fails to respond to a kikashi". Write the detector, add a test with a canned `move_features` fixture, register it in the orchestrator.
+1. **Add a weakness detector.** The framework is in `services/weakness/`; each detector is ~50 lines. Ideas: "ignores ko threats", "plays too slowly in the opening", "fails to respond to a kikashi". Write the detector, add a test with a canned `move_features` fixture, register it in the orchestrator.
+2. **Wire sound effects and animations.** `frontend/src/routes/Settings.tsx` already has toggles for both; they are stored in localStorage but nothing reads them yet. Hook them into `GoBoard.tsx` (stone placement sound) and the move transition CSS.
+3. **Multi-device settings sync.** Settings are currently localStorage-only. Add a `user_settings` column or table, a `PATCH /api/users/me/settings` endpoint, and sync on login.
 
 ### 8. People and communication
 
@@ -529,9 +613,9 @@ pytest -q
 
 ## Conclusions
 
-What works today: a clean Go engine with full rule enforcement and SGF I/O, live human-vs-human and human-vs-AI play over WebSocket, a KataGo analysis pipeline that caches positions and derives per-move features, weakness detection across six themes, a deterministic orchestrator that picks concepts and drills, and an LLM review service that grounds its prose in those features and a pgvector-retrieved concept library.
+What works today: a clean Go engine with full rule enforcement and SGF I/O, live human-vs-human and human-vs-AI play over WebSocket, a KataGo analysis pipeline that caches positions and derives per-move features, weakness detection across six themes, a deterministic orchestrator that picks concepts and drills (with an action-history feedback loop that prevents repeated suggestions), an LLM review service surfaced in the game viewer, an SSE coaching chat, and a styled React frontend covering all user flows.
 
-What is still missing: a designed frontend (the UI is functional but unstyled) and the wiring that surfaces the LLM review and drill flow in the browser.
+What is still missing: sound effects and animations (settings exist but are not wired), multi-device settings sync (currently localStorage only), and additional weakness detectors beyond the current six themes.
 
 What the team learned: separating the grounded engine from the pedagogical LLM is the single most important decision — asking an LLM to read the board fails, while asking it to explain a pre-computed weakness works. Small integration details (the `@sabaki/shudan` Preact→React alias in Vite) can block an entire page. And a deterministic orchestrator around a non-deterministic LLM is easier to debug, test, and trust than a single monolithic prompt.
 
