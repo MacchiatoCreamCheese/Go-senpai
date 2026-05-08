@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Go-senpai · UI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    html, body { height: 100%; }
+    body { background: #FFF8EE; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="design-canvas.jsx"></script>
+  <script type="text/babel" src="tweaks-panel.jsx"></script>
+  <script type="text/babel" src="screens/shared.jsx"></script>
+  <script type="text/babel" src="screens/home.jsx"></script>
+  <script type="text/babel" src="screens/play.jsx"></script>
+  <script type="text/babel" src="screens/viewer.jsx"></script>
+  <script type="text/babel" src="screens/coach.jsx"></script>
+  <script type="text/babel" src="screens/drill.jsx"></script>
+
+  <script type="text/babel" data-presets="env,react">
+    const { useState, useEffect } = React;
+
+    const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+      "layout": "studio",
+      "palette": [
+        "#F2A6A2",
+        "#FBE19A",
+        "#B7E0E6",
+        "#C9E2BB"
+      ],
+      "borderWeight": 3,
+      "tierStyle": "dot",
+      "showMiku": true,
+      "showCoords": true,
+      "boardSize": 19,
+      "bgTone": "#FFF8EE",
+      "borderColor": "#F2A6A2"
+    }/*EDITMODE-END*/;
+
+    function applyTweaksCSS(t) {
+      const root = document.documentElement.style;
+      root.setProperty('--border', t.borderColor);
+      root.setProperty('--border-thick', t.borderWeight + 'px');
+      root.setProperty('--bg', t.bgTone);
+    }
+
+    function Screen({ id, height = 820, tweaks }) {
+      const [active, setActive] = useState(id);
+      return (
+        <AppShell active={active} onNav={setActive} width={1280} height={height}>
+          {active === "home" && <HomeScreen />}
+          {active === "play" && <PlayScreen tweaks={tweaks} />}
+          {active === "viewer" && <ViewerScreen />}
+          {active === "coach" && <CoachScreen />}
+          {active === "drill" && <DrillScreen />}
+          {(active === "concepts") && <ComingSoon label="Concept Library" />}
+        </AppShell>
+      );
+    }
+
+    function ComingSoon({ label }) {
+      return (
+        <div style={{ height: "100%", display: "grid", placeItems: "center" }}>
+          <div className="gs-card" style={{ padding: "32px 48px", background: "var(--pastel-yellow)", textAlign: "center" }}>
+            <div className="gs-tag">SOON</div>
+            <div className="gs-display-700" style={{ fontSize: 36, marginTop: 12 }}>{label}</div>
+            <div style={{ marginTop: 6, color: "var(--ink-soft)" }}>pgvector-backed concept retrieval, coming next iteration</div>
+          </div>
+        </div>
+      );
+    }
+
+    function App() {
+      const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+      useEffect(() => { applyTweaksCSS(t); }, [t.borderColor, t.borderWeight, t.bgTone]);
+
+      return (
+        <React.Fragment>
+          <DesignCanvas>
+            <DCSection id="overview" title="Go-senpai · 碁先輩  —  webUI exploration">
+              <DCArtboard id="ab-home"   label="01 · Home / Dashboard"     width={1280} height={960}>
+                <Screen id="home" height={960} tweaks={t} />
+              </DCArtboard>
+              <DCArtboard id="ab-play-sw" label={t.layout === "sandwich" ? "02 · Live Play · sandwich (chess.com-style)" : "02 · Live Play · studio"} width={1280} height={820}>
+                <Screen id="play" tweaks={t} />
+              </DCArtboard>
+              <DCArtboard id="ab-viewer" label="03 · Game Viewer · Review"  width={1280} height={820}>
+                <Screen id="viewer" />
+              </DCArtboard>
+              <DCArtboard id="ab-coach"  label="04 · Coach · Ask Sensei"    width={1280} height={820}>
+                <Screen id="coach" />
+              </DCArtboard>
+              <DCArtboard id="ab-drill"  label="05 · Drill · Tsumego"       width={1280} height={820}>
+                <Screen id="drill" />
+              </DCArtboard>
+            </DCSection>
+          </DesignCanvas>
+
+          <TweaksPanel title="Go-senpai tweaks">
+            <TweakSection label="Live Play layout" />
+            <TweakRadio label="Layout" value={t.layout}
+              options={["sandwich", "studio"]}
+              onChange={(v) => setTweak('layout', v)} />
+            <TweakSelect label="Tier feedback" value={t.tierStyle}
+              options={[
+                { value: "dot",  label: "Dot on stone" },
+                { value: "off",  label: "Off (no spoilers)" },
+              ]}
+              onChange={(v) => setTweak('tierStyle', v)} />
+            <TweakToggle label="Show Miku standee" value={t.showMiku}
+              onChange={(v) => setTweak('showMiku', v)} />
+            <TweakToggle label="Board coordinates" value={t.showCoords}
+              onChange={(v) => setTweak('showCoords', v)} />
+
+            <TweakSection label="Board" />
+            <TweakRadio label="Size" value={t.boardSize}
+              options={[9, 13, 19]}
+              onChange={(v) => setTweak('boardSize', Number(v))} />
+
+            <TweakSection label="Aesthetic" />
+            <TweakColor label="Border (hard)" value={t.borderColor}
+              options={["#F2A6A2", "#E8B4A6", "#F1C0CB", "#EDA6A6", "#D88EA1"]}
+              onChange={(v) => setTweak('borderColor', v)} />
+            <TweakColor label="Background" value={t.bgTone}
+              options={["#FFF8EE", "#FFFDF8", "#F6F1E5", "#FFF4E8", "#F0EBE0"]}
+              onChange={(v) => setTweak('bgTone', v)} />
+            <TweakSlider label="Border weight" value={t.borderWeight}
+              min={1} max={5} step={1} unit="px"
+              onChange={(v) => setTweak('borderWeight', v)} />
+          </TweaksPanel>
+        </React.Fragment>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

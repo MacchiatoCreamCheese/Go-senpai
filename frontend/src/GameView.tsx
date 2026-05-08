@@ -270,27 +270,24 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
 
       {/* Panel */}
       <aside style={styles.panel}>
-        {/* Game ID */}
-        <div style={styles.idRow}>
-          <span className="tag">{gameId}</span>
-          <button
-            className="copy-btn"
-            onClick={copyId}
-            title="Copy game ID"
-            style={copied ? { color: "#2D6A2D" } : undefined}
-          >
-            {copied ? <CheckIcon /> : <CopyIcon />}
-          </button>
+        {/* Game ID + meta */}
+        <div className="gs-card" style={{ padding: "12px 16px", background: "var(--pastel-cyan)", display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={styles.idRow}>
+            <span className="gs-tag">{gameId.slice(0, 8)}…</span>
+            <button
+              className="copy-btn"
+              onClick={copyId}
+              title="Copy game ID"
+              style={copied ? { color: "var(--tier-good)" } : undefined}
+            >
+              {copied ? <CheckIcon /> : <CopyIcon />}
+            </button>
+          </div>
+          <div style={styles.metaRow}>
+            <span className="gs-pill" style={{ fontSize: 11, padding: "2px 10px" }}>{game.size}×{game.size}</span>
+            <span className="gs-pill" style={{ fontSize: 11, padding: "2px 10px" }}>komi {game.komi}</span>
+          </div>
         </div>
-
-        {/* Meta chips */}
-        <div style={styles.metaRow}>
-          <span style={styles.chip}>{game.size}×{game.size}</span>
-          <span style={styles.chipSep}>·</span>
-          <span style={styles.chip}>komi {game.komi}</span>
-        </div>
-
-        <hr className="divider" style={{ margin: "20px 0" }} />
 
         {/* Players */}
         <div style={styles.field}>
@@ -312,10 +309,10 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
           {preGame && role && (
             <button
               type="button"
-              className="btn btn-ghost"
+              className="gs-btn"
               onClick={onSwap}
               disabled={swapping}
-              style={{ marginTop: 10, padding: "6px 12px", fontSize: "0.85rem" }}
+              style={{ padding: "6px 12px", fontSize: 12 }}
               title={bothSeated ? "Swap colours with opponent" : "Swap your seat (no opponent yet)"}
             >
               {swapping ? "swapping…" : "Swap colours"}
@@ -385,44 +382,44 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
           />
         )}
 
-        {/* Ask Sensei coach button (AI games only) */}
+        {/* Ask Sensei (AI games only) */}
         {game?.opponent_type === "ai" && state?.status === "active" && (
           <button
-            className="btn btn-ghost ask-coach-btn"
+            className="gs-btn gs-btn--cyan"
             onClick={() => setChatOpen(true)}
+            style={{ width: "100%" }}
             title="Open the Sensei coach (C)"
           >
-            {chatOpen && senseiThinking ? "Sensei is thinking…" : "Ask Sensei"}{" "}
-            <kbd>C</kbd>
+            {chatOpen && senseiThinking ? "Sensei is thinking…" : "Ask Sensei 先"}
           </button>
         )}
-
-        <hr className="divider" style={{ margin: "20px 0" }} />
 
         {/* Actions or result */}
         {state.status === "active" ? (
           <div style={styles.actionRow}>
             <button
-              className="btn btn-ghost"
+              className="gs-btn"
               onClick={() => send("pass", null)}
               disabled={!isMyTurn}
+              style={{ flex: 1 }}
             >
               Pass
             </button>
             {isAiGame && (
               <button
-                className="btn btn-ghost action-btn--undo"
+                className="gs-btn"
                 onClick={handleUndo}
                 disabled={!canUndo}
+                style={{ flex: 1 }}
               >
                 Undo
               </button>
             )}
             <button
-              className="btn btn-ghost"
+              className="gs-btn gs-btn--red"
               onClick={() => send("resign", null)}
               disabled={!isMyTurn}
-              style={{ color: "var(--seal)", borderColor: "var(--seal)" }}
+              style={{ flex: 1 }}
             >
               Resign
             </button>
@@ -432,27 +429,19 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
             <strong>Game over</strong>
             <span>{state.result ?? state.status}</span>
             <a href={`/games/${gameId}`} className="result-banner-link">
-              Open review viewer →
+              Open review →
             </a>
           </div>
         )}
 
         {error && (
-          <p className="error-text" style={{ marginTop: 12 }}>{error}</p>
+          <p className="error-text" style={{ marginTop: 8 }}>{error}</p>
         )}
-
-        <hr className="divider" style={{ margin: "20px 0" }} />
 
         {/* Footer links */}
         <div style={styles.footerLinks}>
-          <a
-            href={sgfUrl(gameId)}
-            download
-            style={styles.textLink}
-          >
-            Export SGF
-          </a>
-          <button className="btn btn-ghost" onClick={onExit} style={{ padding: "7px 16px", fontSize: "0.9rem" }}>
+          <a href={sgfUrl(gameId)} download style={styles.textLink}>Export SGF</a>
+          <button className="gs-btn" onClick={onExit} style={{ padding: "7px 14px", fontSize: 13 }}>
             ← Lobby
           </button>
         </div>
@@ -468,41 +457,52 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
       />
 
       {state.status !== "active" && !overlayDismissed && (
-        <div className="postgame-overlay" role="dialog" aria-modal="true" onClick={() => setOverlayDismissed(true)}>
-          <div className="postgame-modal" onClick={(e) => e.stopPropagation()}>
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 50,
+          background: "rgba(26,23,20,0.6)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          padding: 20,
+        }} role="dialog" aria-modal="true" onClick={() => setOverlayDismissed(true)}>
+          <div className="gs-card" style={{
+            padding: "32px 36px",
+            background: "var(--pastel-green)",
+            boxShadow: "var(--shadow-block)",
+            maxWidth: 420, width: "100%",
+            textAlign: "center",
+            position: "relative",
+          }} onClick={(e) => e.stopPropagation()}>
             <button
-              className="postgame-close"
               type="button"
               onClick={() => setOverlayDismissed(true)}
               aria-label="Dismiss"
+              style={{
+                position: "absolute", top: 12, right: 12,
+                background: "none", border: "none", cursor: "pointer",
+                fontSize: 20, color: "var(--ink-mute)", lineHeight: 1,
+              }}
             >×</button>
-            <div className="postgame-eyebrow">Game over</div>
-            <h2 className="postgame-result">{state.result ?? state.status}</h2>
-            <p className="postgame-sub">
+            <div className="gs-tag" style={{ marginBottom: 12 }}>GAME OVER</div>
+            <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 40, lineHeight: 1, marginBottom: 10 }}>
+              {state.result ?? state.status}
+            </div>
+            <p style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 20 }}>
               {role
                 ? `You played ${role === "B" ? "Black" : "White"}${
                     game.opponent_type === "ai" ? ` against Sensei AI ${game.ai_rank ?? "?"}k.` : "."
                   }`
                 : "You watched as a spectator."}
             </p>
-            <div className="postgame-actions">
+            <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
               <button
                 type="button"
-                className="btn btn-primary"
+                className="gs-btn gs-btn--primary"
                 onClick={() => (onOpenReview ? onOpenReview(gameId) : (window.location.href = `/games/${gameId}`))}
               >
                 Review this game
               </button>
-              <button type="button" className="btn btn-ghost" onClick={onExit}>
-                Back to lobby
-              </button>
+              <button type="button" className="gs-btn" onClick={onExit}>Back to lobby</button>
               {game.opponent_type === "ai" && role && (
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={handlePlayAgain}
-                  disabled={playAgainPending}
-                >
+                <button type="button" className="gs-btn gs-btn--cyan" onClick={handlePlayAgain} disabled={playAgainPending}>
                   {playAgainPending ? "Starting…" : "Play again"}
                 </button>
               )}
@@ -516,22 +516,28 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
 
 const styles: Record<string, React.CSSProperties> = {
   layout: {
-    minHeight: "100vh",
+    flex: 1,
     display: "flex",
     flexWrap: "wrap",
-    gap: 32,
-    padding: "32px 28px",
+    gap: 24,
+    padding: "24px 28px",
     alignItems: "flex-start",
     justifyContent: "center",
+    overflowY: "auto",
   },
   boardArea: {
     display: "flex",
-    alignItems: "flex-start",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 14,
     animation: "fadeSlide 400ms ease both",
   },
   panel: {
-    width: 260,
-    minWidth: 220,
+    width: 280,
+    minWidth: 240,
+    display: "flex",
+    flexDirection: "column",
+    gap: 14,
     animation: "fadeSlide 400ms 80ms ease both",
   },
   errorPage: {
@@ -550,51 +556,59 @@ const styles: Record<string, React.CSSProperties> = {
   },
   loadingText: {
     fontFamily: "var(--font-display)",
-    fontStyle: "italic",
-    fontSize: "1.2rem",
-    color: "var(--stone)",
-    letterSpacing: "0.05em",
+    fontWeight: 600,
+    fontSize: "1.1rem",
+    color: "var(--ink-mute)",
+    letterSpacing: "0.02em",
   },
   idRow: {
     display: "flex",
     alignItems: "center",
     gap: 6,
-    marginBottom: 10,
   },
   metaRow: {
     display: "flex",
     alignItems: "center",
-    gap: 6,
+    gap: 8,
+    flexWrap: "wrap" as const,
   },
   chip: {
+    display: "inline-flex",
+    alignItems: "center",
+    padding: "3px 10px",
+    border: "1.5px solid var(--ink)",
+    borderRadius: 999,
     fontFamily: "var(--font-mono)",
-    fontSize: "0.78rem",
-    color: "var(--stone)",
-    letterSpacing: "0.04em",
+    fontSize: 11,
+    background: "var(--bg-2)",
+    letterSpacing: "0.03em",
   },
   chipSep: {
     color: "var(--line-dark)",
     fontSize: "0.9rem",
   },
   field: {
-    marginBottom: 14,
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: 6,
   },
   fieldLabel: {
-    display: "block",
-    fontFamily: "var(--font-body)",
-    fontSize: "0.78rem",
-    textTransform: "uppercase",
-    letterSpacing: "0.08em",
-    color: "var(--stone)",
-    marginBottom: 6,
+    fontFamily: "var(--font-display)",
+    fontWeight: 700,
+    fontSize: 11,
+    textTransform: "uppercase" as const,
+    letterSpacing: "0.1em",
+    color: "var(--ink-mute)",
   },
   turnRow: {
     display: "flex",
     alignItems: "center",
+    gap: 8,
   },
   turnText: {
-    fontFamily: "var(--font-body)",
-    fontSize: "0.95rem",
+    fontFamily: "var(--font-display)",
+    fontWeight: 600,
+    fontSize: 14,
     color: "var(--ink)",
   },
   capturesRow: {
@@ -604,28 +618,31 @@ const styles: Record<string, React.CSSProperties> = {
   },
   captureCount: {
     fontFamily: "var(--font-mono)",
-    fontSize: "0.9rem",
+    fontWeight: 600,
+    fontSize: 14,
     color: "var(--ink)",
     minWidth: 20,
   },
   captureSep: {
-    width: 16,
+    width: 12,
   },
   actionRow: {
     display: "flex",
-    gap: 10,
+    gap: 8,
+    flexWrap: "wrap" as const,
   },
   footerLinks: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
+    gap: 10,
   },
   textLink: {
-    fontFamily: "var(--font-body)",
-    fontSize: "0.9rem",
-    color: "var(--stone)",
+    fontFamily: "var(--font-display)",
+    fontWeight: 600,
+    fontSize: 13,
+    color: "var(--ink-mute)",
     textDecoration: "none",
-    borderBottom: "1px solid var(--line-dark)",
-    transition: "color 150ms, border-color 150ms",
+    transition: "color 150ms",
   },
 };

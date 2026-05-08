@@ -1,0 +1,219 @@
+/* Go-senpai design tokens */
+:root {
+  --bg: #FFF8EE;
+  --bg-2: #FFFDF8;
+  --ink: #1A1714;
+  --ink-soft: #4A413B;
+  --ink-mute: #897F77;
+
+  /* Pastel red — primary border + brand */
+  --border: #F2A6A2;
+  --border-deep: #E08580;
+  --border-thin: 2px;
+  --border-thick: 3px;
+
+  /* Pastel block colors (from reference) */
+  --pastel-cyan: #B7E0E6;
+  --pastel-blue: #A9C8E8;
+  --pastel-yellow: #FBE19A;
+  --pastel-green: #C9E2BB;
+  --pastel-pink: #F6C9D3;
+  --pastel-peach: #FBCEB1;
+  --pastel-lavender: #D6C5E5;
+  --pastel-mint: #C7E8D8;
+
+  /* Tier colors (pastel-saturated) */
+  --tier-good: #8FC78A;
+  --tier-ok:   #F5C95A;
+  --tier-bad:  #E78580;
+
+  --shadow-block: 4px 4px 0 var(--ink);
+  --shadow-block-sm: 3px 3px 0 var(--ink);
+
+  --font-display: "Fredoka", "Mochiy Pop One", system-ui, sans-serif;
+  --font-body: "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── primitives ─────────────────────────────── */
+.gs-card {
+  background: var(--bg-2);
+  border: var(--border-thick) solid var(--border);
+  border-radius: 18px;
+}
+.gs-card--tight { border-radius: 14px; border-width: var(--border-thin); }
+.gs-card--ink { border-color: var(--ink); }
+
+.gs-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  background: var(--bg-2);
+  white-space: nowrap;
+}
+.gs-pill--red { background: var(--border); border-color: var(--ink); color: var(--ink); }
+.gs-pill--cyan { background: var(--pastel-cyan); }
+.gs-pill--yellow { background: var(--pastel-yellow); }
+.gs-pill--green { background: var(--pastel-green); }
+.gs-pill--pink { background: var(--pastel-pink); }
+.gs-pill--lav { background: var(--pastel-lavender); }
+.gs-pill--mint { background: var(--pastel-mint); }
+.gs-pill--ink { background: var(--ink); color: var(--bg-2); border-color: var(--ink); }
+
+.gs-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border: 2.5px solid var(--ink);
+  border-radius: 999px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  background: var(--bg-2);
+  color: var(--ink);
+  cursor: pointer;
+  transition: transform .08s ease, box-shadow .08s ease;
+  text-decoration: none;
+}
+.gs-btn:hover { transform: translate(-1px, -1px); box-shadow: 3px 3px 0 var(--ink); }
+.gs-btn:active { transform: translate(1px, 1px); box-shadow: none; }
+.gs-btn--primary { background: var(--ink); color: var(--bg-2); }
+.gs-btn--red { background: var(--border); }
+.gs-btn--cyan { background: var(--pastel-cyan); }
+.gs-btn--yellow { background: var(--pastel-yellow); }
+
+.gs-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1.5px solid var(--ink);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  background: var(--bg-2);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.gs-stripe {
+  height: 4px;
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--border) 0 8px,
+    var(--bg-2) 8px 14px
+  );
+}
+
+/* Display type helpers */
+.gs-display { font-family: var(--font-display); font-weight: 600; letter-spacing: -0.01em; }
+.gs-display-700 { font-family: var(--font-display); font-weight: 700; letter-spacing: -0.015em; }
+.gs-mono { font-family: var(--font-mono); }
+
+.gs-rotated-label {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+
+/* Sticker — speech-bubble style label, references the cybozu sample */
+.gs-sticker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  background: var(--pastel-yellow);
+  border: 2.5px solid var(--ink);
+  border-radius: 14px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 12px;
+  box-shadow: 3px 3px 0 var(--ink);
+  white-space: nowrap;
+}
+.gs-sticker::after {
+  content: "";
+  position: absolute;
+  bottom: -10px;
+  left: 22px;
+  width: 12px;
+  height: 12px;
+  background: var(--pastel-yellow);
+  border-right: 2.5px solid var(--ink);
+  border-bottom: 2.5px solid var(--ink);
+  transform: rotate(45deg);
+}
+
+/* Ticker / divider */
+.gs-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+.gs-divider::before, .gs-divider::after {
+  content: "";
+  flex: 1;
+  height: 2px;
+  background: var(--ink);
+}
+
+/* Bar (for severity etc) */
+.gs-bar {
+  position: relative;
+  height: 12px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: var(--bg-2);
+  overflow: hidden;
+}
+.gs-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--border);
+  border-right: 2px solid var(--ink);
+}
+
+/* Section heading */
+.gs-section-h {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.gs-section-h::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  background: var(--ink);
+  border-radius: 4px;
+}

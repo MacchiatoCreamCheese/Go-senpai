@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 
 import {
@@ -9,11 +9,23 @@ import {
   getUserProgress,
   getWeaknesses,
   type NextActionResponse,
+  type UserGameListItem,
+  type WeaknessItem,
 } from "../api";
-import { ActionCard } from "../components/ActionCard";
-import { WeaknessBar } from "../components/WeaknessBar";
 import { useToast } from "../components/NotificationToast";
 import { useIdentity } from "../lib/auth";
+import { GoBoardSVG } from "../GoBoardSVG";
+
+const PASTEL_CYCLE = [
+  "var(--border)",
+  "var(--pastel-peach)",
+  "var(--pastel-yellow)",
+  "var(--pastel-green)",
+  "var(--pastel-cyan)",
+  "var(--pastel-lavender)",
+];
+
+const DAYS = ["M", "T", "W", "T", "F", "S", "S"];
 
 export default function Home() {
   const { userId, displayName: handle } = useIdentity();
@@ -61,7 +73,7 @@ export default function Home() {
   const topWeaknesses = (weaknesses.data ?? [])
     .slice()
     .sort((a, b) => b.severity - a.severity)
-    .slice(0, 3);
+    .slice(0, 6);
 
   const stats = useMemo(() => {
     const all = games.data ?? [];
@@ -76,113 +88,433 @@ export default function Home() {
   }, [games.data, progress.data, userConcepts.data]);
 
   if (!userId) {
-    return (
-      <div className="home-stub">
-        <div className="home-mark" aria-hidden="true">先</div>
-        <h1>Welcome to Go-senpai.</h1>
-        <p className="home-tagline">
-          Set a name in the Lobby to start playing — your dashboard will fill in as you do.
-        </p>
-        <div className="home-cta-row">
-          <Link to="/lobby" className="btn btn-primary">Go to Lobby</Link>
-        </div>
-      </div>
-    );
+    return <SignedOutStub />;
   }
+
+  const activeGames = (games.data ?? []).filter((g) => !g.result);
 
   return (
     <div className="home-page">
-      <header className="home-page-head">
-        <div>
-          <span className="home-eyebrow">Welcome back</span>
-          <h1 className="home-title">{handle}</h1>
+      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 20, maxWidth: 1240 }}>
+        {/* HERO — Sensei card */}
+        <SenseiHero
+          action={action}
+          handle={handle}
+          isPending={nextAction.isPending}
+          onAsk={() => nextAction.mutate()}
+          activeGame={activeGames[0] ?? null}
+        />
+
+        {/* Stats + streak column */}
+        <div style={{ display: "grid", gap: 16 }}>
+          <StatBlock stats={stats} />
+          <StreakBlock />
         </div>
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={() => nextAction.mutate()}
-          disabled={nextAction.isPending}
-        >
-          {nextAction.isPending ? "Asking Sensei…" : action ? "Get a new action" : "What should I do next?"}
-        </button>
-      </header>
 
-      {action ? (
-        <ActionCard action={action} eyebrow="Sensei suggests" />
-      ) : (
-        <div className="home-hero-empty">
-          <p>
-            Ask Sensei what to do next — the planner looks at your weaknesses, the games you
-            haven't reviewed, and the concepts you've been meaning to revisit.
-          </p>
+        {/* Recent games */}
+        <RecentGames games={recent} isLoading={games.isLoading} />
+
+        {/* Weakness panel */}
+        <WeaknessPanel weaknesses={topWeaknesses} isLoading={weaknesses.isLoading} />
+
+        {/* Quick play row — full width */}
+        <div style={{ gridColumn: "1 / -1" }}>
+          <QuickPlayRow hasActiveGame={activeGames.length > 0} activeGameId={activeGames[0]?.id ?? null} />
         </div>
-      )}
-
-      <div className="home-grid">
-        <section className="home-col">
-          <h3 className="home-col-title">Recent games</h3>
-          {games.isLoading ? (
-            <div className="home-empty">Loading…</div>
-          ) : recent.length === 0 ? (
-            <div className="home-empty">No games yet. <Link to="/lobby" className="link-btn">Play one →</Link></div>
-          ) : (
-            <ul className="home-game-list">
-              {recent.map((g) => (
-                <li key={g.id}>
-                  <Link to={`/games/${g.id}`} className="home-game-row">
-                    <span className="home-game-size">{g.board_size}×{g.board_size}</span>
-                    <span className="home-game-result">
-                      {g.result ?? <span className="dim">in progress</span>}
-                    </span>
-                    <span className="home-game-date">
-                      {new Date(g.started_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-          <Link to="/games" className="home-col-foot">View all →</Link>
-        </section>
-
-        <section className="home-col">
-          <h3 className="home-col-title">Top weaknesses</h3>
-          {weaknesses.isLoading ? (
-            <div className="home-empty">Loading…</div>
-          ) : topWeaknesses.length === 0 ? (
-            <div className="home-empty">
-              Nothing flagged yet. After your first reviewed game, themes show up here.
-            </div>
-          ) : (
-            <div className="home-weakness-stack">
-              {topWeaknesses.map((w) => (
-                <WeaknessBar key={w.theme} weakness={w} />
-              ))}
-            </div>
-          )}
-          <Link to="/profile" className="home-col-foot">Full profile →</Link>
-        </section>
-
-        <section className="home-col">
-          <h3 className="home-col-title">This week</h3>
-          <div className="home-stat-stack">
-            <Stat label="Games played" value={stats.played.toString()} />
-            <Stat label="Games finished" value={stats.finished.toString()} />
-            <Stat label="Drills this week" value={stats.drills.toString()} />
-            <Stat label="Concepts learned" value={stats.concepts.toString()} />
-          </div>
-          <Link to="/profile" className="home-col-foot">See progress →</Link>
-        </section>
       </div>
     </div>
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+// ─── Sensei hero ───────────────────────────────────────────────
+
+function SenseiHero({
+  action,
+  handle,
+  isPending,
+  onAsk,
+  activeGame,
+}: {
+  action: NextActionResponse | null;
+  handle: string;
+  isPending: boolean;
+  onAsk: () => void;
+  activeGame: UserGameListItem | null;
+}) {
+  const navigate = useNavigate();
+
+  const kindLabel = action
+    ? { review_game: "Review a game", serve_drill: "Time for a drill", teach_concept: "New concept", revisit_concept: "Revisit concept", idle: "All caught up!" }[action.kind] ?? "Next step"
+    : null;
+
+  const title = action
+    ? kindLabel ?? "Here's your next step."
+    : `Welcome back, ${handle || "player"}.`;
+
+  const body = action
+    ? (action.reason ?? "Your Sensei has prepared a recommendation based on your recent activity.")
+    : "Ask Sensei what to do — the planner looks at your weaknesses, unreviewed games, and concepts you've been meaning to revisit.";
+
   return (
-    <div className="home-stat">
-      <span className="home-stat-value">{value}</span>
-      <span className="home-stat-label">{label}</span>
+    <div className="gs-card" style={{
+      position: "relative",
+      padding: "22px 24px",
+      background: "var(--pastel-cyan)",
+      overflow: "hidden",
+      minHeight: 250,
+      display: "grid",
+      gridTemplateColumns: "1fr 180px",
+      gap: 18,
+      alignItems: "center",
+    }}>
+      <div style={{ position: "relative", zIndex: 1 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          {action && (
+            <span className="gs-tag" style={{ background: "var(--bg-2)" }}>
+              {action.kind?.replace(/_/g, " ").toUpperCase() ?? "NEXT ACTION"}
+            </span>
+          )}
+          <span className="gs-sticker">先生 · TODAY'S PICK</span>
+        </div>
+
+        <h1 style={{
+          fontFamily: "var(--font-display)",
+          fontWeight: 700,
+          fontSize: 34,
+          lineHeight: 1.06,
+          letterSpacing: "-0.025em",
+          margin: "14px 0 6px",
+        }}>
+          {title}
+        </h1>
+
+        <p style={{ margin: "0 0 14px", color: "var(--ink-soft)", fontSize: 14, lineHeight: 1.5 }}>
+          {body}
+        </p>
+
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          {action ? (
+            <>
+              {action.game_id && (
+                <button className="gs-btn gs-btn--primary"
+                  onClick={() => navigate(`/games/${action.game_id}/review`)}>
+                  Open review →
+                </button>
+              )}
+              {action.problem?.id && (
+                <button className="gs-btn gs-btn--cyan"
+                  onClick={() => navigate(`/drill/${action.problem!.id}`)}>
+                  Start drill →
+                </button>
+              )}
+              <button className="gs-btn" onClick={onAsk} disabled={isPending}>
+                {isPending ? "Asking…" : "New suggestion"}
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="gs-btn gs-btn--primary" onClick={onAsk} disabled={isPending}>
+                {isPending ? "Asking Sensei…" : "What should I do next?"}
+              </button>
+              {activeGame && (
+                <button className="gs-btn gs-btn--cyan"
+                  onClick={() => navigate(`/play/${activeGame.id}`)}>
+                  Resume game →
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Mini board */}
+      <div style={{ transform: "rotate(-4deg)", justifySelf: "center" }}>
+        <div className="gs-card gs-card--ink" style={{
+          padding: 6,
+          background: "var(--bg-2)",
+          boxShadow: "var(--shadow-block-sm)",
+        }}>
+          <GoBoardSVG size={9} width={170} stones={[
+            { x: 4, y: 4, c: "b" }, { x: 4, y: 2, c: "w" },
+            { x: 2, y: 4, c: "b" }, { x: 6, y: 4, c: "w" },
+            { x: 4, y: 6, c: "b", tier: "bad" },
+            { x: 6, y: 6, c: "w" }, { x: 2, y: 2, c: "b" },
+            { x: 6, y: 2, c: "w" }, { x: 5, y: 5, c: "b" },
+          ]} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Stat block ────────────────────────────────────────────────
+
+function StatBlock({ stats }: { stats: { played: number; finished: number; drills: number; concepts: number } }) {
+  return (
+    <div className="gs-card" style={{ padding: "18px 20px", background: "var(--pastel-yellow)" }}>
+      <div className="gs-tag">THIS WEEK</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 12 }}>
+        {[
+          { v: stats.played, l: "Games played" },
+          { v: stats.finished, l: "Finished" },
+          { v: stats.drills, l: "Drills done" },
+          { v: stats.concepts, l: "Concepts" },
+        ].map(({ v, l }) => (
+          <div key={l}>
+            <div className="gs-display-700" style={{ fontSize: 28, lineHeight: 1 }}>{v}</div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--ink-soft)", letterSpacing: "0.05em", textTransform: "uppercase" }}>
+              {l}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Streak block ──────────────────────────────────────────────
+
+function StreakBlock() {
+  const today = new Date().getDay();
+  const filled = DAYS.map((_, i) => i < ((today + 6) % 7));
+
+  return (
+    <div className="gs-card" style={{ padding: "18px 20px", background: "var(--bg-2)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div className="gs-tag">DRILL STREAK</div>
+        <span className="gs-display-700" style={{ fontSize: 20 }}>Keep it up!</span>
+      </div>
+      <div style={{ display: "flex", gap: 6, marginTop: 14, justifyContent: "space-between" }}>
+        {DAYS.map((d, i) => (
+          <div key={i} style={{
+            flex: 1,
+            height: 46,
+            borderRadius: 10,
+            border: "2px solid var(--ink)",
+            background: filled[i] ? "var(--pastel-green)" : "var(--bg)",
+            display: "grid",
+            placeItems: "center",
+            fontFamily: "var(--font-display)",
+            fontWeight: 600,
+          }}>
+            <span style={{ fontSize: 11, opacity: 0.8 }}>{d}</span>
+            <span style={{ fontSize: 10 }}>{filled[i] ? "✓" : "·"}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Recent games ──────────────────────────────────────────────
+
+function RecentGames({ games, isLoading }: { games: UserGameListItem[]; isLoading: boolean }) {
+  const navigate = useNavigate();
+
+  return (
+    <div className="gs-card" style={{ padding: 20, background: "var(--bg-2)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <div className="gs-section-h">RECENT GAMES</div>
+        <Link to="/games" className="gs-btn" style={{ padding: "6px 14px", fontSize: 12, textDecoration: "none" }}>
+          see all →
+        </Link>
+      </div>
+
+      {isLoading ? (
+        <div style={{ padding: "20px 0", color: "var(--ink-mute)", fontFamily: "var(--font-display)", fontSize: 14 }}>
+          Loading…
+        </div>
+      ) : games.length === 0 ? (
+        <div style={{ padding: "20px 0", color: "var(--ink-mute)", fontFamily: "var(--font-display)", fontSize: 14 }}>
+          No games yet — <Link to="/lobby" style={{ color: "var(--ink)", fontWeight: 700 }}>play one →</Link>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 10 }}>
+          {games.map((g) => {
+            const isActive = !g.result;
+            return (
+              <div key={g.id} style={{
+                display: "grid",
+                gridTemplateColumns: "auto 1fr auto auto",
+                gap: 14,
+                alignItems: "center",
+                padding: "10px 14px",
+                border: "2px solid var(--ink)",
+                borderRadius: 12,
+                background: isActive ? "var(--pastel-pink)" : "var(--bg)",
+                cursor: "pointer",
+              }}
+                onClick={() => navigate(isActive ? `/play/${g.id}` : `/games/${g.id}`)}
+              >
+                <div style={{
+                  width: 44,
+                  height: 44,
+                  border: "2px solid var(--ink)",
+                  borderRadius: 8,
+                  display: "grid",
+                  placeItems: "center",
+                  background: "var(--bg-2)",
+                  fontFamily: "var(--font-display)",
+                  fontWeight: 700,
+                  fontSize: 14,
+                }}>
+                  {g.board_size}×{g.board_size}
+                </div>
+                <div>
+                  <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 15 }}>
+                    {isActive ? "In progress" : g.result ?? "—"}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--ink-mute)", fontFamily: "var(--font-mono)" }}>
+                    {new Date(g.started_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                  </div>
+                </div>
+                <span className={`gs-pill ${isActive ? "gs-pill--pink" : g.result?.startsWith("B+") || g.result?.startsWith("W+") ? "gs-pill--mint" : "gs-pill--red"}`}>
+                  {isActive ? "live" : g.result ? "done" : "—"}
+                </span>
+                <button className={`gs-btn ${isActive ? "gs-btn--primary" : ""}`}
+                  style={{ padding: "6px 14px", fontSize: 12 }}>
+                  {isActive ? "play" : "review"}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Weakness panel ────────────────────────────────────────────
+
+function WeaknessPanel({ weaknesses, isLoading }: { weaknesses: WeaknessItem[]; isLoading: boolean }) {
+  return (
+    <div className="gs-card" style={{ padding: 20, background: "var(--bg-2)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <div className="gs-section-h">WEAKNESSES · 弱点</div>
+        <span className="gs-pill gs-pill--cyan">EMA · last 30d</span>
+      </div>
+
+      {isLoading ? (
+        <div style={{ color: "var(--ink-mute)", fontFamily: "var(--font-display)", fontSize: 14 }}>Loading…</div>
+      ) : weaknesses.length === 0 ? (
+        <div style={{ color: "var(--ink-mute)", fontFamily: "var(--font-display)", fontSize: 14 }}>
+          No weaknesses tracked yet. Complete a reviewed game to see them here.
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 10 }}>
+          {weaknesses.map((w, i) => (
+            <div key={w.theme}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <span style={{ fontSize: 13, fontFamily: "var(--font-display)", fontWeight: 500 }}>
+                  {w.theme}
+                </span>
+                <span style={{ fontSize: 11, fontFamily: "var(--font-mono)" }}>
+                  {w.severity.toFixed(2)}
+                </span>
+              </div>
+              <div className="gs-bar">
+                <span style={{ width: `${Math.min(w.severity * 100, 100)}%`, background: PASTEL_CYCLE[i % PASTEL_CYCLE.length] }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Quick play row ────────────────────────────────────────────
+
+const QUICK_CARDS = [
+  { title: "Quick AI Game", sub: "9×9 training mode", color: "var(--pastel-cyan)", tag: "FAST", emoji: "▶", to: "/lobby" },
+  { title: "Find a human", sub: "Live lobby", color: "var(--pastel-pink)", tag: "PvP", emoji: "👥", to: "/lobby" },
+  { title: "Tsumego drill", sub: "Sharpen your reading", color: "var(--pastel-yellow)", tag: "DRILL", emoji: "◇", to: "/drill" },
+  { title: "Review games", sub: "KataGo analysis", color: "var(--pastel-green)", tag: "REVIEW", emoji: "↻", to: "/games" },
+];
+
+function QuickPlayRow({ hasActiveGame, activeGameId }: { hasActiveGame: boolean; activeGameId: string | null }) {
+  const navigate = useNavigate();
+  const cards = hasActiveGame && activeGameId
+    ? [
+        { title: "Resume game", sub: "Your move is waiting", color: "var(--pastel-green)", tag: "LIVE", emoji: "↻", to: `/play/${activeGameId}` },
+        ...QUICK_CARDS.slice(1),
+      ]
+    : QUICK_CARDS;
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+      {cards.map((c, i) => (
+        <button key={i} className="gs-card" style={{
+          padding: "16px 18px",
+          textAlign: "left",
+          background: c.color,
+          cursor: "pointer",
+          border: "3px solid var(--border)",
+          fontFamily: "var(--font-body)",
+          color: "var(--ink)",
+          transition: "transform .1s, box-shadow .1s",
+        }}
+          onClick={() => navigate(c.to)}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = "translate(-2px,-2px)";
+            e.currentTarget.style.boxShadow = "var(--shadow-block-sm)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = "";
+            e.currentTarget.style.boxShadow = "";
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span className="gs-tag">{c.tag}</span>
+            <span style={{ fontSize: 22 }}>{c.emoji}</span>
+          </div>
+          <div className="gs-display-700" style={{ fontSize: 20, marginTop: 14, lineHeight: 1.05 }}>
+            {c.title}
+          </div>
+          <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 6 }}>{c.sub}</div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ─── Signed-out stub ───────────────────────────────────────────
+
+function SignedOutStub() {
+  return (
+    <div style={{
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: "60vh",
+      gap: 24,
+      padding: 40,
+      textAlign: "center",
+    }}>
+      <div className="gs-card" style={{
+        padding: "32px 40px",
+        background: "var(--pastel-cyan)",
+        maxWidth: 480,
+        boxShadow: "var(--shadow-block)",
+      }}>
+        <div style={{
+          fontFamily: "var(--font-display)",
+          fontWeight: 700,
+          fontSize: 72,
+          lineHeight: 1,
+          marginBottom: 16,
+        }}>
+          先
+        </div>
+        <h1 style={{ fontSize: 28, marginBottom: 10 }}>Welcome to Go-senpai.</h1>
+        <p style={{ fontSize: 14, marginBottom: 20, color: "var(--ink-soft)" }}>
+          Set a name in the Lobby to start playing — your dashboard will fill in as you do.
+        </p>
+        <Link to="/lobby" className="gs-btn gs-btn--primary" style={{ textDecoration: "none" }}>
+          Go to Lobby →
+        </Link>
+      </div>
     </div>
   );
 }

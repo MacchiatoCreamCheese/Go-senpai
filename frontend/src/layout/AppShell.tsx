@@ -5,13 +5,30 @@ import { HANDLE_KEY, useAuth } from "../lib/auth";
 
 const NAV = [
   { to: "/", label: "Home", end: true },
-  { to: "/lobby", label: "Lobby" },
-  { to: "/coach", label: "Coach" },
-  { to: "/drill", label: "Drill" },
-  { to: "/games", label: "Games" },
-  { to: "/concepts", label: "Concepts" },
-  { to: "/profile", label: "Profile" },
+  { to: "/lobby", label: "Play" },
+  { to: "/games", label: "Review" },
+  { to: "/coach", label: "Sensei" },
+  { to: "/drill", label: "Drills" },
+  { to: "/concepts", label: "Library" },
 ];
+
+function Logo() {
+  return (
+    <svg width="40" height="40" viewBox="0 0 40 40">
+      <rect x="2" y="2" width="36" height="36" rx="10" fill="var(--border)" stroke="var(--ink)" strokeWidth="2.5" />
+      <line x1="11" y1="13" x2="29" y2="13" stroke="var(--ink)" strokeWidth="1.5" />
+      <line x1="11" y1="20" x2="29" y2="20" stroke="var(--ink)" strokeWidth="1.5" />
+      <line x1="11" y1="27" x2="29" y2="27" stroke="var(--ink)" strokeWidth="1.5" />
+      <line x1="13" y1="11" x2="13" y2="29" stroke="var(--ink)" strokeWidth="1.5" />
+      <line x1="20" y1="11" x2="20" y2="29" stroke="var(--ink)" strokeWidth="1.5" />
+      <line x1="27" y1="11" x2="27" y2="29" stroke="var(--ink)" strokeWidth="1.5" />
+      <circle cx="13" cy="20" r="3.5" fill="var(--ink)" />
+      <circle cx="20" cy="13" r="3.5" fill="var(--bg-2)" stroke="var(--ink)" strokeWidth="1.4" />
+      <circle cx="20" cy="27" r="3.5" fill="var(--ink)" />
+      <circle cx="27" cy="20" r="3.5" fill="var(--bg-2)" stroke="var(--ink)" strokeWidth="1.4" />
+    </svg>
+  );
+}
 
 export function AppShell() {
   const location = useLocation();
@@ -22,12 +39,10 @@ export function AppShell() {
   );
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // Re-read legacy handle when location changes (lobby flow may set it).
   useEffect(() => {
     if (legacy) setLegacyHandle(localStorage.getItem(HANDLE_KEY) ?? "");
   }, [location.pathname, legacy]);
 
-  // Close menu on outside click.
   useEffect(() => {
     if (!menuOpen) return;
     const onDoc = (e: MouseEvent) => {
@@ -46,6 +61,7 @@ export function AppShell() {
       ? profile?.handle ?? profile?.email ?? user.email ?? "Signed in"
       : "Sign in";
 
+  const initial = displayName.charAt(0).toUpperCase();
   const isSignedIn = legacy ? !!legacyHandle : !!user;
 
   async function handleSignOut() {
@@ -59,11 +75,14 @@ export function AppShell() {
     <div className="shell">
       {!minimalChrome && (
         <header className="shell-nav">
+          {/* Logo + brand */}
           <NavLink to="/" className="shell-logo" end>
-            <span className="shell-logo-mark" aria-hidden="true">碁</span>
+            <Logo />
             <span className="shell-logo-text">Go-senpai</span>
+            <span className="gs-tag" style={{ background: "var(--pastel-yellow)" }}>ベータ · BETA</span>
           </NavLink>
 
+          {/* Nav links */}
           <nav className="shell-nav-links" aria-label="Primary">
             {NAV.map((item) => (
               <NavLink
@@ -79,46 +98,67 @@ export function AppShell() {
             ))}
           </nav>
 
-          <div className="user-menu">
-            <button
-              className="shell-user"
-              onClick={() => {
-                if (!isSignedIn && !legacy) {
-                  navigate("/login");
-                  return;
-                }
-                setMenuOpen((v) => !v);
-              }}
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-            >
-              <span className="shell-user-dot" aria-hidden="true" />
-              <span className="shell-user-name">{displayName}</span>
-              {isSignedIn && <span className="shell-user-caret" aria-hidden="true">▾</span>}
-            </button>
-            {menuOpen && isSignedIn && (
-              <div className="user-menu-pop" role="menu">
-                <button
-                  className="user-menu-item"
-                  onClick={() => { setMenuOpen(false); navigate("/profile"); }}
-                >
-                  Profile
-                </button>
-                <button
-                  className="user-menu-item"
-                  onClick={() => { setMenuOpen(false); navigate("/settings"); }}
-                >
-                  Settings
-                </button>
-                <div className="user-menu-rule" />
-                <button
-                  className="user-menu-item user-menu-item-muted"
-                  onClick={handleSignOut}
-                >
-                  Sign out
-                </button>
-              </div>
-            )}
+          {/* Right side: status + user */}
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+            <span className="gs-pill gs-pill--mint">
+              <span style={{
+                width: 6, height: 6, background: "var(--tier-good)",
+                borderRadius: 99, border: "1.5px solid var(--ink)", flexShrink: 0,
+              }} />
+              KataGo · ready
+            </span>
+
+            <div className="user-menu">
+              <button
+                className="shell-user"
+                onClick={() => {
+                  if (!isSignedIn && !legacy) {
+                    navigate("/login");
+                    return;
+                  }
+                  setMenuOpen((v) => !v);
+                }}
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+              >
+                <div style={{
+                  width: 32, height: 32, borderRadius: 99,
+                  border: "2.5px solid var(--ink)",
+                  background: "var(--pastel-pink)",
+                  display: "grid", placeItems: "center",
+                  fontFamily: "var(--font-display)",
+                  fontWeight: 700, fontSize: 14,
+                  flexShrink: 0,
+                }}>
+                  {initial}
+                </div>
+                <span className="shell-user-name">{displayName}</span>
+                {isSignedIn && <span className="shell-user-caret">▾</span>}
+              </button>
+              {menuOpen && isSignedIn && (
+                <div className="user-menu-pop" role="menu">
+                  <button
+                    className="user-menu-item"
+                    onClick={() => { setMenuOpen(false); navigate("/profile"); }}
+                  >
+                    Profile
+                  </button>
+                  <button
+                    className="user-menu-item"
+                    onClick={() => { setMenuOpen(false); navigate("/settings"); }}
+                  >
+                    Settings
+                  </button>
+                  <div className="user-menu-rule" />
+                  <button
+                    className="user-menu-item user-menu-item-muted"
+                    onClick={handleSignOut}
+                  >
+                    Sign out
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
       )}
@@ -130,7 +170,7 @@ export function AppShell() {
       {!minimalChrome && (
         <NavLink to="/coach" className="coach-fab" aria-label="Open coach">
           <span className="coach-fab-mark">先</span>
-          <span className="coach-fab-label">Coach</span>
+          <span className="coach-fab-label">Sensei</span>
         </NavLink>
       )}
     </div>

@@ -134,166 +134,115 @@ export default function GameViewer() {
   }, [ownershipRaw, game.data]);
 
   return (
-    <div className="viewer-root">
-      <header className="viewer-header">
-        <div>
-          <Link to="/games" className="viewer-crumb">← Games</Link>
-          <h1 className="viewer-title">Game review</h1>
-        </div>
-        <div className="viewer-meta">
+    <div className="viewer-page">
+      {/* Board column */}
+      <div className="viewer-left">
+        <div className="viewer-header">
+          <Link to="/games" className="gs-btn" style={{ padding: "6px 14px", fontSize: 12, textDecoration: "none" }}>← Games</Link>
+          <div className="viewer-title">Game #{gameId.slice(0, 6)}</div>
           {game.data && (
             <>
-              <span>{game.data.size}×{game.data.size}</span>
-              <span className="viewer-meta-sep">·</span>
-              <span>komi {game.data.komi}</span>
-              <span className="viewer-meta-sep">·</span>
-              <span>{game.data.opponent_type === "ai" ? `vs Sensei AI ${game.data.ai_rank ?? "?"}k` : "vs human"}</span>
+              <span className="gs-tag">{game.data.size}×{game.data.size}</span>
+              <span className="gs-tag">komi {game.data.komi}</span>
               {game.data.state.result && (
-                <>
-                  <span className="viewer-meta-sep">·</span>
-                  <span className="viewer-meta-result">{game.data.state.result}</span>
-                </>
+                <span className="gs-pill gs-pill--mint">{game.data.state.result}</span>
               )}
             </>
           )}
         </div>
-      </header>
 
-      <div className="viewer-body">
-        {/* Board column */}
-        <div className="viewer-board">
-          {game.isLoading ? (
-            <div className="viewer-board-skel">Loading game…</div>
-          ) : game.error || !game.data || !replay ? (
-            <div className="viewer-board-skel">Couldn't load game.</div>
-          ) : (
-            <>
-              <div className="viewer-board-toolbar">
-                <EngineOverlay
-                  toggles={[
-                    {
-                      id: "top",
-                      label: "Top engine move",
-                      enabled: showTopMove,
-                      available: !!analysis.data,
-                      hint: "Run analysis first",
-                    },
-                    {
-                      id: "own",
-                      label: "Ownership map",
-                      enabled: showOwnership,
-                      available: !!analysis.data,
-                      hint: "Run analysis first",
-                    },
-                  ]}
-                  onToggle={(id, v) => {
-                    if (id === "top") setShowTopMove(v);
-                    if (id === "own") setShowOwnership(v);
-                  }}
-                />
-              </div>
-
-              <GoBoard
-                board={replay.cells}
-                lastMove={replay.last}
-                topMove={overlayTop}
-                ownershipGhosts={ownershipGhosts}
-                disabled
-                showCoordinates
+        {game.isLoading ? (
+          <div style={{ padding: 20, color: "var(--ink-mute)", fontFamily: "var(--font-display)" }}>Loading game…</div>
+        ) : game.error || !game.data || !replay ? (
+          <div style={{ padding: 20, color: "var(--tier-bad)", fontFamily: "var(--font-display)" }}>Couldn't load game.</div>
+        ) : (
+          <>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <EngineOverlay
+                toggles={[
+                  { id: "top", label: "Top move", enabled: showTopMove, available: !!analysis.data, hint: "Run analysis first" },
+                  { id: "own", label: "Ownership", enabled: showOwnership, available: !!analysis.data, hint: "Run analysis first" },
+                ]}
+                onToggle={(id, v) => {
+                  if (id === "top") setShowTopMove(v);
+                  if (id === "own") setShowOwnership(v);
+                }}
               />
+            </div>
 
-              <MoveScrubber
-                current={currentMove}
-                total={totalMoves}
-                onChange={setMove}
-              />
+            <GoBoard
+              board={replay.cells}
+              lastMove={replay.last}
+              topMove={overlayTop}
+              ownershipGhosts={ownershipGhosts}
+              disabled
+              showCoordinates
+            />
 
-              <ScoreLineChart
-                points={scorePoints}
-                currentMove={currentMove}
-                onScrub={setMove}
-              />
-            </>
-          )}
+            <MoveScrubber current={currentMove} total={totalMoves} onChange={setMove} />
+
+            <ScoreLineChart points={scorePoints} currentMove={currentMove} onScrub={setMove} />
+          </>
+        )}
+      </div>
+
+      {/* Right panel */}
+      <div className="viewer-right">
+        <div style={{ display: "flex", gap: 6, borderBottom: "2.5px solid var(--border)", paddingBottom: 12, marginBottom: 4 }}>
+          {(["review", "analysis", "info"] as TabId[]).map((t) => (
+            <button
+              key={t}
+              className={`play-sidebar-tab${tab === t ? " is-active" : ""}`}
+              onClick={() => setTab(t)}
+            >
+              {t.charAt(0).toUpperCase() + t.slice(1)}
+            </button>
+          ))}
         </div>
 
-        {/* Right panel */}
-        <aside className="viewer-panel">
-          <nav className="viewer-tabs" role="tablist">
-            <TabBtn id="review" label="Review" active={tab} onSelect={setTab} />
-            <TabBtn id="analysis" label="Analysis" active={tab} onSelect={setTab} />
-            <TabBtn id="info" label="Info" active={tab} onSelect={setTab} />
-          </nav>
-
-          {tab === "review" && (
-            <ReviewTab
-              gameId={gameId}
-              userId={userId}
-              loading={review.isLoading}
-              review={review.data ?? null}
-              gameFinished={!!game.data?.state.result}
-              currentMove={currentMove}
-              boardSize={game.data?.size ?? 19}
-              gameMoves={game.data?.state.moves ?? []}
-              onShowOnBoard={(moveNumber) => setMove(Math.max(0, moveNumber - 1))}
-            />
-          )}
-
-          {tab === "analysis" && (
-            <AnalysisTab
-              loading={analysis.isLoading}
-              features={analysis.data?.features ?? null}
-              currentMove={currentMove}
-              onSelect={setMove}
-              blundersOnly={blundersOnly}
-              setBlundersOnly={setBlundersOnly}
-              sortKey={sortKey}
-              setSortKey={setSortKey}
-              gameId={gameId}
-              gameFinished={!!game.data?.state.result}
-              userId={userId}
-              boardSize={game.data?.size ?? 19}
-            />
-          )}
-
-          {tab === "info" && game.data && (
-            <InfoTab
-              size={game.data.size}
-              komi={game.data.komi}
-              opponentType={game.data.opponent_type}
-              aiRank={game.data.ai_rank}
-              result={game.data.state.result}
-              blackUserId={game.data.black_user_id}
-              whiteUserId={game.data.white_user_id}
-              gameId={gameId}
-            />
-          )}
-        </aside>
+        {tab === "review" && (
+          <ReviewTab
+            gameId={gameId}
+            userId={userId}
+            loading={review.isLoading}
+            review={review.data ?? null}
+            gameFinished={!!game.data?.state.result}
+            currentMove={currentMove}
+            boardSize={game.data?.size ?? 19}
+            gameMoves={game.data?.state.moves ?? []}
+            onShowOnBoard={(moveNumber) => setMove(Math.max(0, moveNumber - 1))}
+          />
+        )}
+        {tab === "analysis" && (
+          <AnalysisTab
+            loading={analysis.isLoading}
+            features={analysis.data?.features ?? null}
+            currentMove={currentMove}
+            onSelect={setMove}
+            blundersOnly={blundersOnly}
+            setBlundersOnly={setBlundersOnly}
+            sortKey={sortKey}
+            setSortKey={setSortKey}
+            gameId={gameId}
+            gameFinished={!!game.data?.state.result}
+            userId={userId}
+            boardSize={game.data?.size ?? 19}
+          />
+        )}
+        {tab === "info" && game.data && (
+          <InfoTab
+            size={game.data.size}
+            komi={game.data.komi}
+            opponentType={game.data.opponent_type}
+            aiRank={game.data.ai_rank}
+            result={game.data.state.result}
+            blackUserId={game.data.black_user_id}
+            whiteUserId={game.data.white_user_id}
+            gameId={gameId}
+          />
+        )}
       </div>
     </div>
-  );
-}
-
-function TabBtn({
-  id,
-  label,
-  active,
-  onSelect,
-}: {
-  id: TabId;
-  label: string;
-  active: TabId;
-  onSelect: (t: TabId) => void;
-}) {
-  return (
-    <button
-      role="tab"
-      aria-selected={active === id}
-      className={"viewer-tab" + (active === id ? " is-active" : "")}
-      onClick={() => onSelect(id)}
-    >
-      {label}
-    </button>
   );
 }
 
@@ -341,31 +290,31 @@ function ReviewTab({
     },
   });
 
-  if (loading) return <div className="viewer-panel-empty">Loading review…</div>;
+  if (loading) return <div style={{ padding: 20, color: "var(--ink-mute)", fontFamily: "var(--font-display)" }}>Loading review…</div>;
 
   if (!userId) {
     return (
-      <div className="viewer-review-empty">
-        <div className="viewer-review-mark">評</div>
-        <h2>Sign in first</h2>
-        <p>Reviews are written for one player at a time. Set a name in the Lobby, then come back.</p>
+      <div className="gs-card" style={{ padding: 24, background: "var(--pastel-lavender)", textAlign: "center" }}>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 48, marginBottom: 10 }}>評</div>
+        <h2 style={{ fontSize: 18, marginBottom: 8 }}>Sign in first</h2>
+        <p style={{ fontSize: 13 }}>Reviews are written for one player at a time. Set a name in the Lobby, then come back.</p>
       </div>
     );
   }
 
   if (!review) {
     return (
-      <div className="viewer-review-empty">
-        <div className="viewer-review-mark">評</div>
-        <h2>No review yet</h2>
-        <p>
+      <div className="gs-card" style={{ padding: 24, background: "var(--pastel-yellow)", textAlign: "center" }}>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 48, marginBottom: 10 }}>評</div>
+        <h2 style={{ fontSize: 18, marginBottom: 8 }}>No review yet</h2>
+        <p style={{ fontSize: 13, marginBottom: 16 }}>
           {gameFinished
-            ? "Generate a review for your perspective. KataGo features need to exist first — run analysis from the Analysis tab if you haven't."
+            ? "Generate a review for your perspective. Run analysis first if you haven't."
             : "Reviews are generated once a game has finished."}
         </p>
         {gameFinished && (
           <button
-            className="btn btn-primary"
+            className="gs-btn gs-btn--primary"
             onClick={() => generate.mutate({ force: false })}
             disabled={generate.isPending}
           >
@@ -386,25 +335,25 @@ function ReviewTab({
 
   return (
     <div className="review-tab">
-      <header className="review-head">
-        <div>
-          <div className="review-head-eyebrow">Reviewed for you</div>
-          <div className="review-head-meta">
-            <span className="mono dim">{review.model}</span>
-            <span className="viewer-meta-sep">·</span>
-            <span>{generatedLabel}</span>
+      <div className="viewer-review-card" style={{ background: "var(--pastel-lavender)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+          <div>
+            <div className="gs-tag" style={{ marginBottom: 6 }}>Reviewed for you</div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--ink-mute)" }}>
+              {review.model} · {generatedLabel}
+            </div>
           </div>
+          <button
+            type="button"
+            className="gs-btn"
+            style={{ padding: "6px 12px", fontSize: 12, flexShrink: 0 }}
+            onClick={() => generate.mutate({ force: true })}
+            disabled={generate.isPending}
+          >
+            {generate.isPending ? "Regenerating…" : "Regenerate"}
+          </button>
         </div>
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm"
-          onClick={() => generate.mutate({ force: true })}
-          disabled={generate.isPending}
-          title="Regenerate from scratch"
-        >
-          {generate.isPending ? "Regenerating…" : "Regenerate"}
-        </button>
-      </header>
+      </div>
 
       {review.summary_md && (
         <section
@@ -528,21 +477,21 @@ function AnalysisTab({
     return () => window.removeEventListener("keydown", onKey);
   }, [openNote, nonGreenMoves, onSelect, features]);
 
-  if (loading) return <div className="viewer-panel-empty">Loading analysis…</div>;
+  if (loading) return <div style={{ padding: 20, color: "var(--ink-mute)", fontFamily: "var(--font-display)" }}>Loading analysis…</div>;
 
   if (!features) {
     return (
-      <div className="viewer-review-empty">
-        <div className="viewer-review-mark">析</div>
-        <h2>No analysis yet</h2>
-        <p>
+      <div className="gs-card" style={{ padding: 24, background: "var(--pastel-cyan)", textAlign: "center" }}>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 48, marginBottom: 10 }}>析</div>
+        <h2 style={{ fontSize: 18, marginBottom: 8 }}>No analysis yet</h2>
+        <p style={{ fontSize: 13, marginBottom: 16 }}>
           {gameFinished
             ? "Run KataGo over this game to see per-move points lost, top moves, and the score curve."
             : "Analysis is available once the game has finished."}
         </p>
         {gameFinished && (
           <button
-            className="btn btn-primary"
+            className="gs-btn gs-btn--primary"
             onClick={() => mutation.mutate()}
             disabled={mutation.isPending}
           >
@@ -561,9 +510,9 @@ function AnalysisTab({
     });
 
   return (
-    <div className="analysis-tab">
-      <div className="analysis-controls">
-        <label className="checkbox">
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
           <input
             type="checkbox"
             checked={blundersOnly}
@@ -575,14 +524,15 @@ function AnalysisTab({
           className="styled-select"
           value={sortKey}
           onChange={(e) => setSortKey(e.target.value as "move" | "lost")}
+          style={{ fontSize: 13 }}
         >
           <option value="move">By move</option>
           <option value="lost">By points lost</option>
         </select>
       </div>
 
-      <div className="analysis-table-wrap">
-        <table className="analysis-table">
+      <div style={{ overflow: "auto" }}>
+        <table className="move-table">
           <thead>
             <tr>
               <th>#</th>
@@ -654,18 +604,16 @@ function AnalysisTab({
         );
       })()}
 
-      <div className="analysis-foot">
-        <span>{sorted.length} moves shown</span>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, paddingTop: 8 }}>
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--ink-mute)" }}>{sorted.length} moves shown</span>
         {nonGreenMoves.length > 0 && (
-          <span className="dim" style={{ fontSize: "0.75rem" }}>
-            j/k to cycle yellow/red
-          </span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--ink-mute)" }}>j/k to cycle</span>
         )}
         <button
-          className="btn btn-ghost btn-sm"
+          className="gs-btn"
+          style={{ padding: "6px 12px", fontSize: 12 }}
           onClick={() => mutation.mutate()}
           disabled={mutation.isPending}
-          title="Re-run KataGo over this game"
         >
           {mutation.isPending ? "Re-analysing…" : "Re-run analysis"}
         </button>
@@ -686,36 +634,32 @@ function InfoTab(props: {
 }) {
   const toast = useToast();
   return (
-    <div className="info-tab">
-      <Field label="Game ID">
-        <span className="tag">{props.gameId}</span>
-      </Field>
-      <Field label="Board"><span>{props.size}×{props.size}</span></Field>
-      <Field label="Komi"><span>{props.komi}</span></Field>
-      <Field label="Opponent">
-        <span>
-          {props.opponentType === "ai" ? `Sensei AI · ${props.aiRank ?? "?"}k` : "Human"}
-        </span>
-      </Field>
-      <Field label="Black"><span className="mono dim">{shortId(props.blackUserId)}</span></Field>
-      <Field label="White"><span className="mono dim">{shortId(props.whiteUserId)}</span></Field>
-      <Field label="Result"><span>{props.result ?? "in progress"}</span></Field>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div className="gs-card" style={{ padding: 16, background: "var(--bg-2)" }}>
+        <Field label="Game ID"><span className="gs-tag">{props.gameId.slice(0, 8)}…</span></Field>
+        <Field label="Board"><span>{props.size}×{props.size}</span></Field>
+        <Field label="Komi"><span>{props.komi}</span></Field>
+        <Field label="Opponent">
+          <span>{props.opponentType === "ai" ? `Sensei AI · ${props.aiRank ?? "?"}k` : "Human"}</span>
+        </Field>
+        <Field label="Black"><span style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>{shortId(props.blackUserId)}</span></Field>
+        <Field label="White"><span style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>{shortId(props.whiteUserId)}</span></Field>
+        <Field label="Result"><span>{props.result ?? "in progress"}</span></Field>
+      </div>
 
-      <hr className="divider" />
-
-      <div className="info-actions">
-        <a className="btn btn-ghost" href={sgfUrl(props.gameId)} download>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <a className="gs-btn" href={sgfUrl(props.gameId)} download style={{ textDecoration: "none" }}>
           Download SGF
         </a>
         <button
           type="button"
-          className="btn btn-ghost"
+          className="gs-btn"
           onClick={() => {
             navigator.clipboard.writeText(window.location.href).catch(() => {});
             toast.push({ kind: "info", title: "Link copied", body: "Share this URL to point others at this game." });
           }}
         >
-          Copy share link
+          Copy link
         </button>
       </div>
     </div>
@@ -724,9 +668,9 @@ function InfoTab(props: {
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="info-field">
-      <span className="info-field-label">{label}</span>
-      <span className="info-field-value">{children}</span>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid var(--line)" }}>
+      <span style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 13, color: "var(--ink-soft)" }}>{label}</span>
+      <span style={{ fontFamily: "var(--font-body)", fontSize: 13 }}>{children}</span>
     </div>
   );
 }

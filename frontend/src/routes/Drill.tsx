@@ -15,6 +15,19 @@ interface SolutionStep {
   coord: string;
 }
 
+function StubCard({ mark, title, body, cta }: { mark: string; title: string; body: string; cta: React.ReactNode }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1, padding: 40 }}>
+      <div className="gs-card" style={{ padding: "32px 36px", background: "var(--pastel-yellow)", boxShadow: "var(--shadow-block)", textAlign: "center", maxWidth: 420 }}>
+        <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 60, marginBottom: 12 }}>{mark}</div>
+        <h1 style={{ fontSize: 24, marginBottom: 10 }}>{title}</h1>
+        <p style={{ fontSize: 14, color: "var(--ink-soft)", marginBottom: 20 }}>{body}</p>
+        {cta}
+      </div>
+    </div>
+  );
+}
+
 export default function Drill() {
   const { problemId } = useParams<{ problemId?: string }>();
   const navigate = useNavigate();
@@ -38,43 +51,45 @@ export default function Drill() {
 
   if (!userId) {
     return (
-      <div className="stub-page">
-        <div className="stub-mark">練</div>
-        <h1>Drill</h1>
-        <p>Set a name in the Lobby first — drills are personalised to you.</p>
-        <Link to="/lobby" className="btn btn-primary">Go to Lobby</Link>
-      </div>
+      <StubCard
+        mark="練"
+        title="Drill"
+        body="Set a name in the Lobby first — drills are personalised to you."
+        cta={<Link to="/lobby" className="gs-btn gs-btn--primary" style={{ textDecoration: "none" }}>Go to Lobby →</Link>}
+      />
     );
   }
 
   if (isLoading) {
     return (
-      <div className="stub-page">
-        <div className="stub-mark">練</div>
-        <p className="dim">Picking your next problem…</p>
-      </div>
+      <StubCard
+        mark="練"
+        title="Loading…"
+        body="Picking your next problem…"
+        cta={null}
+      />
     );
   }
 
   if (problemId && !problem) {
     return (
-      <div className="stub-page">
-        <div className="stub-mark">練</div>
-        <h1>Problem not found</h1>
-        <p>No problem with that ID exists in the database.</p>
-        <Link to="/drill" className="btn btn-primary">Get next problem</Link>
-      </div>
+      <StubCard
+        mark="練"
+        title="Problem not found"
+        body="No problem with that ID exists in the database."
+        cta={<Link to="/drill" className="gs-btn gs-btn--primary" style={{ textDecoration: "none" }}>Get next problem →</Link>}
+      />
     );
   }
 
   if (!problem) {
     return (
-      <div className="stub-page">
-        <div className="stub-mark">練</div>
-        <h1>No problems available</h1>
-        <p>The drill picker returned nothing for you yet.</p>
-        <Link to="/" className="btn btn-primary">Back to Home</Link>
-      </div>
+      <StubCard
+        mark="練"
+        title="No problems available"
+        body="The drill picker returned nothing for you yet."
+        cta={<Link to="/" className="gs-btn gs-btn--primary" style={{ textDecoration: "none" }}>Back to Home →</Link>}
+      />
     );
   }
 
@@ -111,7 +126,6 @@ function DrillSession({ problem, userId, onNext }: DrillSessionProps) {
   const [hintUsed, setHintUsed] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
 
-  // Reset when problem changes.
   useEffect(() => {
     setMovesPlayed([]);
     setResolved("pending");
@@ -119,18 +133,11 @@ function DrillSession({ problem, userId, onNext }: DrillSessionProps) {
     setModalOpen(false);
   }, [problem.id]);
 
-  // Replay current state by treating initial board as starting position and
-  // applying movesPlayed on top.
   const currentBoard = useMemo(() => {
     const r = boardAtMove(setup.size, movesPlayed, movesPlayed.length);
-    // Stamp the setup stones as the base.
     const cells = initialBoard.map((row) => row.slice() as Cell[]);
-    // Apply each move on top of the setup so captures work against setup stones.
     let working = cells;
     if (movesPlayed.length > 0) {
-      // Re-run replay but seeded with setup. Easiest: write a small shim — for
-      // simplicity here, just overlay placed stones (no captures vs setup is
-      // good enough for the seeded ladder/snapback problems).
       for (const m of movesPlayed) {
         if (m.kind !== "play" || !m.point) continue;
         working[m.point.row][m.point.col] = m.color === "B" ? 1 : 2;
@@ -162,7 +169,6 @@ function DrillSession({ problem, userId, onNext }: DrillSessionProps) {
 
     const expectedPoint = parseCoord(expected.coord, setup.size);
     if (!expectedPoint) {
-      // Solution coord we can't parse — accept and move on.
       const m: MoveT = { color: expected.color, kind: "play", point };
       setMovesPlayed((prev) => [...prev, m]);
       return;
@@ -178,7 +184,6 @@ function DrillSession({ problem, userId, onNext }: DrillSessionProps) {
         submit.mutate(true);
       }
     } else {
-      // Wrong move — show as a ghost play and mark failed.
       const m: MoveT = { color: expected.color, kind: "play", point };
       setMovesPlayed((prev) => [...prev, m]);
       setResolved("failed");
@@ -199,8 +204,6 @@ function DrillSession({ problem, userId, onNext }: DrillSessionProps) {
   }
 
   function showSolution() {
-    // Don't open the modal — leave the board fully visible so the user can
-    // study the answer. Mark as "revealed" (counted as fail in the log).
     if (resolved === "pending") submit.mutate(false);
     setResolved("revealed");
     setModalOpen(false);
@@ -211,139 +214,242 @@ function DrillSession({ problem, userId, onNext }: DrillSessionProps) {
     setMovesPlayed(filled);
   }
 
-  const themeLabel =
-    problem.themes.slice(0, 2).map((t) => t.replace(/_/g, " ")).join(" · ") || "tsumego";
+  const themeLabel = problem.themes.slice(0, 2).map((t) => t.replace(/_/g, " ")).join(" · ") || "tsumego";
+  const toPlayLabel = setup.toPlay === "B" ? "BLACK" : "WHITE";
 
   return (
     <div className="drill-page">
-      <header className="drill-head">
-        <div>
-          <span className="home-eyebrow">Practising</span>
-          <h1 className="drill-title">{themeLabel}</h1>
-          <p className="dim">
-            {setup.toPlay === "B" ? "Black" : "White"} to play · difficulty {problem.difficulty}
+      {/* ── Left: context ───────────────────────────── */}
+      <div className="drill-left">
+        <div className="gs-card" style={{ padding: 16, background: "var(--pastel-pink)" }}>
+          <div className="gs-section-h" style={{ marginBottom: 10 }}>WHY THIS PROBLEM</div>
+          <p style={{ fontSize: 13, lineHeight: 1.5, color: "var(--ink-soft)" }}>
+            This problem trains <strong>{themeLabel}</strong>. Solving it without hints will strengthen the corresponding weakness in your model.
           </p>
         </div>
-        <Link to="/" className="btn btn-ghost">End session</Link>
-      </header>
 
-      <div className="drill-body">
-        <div className="drill-board">
-          <GoBoard
-            board={currentBoard.cells}
-            lastMove={currentBoard.last}
-            onPlay={handlePlay}
-            disabled={resolved !== "pending"}
-            vertexSize={32}
-          />
+        <div className="gs-card" style={{ padding: 16, background: "var(--bg-2)" }}>
+          <div className="gs-section-h" style={{ marginBottom: 12 }}>PROBLEM INFO</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <InfoRow label="Theme" value={themeLabel} />
+            <InfoRow label="Difficulty" value={`${problem.difficulty} / 10`} />
+            <InfoRow label="Board size" value={`${setup.size}×${setup.size}`} />
+            <InfoRow label="Steps" value={`${Math.min(movesPlayed.length + 1, solution.length)} / ${solution.length}`} />
+            <InfoRow label="Hint" value={hintUsed ? "used" : "available"} />
+          </div>
         </div>
 
-        <aside className="drill-side">
-          <div className="drill-meta">
-            <div className="drill-meta-row">
-              <span className="info-field-label">Themes</span>
-              <span>{problem.themes.join(", ") || "—"}</span>
-            </div>
-            <div className="drill-meta-row">
-              <span className="info-field-label">Difficulty</span>
-              <span>{problem.difficulty} / 10</span>
-            </div>
-            <div className="drill-meta-row">
-              <span className="info-field-label">Step</span>
-              <span className="mono">{Math.min(movesPlayed.length + 1, solution.length)} / {solution.length}</span>
-            </div>
-          </div>
-
-          <div className="drill-actions">
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={showHint}
-              disabled={resolved === "solved" || resolved === "revealed"}
-            >
-              Hint
+        <div className="gs-card" style={{ padding: 16, background: "var(--pastel-yellow)" }}>
+          <div className="gs-section-h" style={{ marginBottom: 10 }}>SHARE</div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <span className="gs-tag" style={{ fontSize: 10, wordBreak: "break-all" }}>/drill/{problem.id.slice(0, 8)}…</span>
+            <button className="gs-btn" style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => {
+              navigator.clipboard.writeText(window.location.href).catch(() => {});
+              toast.push({ kind: "info", title: "Copied", body: "Link copied to clipboard." });
+            }}>
+              Copy
             </button>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={showSolution}
-              disabled={resolved === "solved" || resolved === "revealed"}
-            >
-              Show solution
-            </button>
-            {(resolved === "failed" || resolved === "solved" || resolved === "revealed") && (
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={onNext}
-              >
-                Next problem →
-              </button>
-            )}
           </div>
-
-          {resolved === "revealed" && (
-            <p className="dim" style={{ fontStyle: "italic", fontSize: "0.88rem" }}>
-              The full solution is on the board. Take your time, then go to the next problem.
-            </p>
-          )}
-        </aside>
+        </div>
       </div>
 
+      {/* ── Center: board ───────────────────────────── */}
+      <div className="drill-center">
+        <div className="drill-sticker-wrap">
+          <div className="drill-sticker-overlay">
+            <span className="gs-sticker" style={{ fontSize: 11 }}>
+              {toPlayLabel} TO PLAY · {themeLabel.toUpperCase()}
+            </span>
+          </div>
+          <div style={{ marginTop: 20 }}>
+            <GoBoard
+              board={currentBoard.cells}
+              lastMove={currentBoard.last}
+              onPlay={handlePlay}
+              disabled={resolved !== "pending"}
+              vertexSize={32}
+            />
+          </div>
+        </div>
+
+        <div className="drill-attempt-bar">
+          <span className={`gs-pill ${
+            resolved === "solved" ? "gs-pill--mint" :
+            resolved === "failed" ? "gs-pill--red" :
+            resolved === "revealed" ? "gs-pill--lav" : "gs-pill--yellow"
+          }`}>
+            {resolved === "pending" ? "in progress" :
+             resolved === "solved" ? "✓ solved" :
+             resolved === "failed" ? "✗ wrong" : "revealed"}
+          </span>
+          <span>{`step ${Math.min(movesPlayed.length + 1, solution.length)} of ${solution.length}`}</span>
+        </div>
+      </div>
+
+      {/* ── Right: moves + actions ───────────────────── */}
+      <div className="drill-right">
+        <div className="gs-card" style={{ padding: 16, background: "var(--bg-2)" }}>
+          <div className="gs-section-h" style={{ marginBottom: 10 }}>GOAL</div>
+          <p style={{ fontSize: 13, lineHeight: 1.5, color: "var(--ink-soft)", marginBottom: 12 }}>
+            Find the correct sequence. {setup.toPlay === "B" ? "Black" : "White"} to play and achieve the objective.
+          </p>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {problem.themes.map((t) => (
+              <span key={t} className="gs-tag">{t.replace(/_/g, " ")}</span>
+            ))}
+          </div>
+        </div>
+
+        {movesPlayed.length > 0 && (
+          <div className="gs-card" style={{ padding: 16, background: "var(--bg-2)" }}>
+            <div className="gs-section-h" style={{ marginBottom: 10 }}>YOUR MOVES</div>
+            <div className="drill-move-list">
+              {movesPlayed.map((m, i) => {
+                const isCorrect = i < solution.length && m.kind === "play" && m.point &&
+                  (() => {
+                    const ep = parseCoord(solution[i].coord, setup.size);
+                    return ep && m.point.row === ep.row && m.point.col === ep.col;
+                  })();
+                return (
+                  <div key={i} className="drill-move-row">
+                    <div style={{
+                      width: 20, height: 20, borderRadius: "50%",
+                      background: m.color === "B" ? "var(--ink)" : "var(--bg-2)",
+                      border: "2px solid var(--ink)",
+                      flexShrink: 0,
+                    }} />
+                    <span className="drill-move-coord">
+                      {m.point ? formatCoord(m.point.row, m.point.col, setup.size) : m.kind}
+                    </span>
+                    <span className={`drill-move-result ${isCorrect ? "good" : "bad"}`}>
+                      {isCorrect ? "✓" : "✗"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <button
+            type="button"
+            className="gs-btn gs-btn--yellow"
+            onClick={showHint}
+            disabled={resolved === "solved" || resolved === "revealed"}
+            style={{ width: "100%" }}
+          >
+            Hint (−1 stamp)
+          </button>
+          <button
+            type="button"
+            className="gs-btn"
+            onClick={showSolution}
+            disabled={resolved === "solved" || resolved === "revealed"}
+            style={{ width: "100%" }}
+          >
+            Show solution
+          </button>
+          {(resolved !== "pending") && (
+            <button
+              type="button"
+              className="gs-btn gs-btn--primary"
+              onClick={onNext}
+              style={{ width: "100%" }}
+            >
+              Next problem →
+            </button>
+          )}
+          {resolved === "revealed" && (
+            <p style={{ fontSize: 12, color: "var(--ink-mute)", textAlign: "center", fontStyle: "italic" }}>
+              Full solution on the board — study it, then move on.
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* ── Result modal ─────────────────────────────── */}
       {modalOpen && (resolved === "solved" || resolved === "failed") && (
         <div
-          className="postgame-overlay"
+          style={{
+            position: "fixed", inset: 0, zIndex: 50,
+            background: "rgba(26,23,20,0.6)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: 20,
+          }}
           role="dialog"
           aria-modal="true"
           onClick={() => setModalOpen(false)}
         >
-          <div className="postgame-modal" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="gs-card"
+            style={{
+              padding: "32px 36px",
+              background: resolved === "solved" ? "var(--pastel-green)" : "var(--pastel-pink)",
+              boxShadow: "var(--shadow-block)",
+              maxWidth: 400, width: "100%",
+              textAlign: "center",
+              position: "relative",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <button
-              className="postgame-close"
               type="button"
               onClick={() => setModalOpen(false)}
               aria-label="Dismiss"
+              style={{
+                position: "absolute", top: 12, right: 12,
+                background: "none", border: "none", cursor: "pointer",
+                fontSize: 20, color: "var(--ink-mute)",
+              }}
             >×</button>
-            <div className="postgame-eyebrow">{resolved === "solved" ? "Solved" : "Try again"}</div>
-            <h2 className="postgame-result">
-              {resolved === "solved" ? "✓ Correct" : "✗ Not quite"}
+
+            <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 48, lineHeight: 1, marginBottom: 10 }}>
+              {resolved === "solved" ? "✓" : "✗"}
+            </div>
+            <div className="gs-tag" style={{ marginBottom: 12 }}>
+              {resolved === "solved" ? "CORRECT" : "TRY AGAIN"}
+            </div>
+            <h2 style={{ fontSize: 24, marginBottom: 10 }}>
+              {resolved === "solved" ? "Well done!" : "Not quite."}
             </h2>
-            <p className="postgame-sub">
+            <p style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 20 }}>
               {resolved === "solved"
                 ? hintUsed
                   ? "Solved with a hint — count this as half-credit."
                   : "Solved cleanly. Sensei will adjust your weakness model."
-                : "Dismiss this to study the position, then reveal the solution or move on."}
+                : "Dismiss to study the position, then reveal the solution or move on."}
             </p>
-            <div className="postgame-actions">
-              <button type="button" className="btn btn-primary" onClick={onNext}>
-                Next problem
+            <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+              <button type="button" className="gs-btn gs-btn--primary" onClick={onNext}>
+                Next problem →
               </button>
               {resolved === "failed" && (
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={() => { setModalOpen(false); showSolution(); }}
-                >
+                <button type="button" className="gs-btn" onClick={() => { setModalOpen(false); showSolution(); }}>
                   Reveal solution
                 </button>
               )}
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={() => setModalOpen(false)}
-              >
+              <button type="button" className="gs-btn" onClick={() => setModalOpen(false)}>
                 Study the board
               </button>
               {problem.themes[0] && (
-                <Link to={`/concepts/${problem.themes[0]}`} className="btn btn-ghost">
-                  Study this concept
+                <Link to={`/concepts/${problem.themes[0]}`} className="gs-btn" style={{ textDecoration: "none" }}>
+                  Study concept
                 </Link>
               )}
             </div>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
+      <span style={{ fontFamily: "var(--font-display)", fontWeight: 600, color: "var(--ink-soft)" }}>{label}</span>
+      <span style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{value}</span>
     </div>
   );
 }
