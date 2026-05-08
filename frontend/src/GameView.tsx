@@ -1,16 +1,33 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { fetchGame, playMove, sgfUrl } from "./api";
+import { createGame, fetchGame, getPlayerNotes, playMove, requestAiMove, sgfUrl, swapColors, undoMove } from "./api";
 import { GoBoard } from "./GoBoard";
+import { UserChip } from "./components/UserChip";
+import { LiveTierDot } from "./components/LiveTierDot";
+import { ChatDrawer } from "./components/ChatDrawer";
+import { MoveHistory } from "./components/MoveHistory";
+import { PlayerNoteInput } from "./components/PlayerNoteInput";
 import { connectGameSocket } from "./ws";
 import type { ColorCode, GameT, GameStateT, MoveKind, PointT } from "./types";
+import type { GhostStone } from "@sabaki/shudan";
+
+const USER_ID_KEY = "senpai_user_id";
 
 interface Props {
   gameId: string;
   onExit: () => void;
+  /** Hand off to a new game with the same settings (AI games only). */
+  onPlayAgain?: (newGameId: string) => void;
+  /** Push the user to the completed-game viewer. */
+  onOpenReview?: (gameId: string) => void;
 }
 
-const STORAGE_KEY = (id: string) => `gosenpai:role:${id}`;
+function deriveRole(game: GameT | null, userId: string | null): ColorCode | null {
+  if (!game || !userId) return null;
+  if (game.black_user_id === userId) return "B";
+  if (game.white_user_id === userId) return "W";
+  return null;
+}
 
 function CopyIcon() {
   return (
@@ -29,15 +46,45 @@ function CheckIcon() {
   );
 }
 
-export function GameView({ gameId, onExit }: Props) {
+export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
   const [game, setGame] = useState<GameT | null>(null);
   const [state, setState] = useState<GameStateT | null>(null);
-  const [role, setRole] = useState<ColorCode>(
-    () => (localStorage.getItem(STORAGE_KEY(gameId)) as ColorCode) || "B",
-  );
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [swapping, setSwapping] = useState(false);
+  const [aiThinking, setAiThinking] = useState(false);
+  const [overlayDismissed, setOverlayDismissed] = useState(false);
+  const [playAgainPending, setPlayAgainPending] = useState(false);
+  const [liveTiers, setLiveTiers] = useState<Map<number, "green" | "yellow" | "red">>(new Map());
+  const [chatOpen, setChatOpen] = useState(false);
+  const [senseiThinking, setSenseiThinking] = useState(false);
+  const [playerNotes, setPlayerNotes] = useState<Record<number, string>>({});
+  const [ownershipRaw, setOwnershipRaw] = useState<{ data: number[]; boardSize: number } | null>(null);
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Reset overlay dismiss when switching games.
+  useEffect(() => { setOverlayDismissed(false); }, [gameId]);
+
+  // Load player notes on mount
+  useEffect(() => {
+    const uid = localStorage.getItem(USER_ID_KEY);
+    if (uid) getPlayerNotes(gameId, uid).then(setPlayerNotes);
+  }, [gameId]);
+
+  const role = deriveRole(game, localStorage.getItem(USER_ID_KEY));
+
+  const ownershipGhosts = useMemo((): (GhostStone | null)[][] | undefined => {
+    if (!ownershipRaw) return undefined;
+    const { data, boardSize } = ownershipRaw;
+    return Array.from({ length: boardSize }, (_, row) =>
+      Array.from({ length: boardSize }, (_, col) => {
+        const v = data[row * boardSize + col];
+        if (v > 0.5)  return { sign:  1 as const, type: "good" as const, faint: true };
+        if (v < -0.5) return { sign: -1 as const, type: "good" as const, faint: true };
+        return null;
+      }),
+    );
+  }, [ownershipRaw]);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,14 +98,52 @@ export function GameView({ gameId, onExit }: Props) {
     return () => { cancelled = true; };
   }, [gameId]);
 
+  // Kick the AI if it's already its turn on load (e.g. user picked White).
   useEffect(() => {
-    const close = connectGameSocket(gameId, (s) => setState(s));
+    if (!game || !state || aiThinking) return;
+    if (game.opponent_type !== "ai") return;
+    if (state.status !== "active") return;
+    if (!role || state.turn === role) return;
+    setAiThinking(true);
+    requestAiMove(gameId)
+      .then((s) => setState(s))
+      .catch((e) => setError(`AI move failed: ${e}`))
+      .finally(() => setAiThinking(false));
+    // Intentionally excluding aiThinking from deps to avoid re-triggering mid-request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game?.opponent_type, state?.turn, state?.status, role, gameId]);
+
+  useEffect(() => {
+    setLiveTiers(new Map()); // reset tiers when game changes
+    const close = connectGameSocket(
+      gameId,
+      (s) => setState(s),
+      (players) =>
+        setGame((prev) =>
+          prev
+            ? {
+                ...prev,
+                black_user_id: players.black_user_id,
+                white_user_id: players.white_user_id,
+              }
+            : prev,
+        ),
+      (e) => setLiveTiers((prev) => new Map(prev).set(e.move_number, e.tier)),
+    );
     return close;
   }, [gameId]);
 
+  // Keyboard shortcut: C to open/close coach drawer (not when typing in an input)
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY(gameId), role);
-  }, [gameId, role]);
+    function onKey(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (e.key === "c" || e.key === "C") setChatOpen((prev) => !prev);
+      if (e.key === "Escape") setChatOpen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   function copyId() {
     navigator.clipboard.writeText(gameId).catch(() => {});
@@ -68,10 +153,48 @@ export function GameView({ gameId, onExit }: Props) {
   }
 
   async function send(kind: MoveKind, point: PointT | null) {
+    if (!role) {
+      setError("You're not seated in this game yet.");
+      return;
+    }
     setError(null);
     try {
       const next = await playMove(gameId, role, kind, point);
       setState(next);
+      // In AI games the kick-off effect picks this up once state.turn flips.
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function onSwap() {
+    setError(null);
+    setSwapping(true);
+    try {
+      const g = await swapColors(gameId);
+      setGame(g);
+      setState(g.state);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSwapping(false);
+    }
+  }
+
+  async function handleUndo() {
+    setError(null);
+    try {
+      const newState = await undoMove(gameId);
+      setState(newState);
+      // Remove liveTier entries for the two undone moves
+      const undonePlayer = newState.moves.length + 1;
+      const undoneAi = newState.moves.length + 2;
+      setLiveTiers((prev) => {
+        const next = new Map(prev);
+        next.delete(undonePlayer);
+        next.delete(undoneAi);
+        return next;
+      });
     } catch (e) {
       setError(String(e));
     }
@@ -94,16 +217,55 @@ export function GameView({ gameId, onExit }: Props) {
     );
   }
 
-  const disabled = state.status !== "active" || state.turn !== role;
-  const isMyTurn = state.status === "active" && state.turn === role;
+  async function handlePlayAgain() {
+    if (!game || !role) return;
+    if (game.opponent_type !== "ai") return;
+    const userId = localStorage.getItem(USER_ID_KEY);
+    if (!userId) return;
+    setPlayAgainPending(true);
+    try {
+      const next = await createGame(game.size as 9 | 13 | 19, userId, role, {
+        opponentType: "ai",
+        aiRank: game.ai_rank ?? 10,
+      });
+      onPlayAgain ? onPlayAgain(next.id) : (window.location.href = `/play/${next.id}`);
+    } catch (e) {
+      setError(`Couldn't start a new game: ${e}`);
+    } finally {
+      setPlayAgainPending(false);
+    }
+  }
+
+  const disabled = !role || state.status !== "active" || state.turn !== role;
+  const isMyTurn = !!role && state.status === "active" && state.turn === role;
+  const isAiGame = game?.opponent_type === "ai";
+  const canUndo = isAiGame && isMyTurn && state.moves.length >= 2;
   const turnLabel = state.turn === "B" ? "Black" : "White";
   const turnColorClass = state.turn === "B" ? "black" : "white";
+  const preGame = state.moves.length === 0 && state.status === "active";
+  const bothSeated = !!game.black_user_id && !!game.white_user_id;
 
   return (
     <div style={styles.layout}>
       {/* Board */}
       <div style={styles.boardArea}>
-        <GoBoard state={state} disabled={disabled} onPlay={(p) => send("play", p)} />
+        <div className="ai-thinking-shell">
+          <GoBoard
+            state={state}
+            disabled={disabled}
+            onPlay={(p) => send("play", p)}
+            ownershipGhosts={ownershipGhosts}
+          />
+          {aiThinking && (
+            <div className="ai-thinking-overlay" aria-hidden="true">
+              <div className="ai-thinking-pill">
+                <span className="ai-thinking-mark">先</span>
+                Sensei is thinking
+                <span className="ai-thinking-dots"><span /><span /><span /></span>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Panel */}
@@ -130,17 +292,35 @@ export function GameView({ gameId, onExit }: Props) {
 
         <hr className="divider" style={{ margin: "20px 0" }} />
 
-        {/* Play as */}
+        {/* Players */}
         <div style={styles.field}>
-          <label style={styles.fieldLabel}>Play as</label>
-          <select
-            className="styled-select"
-            value={role}
-            onChange={(e) => setRole(e.target.value as ColorCode)}
-          >
-            <option value="B">● Black</option>
-            <option value="W">○ White</option>
-          </select>
+          <label style={styles.fieldLabel}>Players</label>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
+            <UserChip
+              userId={game.black_user_id}
+              handle={role === "B" ? "You" : undefined}
+              aiRank={game.ai_rank}
+              color="B"
+            />
+            <UserChip
+              userId={game.white_user_id}
+              handle={role === "W" ? "You" : undefined}
+              aiRank={game.ai_rank}
+              color="W"
+            />
+          </div>
+          {preGame && role && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={onSwap}
+              disabled={swapping}
+              style={{ marginTop: 10, padding: "6px 12px", fontSize: "0.85rem" }}
+              title={bothSeated ? "Swap colours with opponent" : "Swap your seat (no opponent yet)"}
+            >
+              {swapping ? "swapping…" : "Swap colours"}
+            </button>
+          )}
         </div>
 
         {/* Turn */}
@@ -152,7 +332,9 @@ export function GameView({ gameId, onExit }: Props) {
               {state.status === "active"
                 ? isMyTurn
                   ? `${turnLabel} — your move`
-                  : `${turnLabel} — waiting`
+                  : aiThinking
+                    ? `${turnLabel} — Sensei is thinking…`
+                    : `${turnLabel} — waiting`
                 : "—"}
             </span>
           </div>
@@ -170,6 +352,51 @@ export function GameView({ gameId, onExit }: Props) {
           </div>
         </div>
 
+        {/* Live training-mode tier strip */}
+        {game?.training_mode && game.opponent_type === "ai" && role && (
+          <LiveTierDot
+            gameId={gameId}
+            userId={localStorage.getItem(USER_ID_KEY) ?? ""}
+            tiers={liveTiers}
+            pendingCount={state.moves.reduce((n, m, i) =>
+              m.color === role && !liveTiers.has(i + 1) ? n + 1 : n, 0)}
+            onShowOnBoard={() => {/* board not scrubable in live mode */}}
+          />
+        )}
+
+        {/* Move history */}
+        {state.moves.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <label style={styles.fieldLabel}>Move history</label>
+            <MoveHistory moves={state.moves} boardSize={game?.size ?? 19} />
+          </div>
+        )}
+
+        {/* Player strategy note */}
+        {role && state.status === "active" && game?.opponent_type === "ai" && (
+          <PlayerNoteInput
+            gameId={gameId}
+            userId={localStorage.getItem(USER_ID_KEY) ?? ""}
+            moveNumber={state.moves.length}
+            existingNote={playerNotes[state.moves.length]}
+            onSaved={(mn, body) =>
+              setPlayerNotes((prev) => ({ ...prev, [mn]: body }))
+            }
+          />
+        )}
+
+        {/* Ask Sensei coach button (AI games only) */}
+        {game?.opponent_type === "ai" && state?.status === "active" && (
+          <button
+            className="btn btn-ghost ask-coach-btn"
+            onClick={() => setChatOpen(true)}
+            title="Open the Sensei coach (C)"
+          >
+            {chatOpen && senseiThinking ? "Sensei is thinking…" : "Ask Sensei"}{" "}
+            <kbd>C</kbd>
+          </button>
+        )}
+
         <hr className="divider" style={{ margin: "20px 0" }} />
 
         {/* Actions or result */}
@@ -182,6 +409,15 @@ export function GameView({ gameId, onExit }: Props) {
             >
               Pass
             </button>
+            {isAiGame && (
+              <button
+                className="btn btn-ghost action-btn--undo"
+                onClick={handleUndo}
+                disabled={!canUndo}
+              >
+                Undo
+              </button>
+            )}
             <button
               className="btn btn-ghost"
               onClick={() => send("resign", null)}
@@ -195,6 +431,9 @@ export function GameView({ gameId, onExit }: Props) {
           <div className="result-banner">
             <strong>Game over</strong>
             <span>{state.result ?? state.status}</span>
+            <a href={`/games/${gameId}`} className="result-banner-link">
+              Open review viewer →
+            </a>
           </div>
         )}
 
@@ -218,6 +457,59 @@ export function GameView({ gameId, onExit }: Props) {
           </button>
         </div>
       </aside>
+
+      <ChatDrawer
+        gameId={gameId}
+        userId={localStorage.getItem(USER_ID_KEY) ?? ""}
+        open={chatOpen}
+        onClose={() => { setChatOpen(false); setOwnershipRaw(null); }}
+        onStreamingChange={setSenseiThinking}
+        onOwnership={(data, boardSize) => setOwnershipRaw({ data, boardSize })}
+      />
+
+      {state.status !== "active" && !overlayDismissed && (
+        <div className="postgame-overlay" role="dialog" aria-modal="true" onClick={() => setOverlayDismissed(true)}>
+          <div className="postgame-modal" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="postgame-close"
+              type="button"
+              onClick={() => setOverlayDismissed(true)}
+              aria-label="Dismiss"
+            >×</button>
+            <div className="postgame-eyebrow">Game over</div>
+            <h2 className="postgame-result">{state.result ?? state.status}</h2>
+            <p className="postgame-sub">
+              {role
+                ? `You played ${role === "B" ? "Black" : "White"}${
+                    game.opponent_type === "ai" ? ` against Sensei AI ${game.ai_rank ?? "?"}k.` : "."
+                  }`
+                : "You watched as a spectator."}
+            </p>
+            <div className="postgame-actions">
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => (onOpenReview ? onOpenReview(gameId) : (window.location.href = `/games/${gameId}`))}
+              >
+                Review this game
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={onExit}>
+                Back to lobby
+              </button>
+              {game.opponent_type === "ai" && role && (
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={handlePlayAgain}
+                  disabled={playAgainPending}
+                >
+                  {playAgainPending ? "Starting…" : "Play again"}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
