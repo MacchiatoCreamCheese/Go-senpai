@@ -13,7 +13,7 @@ import {
   type MoveFeature,
   type ReviewResponse,
 } from "../api";
-import type { GhostStone } from "@sabaki/shudan";
+import type { GhostStone } from "../GoBoard";
 import { GoBoard } from "../GoBoard";
 import { MoveScrubber } from "../components/MoveScrubber";
 import { EngineOverlay } from "../components/EngineOverlay";

@@ -53,8 +53,6 @@ export function AppShell() {
     return () => document.removeEventListener("mousedown", onDoc);
   }, [menuOpen]);
 
-  const minimalChrome = location.pathname.startsWith("/play/");
-
   const displayName = legacy
     ? legacyHandle || "Guest"
     : user
@@ -73,8 +71,7 @@ export function AppShell() {
 
   return (
     <div className="shell">
-      {!minimalChrome && (
-        <header className="shell-nav">
+      <header className="shell-nav">
           {/* Logo + brand */}
           <NavLink to="/" className="shell-logo" end>
             <Logo />
@@ -161,18 +158,15 @@ export function AppShell() {
             </div>
           </div>
         </header>
-      )}
 
       <main className="shell-main">
         <Outlet />
       </main>
 
-      {!minimalChrome && (
-        <NavLink to="/coach" className="coach-fab" aria-label="Open coach">
-          <span className="coach-fab-mark">先</span>
-          <span className="coach-fab-label">Sensei</span>
-        </NavLink>
-      )}
+      <NavLink to="/coach" className="coach-fab" aria-label="Open coach">
+        <span className="coach-fab-mark">先</span>
+        <span className="coach-fab-label">Sensei</span>
+      </NavLink>
     </div>
   );
 }

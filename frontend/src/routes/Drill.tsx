@@ -267,7 +267,7 @@ function DrillSession({ problem, userId, onNext }: DrillSessionProps) {
               lastMove={currentBoard.last}
               onPlay={handlePlay}
               disabled={resolved !== "pending"}
-              vertexSize={32}
+              width={460}
             />
           </div>
         </div>
