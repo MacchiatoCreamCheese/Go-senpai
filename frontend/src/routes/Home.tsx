@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 
@@ -12,8 +12,9 @@ import {
   type UserGameListItem,
   type WeaknessItem,
 } from "../api";
+import { AuthLoading } from "../components/AuthLoading";
 import { useToast } from "../components/NotificationToast";
-import { useIdentity } from "../lib/auth";
+import { HANDLE_KEY, useAuth, useIdentity } from "../lib/auth";
 import { GoBoardSVG } from "../GoBoardSVG";
 
 const PASTEL_CYCLE = [
@@ -28,8 +29,13 @@ const PASTEL_CYCLE = [
 const DAYS = ["M", "T", "W", "T", "F", "S", "S"];
 
 export default function Home() {
+  const { profile, user, ready } = useAuth();
   const { userId, displayName: handle } = useIdentity();
   const toast = useToast();
+
+  const [nameConfirmed, setNameConfirmed] = useState(
+    () => !!localStorage.getItem(HANDLE_KEY)
+  );
 
   const games = useQuery({
     queryKey: ["my-games", userId],
@@ -87,15 +93,28 @@ export default function Home() {
     };
   }, [games.data, progress.data, userConcepts.data]);
 
-  if (!userId) {
-    return <SignedOutStub />;
+  if (!ready) return <AuthLoading />;
+
+  const isLoggedIn = !!(userId || user?.id);
+  if (!isLoggedIn) return <WelcomeStub />;
+
+  if (!nameConfirmed) {
+    return (
+      <NameSetupScreen
+        email={profile?.email ?? user?.email ?? null}
+        onConfirm={(name) => {
+          if (name.trim()) localStorage.setItem(HANDLE_KEY, name.trim());
+          setNameConfirmed(true);
+        }}
+      />
+    );
   }
 
   const activeGames = (games.data ?? []).filter((g) => !g.result);
 
   return (
     <div className="home-page">
-      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 20, maxWidth: 1240 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 20, maxWidth: 1240, width: "100%", margin: "0 auto" }}>
         {/* HERO — Sensei card */}
         <SenseiHero
           action={action}
@@ -478,42 +497,122 @@ function QuickPlayRow({ hasActiveGame, activeGameId }: { hasActiveGame: boolean;
   );
 }
 
-// ─── Signed-out stub ───────────────────────────────────────────
+// ─── Welcome stub (not logged in) ─────────────────────────────
 
-function SignedOutStub() {
+function WelcomeStub() {
   return (
     <div style={{
       display: "flex",
-      flexDirection: "column",
       alignItems: "center",
       justifyContent: "center",
       minHeight: "60vh",
-      gap: 24,
       padding: 40,
-      textAlign: "center",
     }}>
-      <div className="gs-card" style={{
-        padding: "32px 40px",
+      <div className="gs-card gs-card--ink" style={{
+        padding: "36px 44px",
         background: "var(--pastel-cyan)",
-        maxWidth: 480,
+        maxWidth: 460,
+        textAlign: "center",
         boxShadow: "var(--shadow-block)",
       }}>
-        <div style={{
-          fontFamily: "var(--font-display)",
-          fontWeight: 700,
-          fontSize: 72,
-          lineHeight: 1,
-          marginBottom: 16,
-        }}>
+        <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 72, lineHeight: 1, marginBottom: 16 }}>
           先
         </div>
         <h1 style={{ fontSize: 28, marginBottom: 10 }}>Welcome to Go-senpai.</h1>
-        <p style={{ fontSize: 14, marginBottom: 20, color: "var(--ink-soft)" }}>
-          Set a name in the Lobby to start playing — your dashboard will fill in as you do.
+        <p style={{ fontSize: 14, marginBottom: 24, color: "var(--ink-soft)" }}>
+          Your AI-powered Go coach. Track games, drill problems, and learn concepts — all in one place.
         </p>
-        <Link to="/lobby" className="gs-btn gs-btn--primary" style={{ textDecoration: "none" }}>
-          Go to Lobby →
+        <Link to="/login" className="gs-btn gs-btn--primary" style={{ textDecoration: "none" }}>
+          Sign In →
         </Link>
+      </div>
+    </div>
+  );
+}
+
+// ─── Name-setup screen (logged in, first time) ─────────────────
+
+function NameSetupScreen({ email, onConfirm }: { email: string | null; onConfirm: (name: string) => void }) {
+  const [name, setName] = useState("");
+
+  return (
+    <div style={{
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: "70vh",
+      padding: "40px 20px",
+    }}>
+      <div style={{
+        display: "flex",
+        gap: 20,
+        width: "100%",
+        maxWidth: 860,
+        flexWrap: "wrap",
+        alignItems: "flex-start",
+      }}>
+        {/* Main card */}
+        <div className="gs-card gs-card--ink" style={{
+          flex: "1 1 360px",
+          padding: "32px 36px",
+          background: "var(--pastel-cyan)",
+          boxShadow: "var(--shadow-block)",
+          display: "flex",
+          flexDirection: "column",
+          gap: 18,
+        }}>
+          <span className="gs-sticker">WELCOME</span>
+
+          <div>
+            <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 30, lineHeight: 1.1, marginBottom: 8 }}>
+              What should we call you?
+            </h1>
+            <p style={{ fontSize: 14, color: "var(--ink-soft)", lineHeight: 1.55 }}>
+              Signed in as <strong>{email ?? "your account"}</strong>. Add a display name — or skip and jump straight in.
+            </p>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <label className="login-label" htmlFor="display-name">Display name <span style={{ fontWeight: 400, color: "var(--ink-mute)" }}>(optional)</span></label>
+            <input
+              id="display-name"
+              className="input"
+              type="text"
+              placeholder="Your name or nickname"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") onConfirm(name); }}
+              autoFocus
+            />
+          </div>
+
+          <button
+            className="gs-btn gs-btn--primary"
+            style={{ width: "100%", justifyContent: "center" }}
+            onClick={() => onConfirm(name)}
+          >
+            Get Started →
+          </button>
+        </div>
+
+        {/* Feature highlights */}
+        <div style={{ flex: "1 1 220px", display: "flex", flexDirection: "column", gap: 14 }}>
+          {[
+            { color: "var(--pastel-yellow)", tag: "AI COACH", title: "Sensei knows your game", body: "Get next-move hints and post-game reviews powered by KataGo." },
+            { color: "var(--pastel-green)",  tag: "DRILL",    title: "Tsumego every day",     body: "Sharpen your reading with life-and-death problems." },
+            { color: "var(--pastel-lavender)", tag: "LEARN",  title: "Concept library",       body: "Study joseki, fuseki, and key Go ideas at your own pace." },
+          ].map((f) => (
+            <div key={f.tag} className="gs-card gs-card--ink" style={{
+              padding: "16px 20px",
+              background: f.color,
+              boxShadow: "var(--shadow-block-sm)",
+            }}>
+              <span className="gs-tag" style={{ marginBottom: 8, display: "inline-block" }}>{f.tag}</span>
+              <div className="gs-display-700" style={{ fontSize: 16, marginBottom: 4 }}>{f.title}</div>
+              <p style={{ fontSize: 12, color: "var(--ink-soft)", margin: 0 }}>{f.body}</p>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
