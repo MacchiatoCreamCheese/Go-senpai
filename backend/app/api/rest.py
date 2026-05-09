@@ -113,13 +113,25 @@ async def get_user_progress(user_id: str) -> UserProgressResponse:
     return UserProgressResponse(**series)
 
 
+def _make_summary(body_md: str | None) -> str:
+    if not body_md:
+        return ""
+    first = (body_md or "").strip().split("\n\n")[0].strip()
+    return first[:175] + "…" if len(first) > 175 else first
+
+
 @router.get("/concepts", response_model=list[ConceptListItem])
 async def list_all_concepts(tag: str | None = None) -> list[ConceptListItem]:
     rows = await db.list_concepts()
     if tag:
         rows = [r for r in rows if tag in (r.get("tags") or [])]
     return [
-        ConceptListItem(id=r["id"], title=r["title"], tags=list(r["tags"] or []))
+        ConceptListItem(
+            id=r["id"],
+            title=r["title"],
+            tags=list(r["tags"] or []),
+            summary=_make_summary(r.get("body_md")),
+        )
         for r in rows
     ]
 

@@ -879,7 +879,7 @@ async def recent_problem_ids(user_id: str, limit: int = 5) -> list[str]:
 
 async def list_concepts() -> list[dict[str, Any]]:
     rows = await _get_pool().fetch(
-        "SELECT id, title, tags FROM go_concepts ORDER BY title"
+        "SELECT id, title, tags, body_md FROM go_concepts ORDER BY title"
     )
     return [dict(r) for r in rows]
 

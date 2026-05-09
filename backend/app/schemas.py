@@ -149,6 +149,7 @@ class ConceptListItem(BaseModel):
     id: str
     title: str
     tags: list[str] = Field(default_factory=list)
+    summary: str = ""
 
 
 class UserConceptItem(BaseModel):

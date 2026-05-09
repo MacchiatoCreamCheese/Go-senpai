@@ -357,6 +357,7 @@ export interface ConceptListItem {
   id: string;
   title: string;
   tags: string[];
+  summary?: string;
 }
 
 export async function listConcepts(tag?: string): Promise<ConceptListItem[]> {
