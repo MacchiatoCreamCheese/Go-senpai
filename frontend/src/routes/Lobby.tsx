@@ -100,6 +100,12 @@ export default function Lobby() {
 
   const hasActiveGames = activeGames.length > 0;
 
+  const SIZE_META = {
+    9:  { bg: "var(--pastel-cyan)",   label: "Quick"    },
+    13: { bg: "var(--pastel-yellow)", label: "Standard" },
+    19: { bg: "var(--pastel-peach)",  label: "Classic"  },
+  } as const;
+
   return (
     <div className="lobby-page">
       <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 28 }}>
@@ -227,27 +233,17 @@ export default function Lobby() {
                 </div>
 
                 {/* Training mode */}
-                <label style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  cursor: "pointer",
-                  fontFamily: "var(--font-display)",
-                  fontWeight: 600,
-                  fontSize: 13,
-                  padding: "10px 14px",
-                  border: "2px solid var(--line-dark)",
-                  borderRadius: 12,
-                  background: trainingMode ? "var(--pastel-yellow)" : "var(--bg)",
-                  transition: "background 150ms",
-                }}>
-                  <input
-                    type="checkbox"
-                    checked={trainingMode}
-                    onChange={(e) => setTrainingMode(e.target.checked)}
-                  />
+                <div
+                  className={"lobby-toggle" + (trainingMode ? " is-on" : "")}
+                  onClick={() => setTrainingMode((v) => !v)}
+                  role="switch"
+                  aria-checked={trainingMode}
+                >
+                  <div className="toggle-track">
+                    <div className="toggle-thumb" />
+                  </div>
                   Training mode — coaching dots after each move
-                </label>
+                </div>
               </div>
             )}
 
@@ -258,14 +254,13 @@ export default function Lobby() {
                 {(["B", "W"] as const).map((c) => (
                   <button
                     key={c}
-                    className={"gs-btn" + (color === c ? " gs-btn--primary" : "")}
+                    className={"lobby-color-btn" + (color === c ? " is-selected" : "")}
                     onClick={() => setColor(c)}
-                    style={{ flex: 1, justifyContent: "center" }}
                   >
                     <span className={`stone-dot ${c === "B" ? "black" : "white"}`} />
                     {c === "B" ? "Black" : "White"}
                     {c === "B" && (
-                      <span style={{ fontSize: 11, opacity: 0.55, marginLeft: 4 }}>moves first</span>
+                      <span style={{ fontSize: 11, opacity: 0.55 }}>moves first</span>
                     )}
                   </button>
                 ))}
@@ -274,17 +269,18 @@ export default function Lobby() {
 
             {/* Board size */}
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <label className="login-label">Board size — tap to start</label>
+              <label className="login-label">Board size - Tap to start</label>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                 {([9, 13, 19] as const).map((size) => (
                   <button
                     key={size}
-                    className="gs-btn gs-btn--primary"
-                    style={{ flex: "1 1 80px", justifyContent: "center", fontSize: 17, letterSpacing: "0.01em" }}
+                    className="lobby-size-btn"
+                    style={{ background: SIZE_META[size].bg }}
                     onClick={() => create(size)}
                     disabled={creating || (legacy && !handle.trim())}
                   >
-                    {size}×{size}
+                    <span className="lobby-size-btn-num">{size}×{size}</span>
+                    <span className="lobby-size-btn-sub">{SIZE_META[size].label}</span>
                   </button>
                 ))}
               </div>
