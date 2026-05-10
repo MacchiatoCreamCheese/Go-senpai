@@ -78,6 +78,14 @@ async def update_my_handle(
     return UserSchema(id=str(row["id"]), handle=row["handle"])
 
 
+@router.get("/users/{user_id}", response_model=UserSchema)
+async def get_user(user_id: str) -> UserSchema:
+    row = await db.get_user(user_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="user not found")
+    return UserSchema(id=str(row["id"]), handle=row["handle"])
+
+
 @router.get("/users/{user_id}/weaknesses", response_model=list[WeaknessSchema])
 async def list_user_weaknesses(user_id: str) -> list[WeaknessSchema]:
     rows = await db.list_user_weaknesses(user_id)

@@ -16,6 +16,7 @@ from typing import Any, Optional
 import httpx
 import jwt
 from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi.responses import JSONResponse
 from jwt import PyJWKClient
 
 from .. import db
@@ -142,10 +143,34 @@ async def soft_user(
 # ---------------------------------------------------------------------------
 
 
+def _has_bearer(authorization: Optional[str]) -> bool:
+    if not authorization:
+        return False
+    return authorization.strip().lower().startswith("bearer ")
+
+
 @router.get("/me")
-async def me(user: Optional[dict[str, Any]] = Depends(get_current_user)):
+async def me(
+    user: Optional[dict[str, Any]] = Depends(get_current_user),
+    authorization: Optional[str] = Header(default=None),
+):
     if user is None:
-        return {"auth_enabled": auth_enabled(), "user": None}
+        enabled = auth_enabled()
+        if _has_bearer(authorization) and not enabled:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "auth_enabled": False,
+                    "user": None,
+                    "error": (
+                        "This API is not configured to verify Supabase JWTs. "
+                        "Set SUPABASE_PROJECT_REF on the backend (or SUPABASE_JWKS_URL "
+                        "and SUPABASE_ISSUER) so /api/auth/me can mirror auth into "
+                        "public.users."
+                    ),
+                },
+            )
+        return {"auth_enabled": enabled, "user": None}
     return {
         "auth_enabled": True,
         "user": {

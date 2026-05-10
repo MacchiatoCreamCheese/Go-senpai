@@ -34,6 +34,10 @@ export async function createUser(handle: string): Promise<UserT> {
   return asJson<UserT>(resp);
 }
 
+export async function fetchUser(userId: string): Promise<UserT> {
+  return asJson<UserT>(await api(`/api/users/${encodeURIComponent(userId)}`));
+}
+
 export interface CreateGameOpts {
   opponentType?: "human" | "ai";
   aiRank?: number;

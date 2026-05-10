@@ -55,6 +55,23 @@ async def get_user(user_id: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
+def _default_auth_handle(supabase_user_id: str, email: str | None) -> str:
+    """Stable default ``users.handle`` for new Supabase sign-ups.
+
+    ``handle`` is UNIQUE in the DB. Using only the email local-part caused
+    collisions (e.g. ``john@gmail.com`` vs ``john@yahoo.com``). We always
+    append a slice of the auth user id so the handle is unique per ``sub``.
+    Users can still rename via ``update_user_handle``.
+    """
+    uid = str(supabase_user_id).replace("-", "")[:12]
+    if email and "@" in email:
+        local = email.split("@", 1)[0]
+        slug = "".join(c for c in local if c.isalnum() or c in "_-")[:12]
+        if slug:
+            return f"{slug}-{uid}"[:32]
+    return f"user-{uid}"[:32]
+
+
 async def get_or_create_user_from_auth(
     supabase_user_id: str, email: str | None
 ) -> dict[str, Any]:
@@ -63,11 +80,11 @@ async def get_or_create_user_from_auth(
     The Supabase ``auth.users.id`` becomes our ``users.id`` so all FK columns
     (games, drill_attempts, etc.) join cleanly with the JWT's ``sub`` claim.
 
-    Handle defaults to the local-part of the email; users can change it via
-    ``update_user_handle``.
+    Handle defaults to a readable prefix plus id entropy; users can change it
+    via ``update_user_handle``.
     """
     pool = _get_pool()
-    handle_default = (email.split("@", 1)[0] if email else f"user-{supabase_user_id[:8]}")[:32]
+    handle_default = _default_auth_handle(supabase_user_id, email)
     row = await pool.fetchrow(
         """
         INSERT INTO users (id, handle, email, created_via)

@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 
 import { supabase, supabaseEnabled } from "./supabase";
-import { api, AUTH_401_EVENT, setAccessToken } from "./http";
+import { api, AUTH_401_EVENT, getAccessTokenSync, setAccessToken } from "./http";
 
 export const USER_ID_KEY = "senpai_user_id";
 export const HANDLE_KEY = "senpai_user_handle";
@@ -77,11 +77,25 @@ export function useIdentity(): { userId: string | null; displayName: string } {
   return { userId, displayName };
 }
 
-async function fetchProfile(): Promise<BackendProfile | null> {
+/** Load mirrored ``public.users`` row. Pass ``accessToken`` from the current
+ *  Supabase session so this works on the same tick as SIGNED_IN (before React
+ *  flushes ``setAccessToken`` into ``http.ts``). */
+async function fetchProfile(accessToken?: string | null): Promise<BackendProfile | null> {
   try {
-    const resp = await api("/api/auth/me");
+    const init: RequestInit = {};
+    if (accessToken) {
+      init.headers = { Authorization: `Bearer ${accessToken}` };
+    }
+    const resp = await api("/api/auth/me", init);
     if (!resp.ok) return null;
-    const body = await resp.json();
+    const body = (await resp.json()) as {
+      user?: BackendProfile | null;
+      auth_enabled?: boolean;
+      error?: string;
+    };
+    if (body.error && import.meta.env.DEV) {
+      console.warn("[auth/me]", body.error);
+    }
     return body.user ?? null;
   } catch {
     return null;
@@ -115,16 +129,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Re-fetch profile only when the underlying user changes — not on every
   // hourly token rotation.
   const userId = session?.user?.id;
+  const accessToken = session?.access_token ?? null;
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || !accessToken) return;
     let cancelled = false;
-    fetchProfile().then((p) => {
+    fetchProfile(accessToken).then((p) => {
       if (cancelled || !p) return;
       setProfile(p);
       persistProfile(p);
     });
-    return () => { cancelled = true; };
-  }, [userId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, accessToken]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -201,13 +218,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem(HANDLE_KEY);
     },
     async refreshProfile() {
-      const p = await fetchProfile();
+      const t = getAccessTokenSync() ?? session?.access_token;
+      if (!t) return;
+      const p = await fetchProfile(t);
       if (p) {
         setProfile(p);
         persistProfile(p);
       }
     },
-  }), [ready, userId, profile]);
+  }), [ready, userId, profile, session]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

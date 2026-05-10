@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { createGame, fetchGame, getPlayerNotes, playMove, requestAiMove, sgfUrl, swapColors, undoMove } from "./api";
+import { createGame, fetchGame, fetchUser, getPlayerNotes, playMove, requestAiMove, sgfUrl, swapColors, undoMove } from "./api";
+import type { UserT } from "./api";
 import { GoBoard } from "./GoBoard";
 import { LiveTierDot } from "./components/LiveTierDot";
 import { ChatDrawer } from "./components/ChatDrawer";
 import { PlayerNoteInput } from "./components/PlayerNoteInput";
+import { MikuLive2D } from "./live2d/MikuLive2D";
 import { connectGameSocket } from "./ws";
 import type { ColorCode, GameT, GameStateT, MoveKind, PointT } from "./types";
 import type { GhostStone } from "./GoBoard";
@@ -40,6 +42,7 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
   const [senseiThinking, setSenseiThinking] = useState(false);
   const [playerNotes, setPlayerNotes] = useState<Record<number, string>>({});
   const [ownershipRaw, setOwnershipRaw] = useState<{ data: number[]; boardSize: number } | null>(null);
+  const [playerHandles, setPlayerHandles] = useState<Record<string, string>>({});
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => { setOverlayDismissed(false); }, [gameId]);
@@ -48,6 +51,16 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
     const uid = localStorage.getItem(USER_ID_KEY);
     if (uid) getPlayerNotes(gameId, uid).then(setPlayerNotes);
   }, [gameId]);
+
+  useEffect(() => {
+    if (!game || game.opponent_type !== "human") return;
+    const ids = [game.black_user_id, game.white_user_id].filter(Boolean) as string[];
+    ids.forEach((id) => {
+      fetchUser(id)
+        .then((u: UserT) => setPlayerHandles((prev) => ({ ...prev, [id]: u.handle })))
+        .catch(() => {});
+    });
+  }, [game?.black_user_id, game?.white_user_id, game?.opponent_type]);
 
   const role = deriveRole(game, localStorage.getItem(USER_ID_KEY));
 
@@ -207,108 +220,108 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
   const preGame = state.moves.length === 0 && state.status === "active";
   const userId = localStorage.getItem(USER_ID_KEY) ?? "";
 
+  const opponentColor: ColorCode = role === "B" ? "W" : "B";
+  const myColor: ColorCode = role ?? "B";
+
   return (
     <>
-      <div className="play-studio">
+      <div className="play-sandwich">
 
-        {/* ── LEFT: player cards + Miku slot + game info ── */}
-        <div className="studio-left">
-          <StudioPlayerCard color="W" game={game} state={state} role={role} aiThinking={aiThinking} />
-          <StudioPlayerCard color="B" game={game} state={state} role={role} aiThinking={aiThinking} />
+        {/* ── LEFT: Miku + game info ── */}
+        <div className="sandwich-left">
           <MikuSlot />
           <StudioGameInfo game={game} gameId={gameId} copied={copied} onCopy={copyId} />
         </div>
 
-        {/* ── CENTER: training sticker + board + tier legend ── */}
-        <div className="studio-center">
-          {game?.training_mode && isAiGame && (
-            <div style={{ position: "absolute", top: 0, left: 0, right: 0, display: "flex", justifyContent: "center", zIndex: 1 }}>
-              <span className="gs-sticker" style={{ background: "var(--pastel-cyan)" }}>
-                ⊙  TRAINING MODE · live coaching tier dots
-              </span>
-            </div>
-          )}
+        {/* ── CENTER: opponent → board → you (sandwich) ── */}
+        <div className="sandwich-center">
+          {/* Opponent card on top */}
+          <SandwichPlayerCard
+            color={role ? opponentColor : "W"}
+            game={game}
+            state={state}
+            role={role}
+            aiThinking={aiThinking}
+            playerHandles={playerHandles}
+          />
 
-          <div
-            className="ai-thinking-shell gs-card"
-            style={{ padding: 14, background: "var(--bg-2)", boxShadow: "var(--shadow-block)", marginTop: game?.training_mode && isAiGame ? 32 : 0 }}
-          >
-            <GoBoard
-              state={state}
-              disabled={disabled}
-              onPlay={(p) => send("play", p)}
-              ownershipGhosts={ownershipGhosts}
-            />
-            {aiThinking && (
-              <div className="ai-thinking-overlay" aria-hidden="true">
-                <div className="ai-thinking-pill">
-                  <span className="ai-thinking-mark">先</span>
-                  Sensei is thinking
-                  <span className="ai-thinking-dots"><span /><span /><span /></span>
+          {/* Board */}
+          <div style={{ position: "relative", display: "grid", placeItems: "center" }}>
+            {game?.training_mode && isAiGame && (
+              <div style={{ position: "absolute", top: -6, left: 0, right: 0, display: "flex", justifyContent: "center", zIndex: 1 }}>
+                <span className="gs-sticker" style={{ background: "var(--pastel-cyan)" }}>
+                  ⊙  TRAINING MODE · live coaching tier dots
+                </span>
+              </div>
+            )}
+            <div
+              className="ai-thinking-shell gs-card"
+              style={{ padding: 14, background: "var(--bg-2)", boxShadow: "var(--shadow-block)", marginTop: game?.training_mode && isAiGame ? 26 : 0 }}
+            >
+              <GoBoard
+                state={state}
+                disabled={disabled}
+                onPlay={(p) => send("play", p)}
+                ownershipGhosts={ownershipGhosts}
+              />
+              {aiThinking && (
+                <div className="ai-thinking-overlay" aria-hidden="true">
+                  <div className="ai-thinking-pill">
+                    <span className="ai-thinking-mark">先</span>
+                    Sensei is thinking
+                    <span className="ai-thinking-dots"><span /><span /><span /></span>
+                  </div>
                 </div>
+              )}
+            </div>
+            {game?.training_mode && isAiGame && (
+              <div style={{ position: "absolute", bottom: -28, display: "flex", gap: 10 }}>
+                <TierPill tier="good" label="ideal" />
+                <TierPill tier="ok" label="ok" />
+                <TierPill tier="bad" label="lost ≥ 2pt" />
               </div>
             )}
           </div>
 
-          {game?.training_mode && isAiGame && (
-            <div style={{ position: "absolute", bottom: 10, display: "flex", gap: 10 }}>
-              <TierPill tier="good" label="ideal" />
-              <TierPill tier="ok" label="ok" />
-              <TierPill tier="bad" label="lost ≥ 2pt" />
-            </div>
-          )}
+          {/* Your card on bottom */}
+          <SandwichPlayerCard
+            color={role ? myColor : "B"}
+            game={game}
+            state={state}
+            role={role}
+            aiThinking={aiThinking}
+            playerHandles={playerHandles}
+            isYou
+          />
         </div>
 
-        {/* ── RIGHT: sensei + notes + moves + actions ── */}
-        <div className="studio-right">
-          {isAiGame && state.status === "active" && (
-            <AskSenseiPanel
-              onOpen={() => setChatOpen(true)}
-              chatOpen={chatOpen}
-              senseiThinking={senseiThinking}
-            />
-          )}
-
-          {isAiGame && role && state.status === "active" && (
-            <StrategySection
-              gameId={gameId}
-              state={state}
-              playerNotes={playerNotes}
-              onSaved={(mn, body) => setPlayerNotes((prev) => ({ ...prev, [mn]: body }))}
-              userId={userId}
-            />
-          )}
-
-          <StudioMoveList
-            moves={state.moves}
-            boardSize={game.size}
-            liveTiers={liveTiers}
-            gameId={gameId}
-            userId={userId}
+        {/* ── RIGHT: tabbed dock (moves · notes · sensei) ── */}
+        <div className="sandwich-right">
+          <PlaySidePanel
             game={game}
+            gameId={gameId}
+            state={state}
             role={role}
+            userId={userId}
+            isAiGame={isAiGame}
+            playerNotes={playerNotes}
+            onNoteSaved={(mn, body) => setPlayerNotes((prev) => ({ ...prev, [mn]: body }))}
+            liveTiers={liveTiers}
+            chatOpen={chatOpen}
+            senseiThinking={senseiThinking}
+            onOpenChat={() => setChatOpen(true)}
+            canUndo={canUndo}
+            isMyTurn={isMyTurn}
+            preGame={preGame}
+            swapping={swapping}
+            onSwap={onSwap}
+            onUndo={handleUndo}
+            onPass={() => send("pass", null)}
+            onResign={() => send("resign", null)}
           />
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {state.status === "active" ? (
-              <div className="studio-action-row">
-                <button className="gs-btn" onClick={handleUndo} disabled={!canUndo} style={{ padding: "8px 0", fontSize: 12 }}>↶ undo</button>
-                <button className="gs-btn" onClick={() => send("pass", null)} disabled={!isMyTurn} style={{ padding: "8px 0", fontSize: 12 }}>pass</button>
-                <button className="gs-btn gs-btn--red" onClick={() => send("resign", null)} disabled={!isMyTurn} style={{ padding: "8px 0", fontSize: 12 }}>resign</button>
-                {preGame && role && (
-                  <button className="gs-btn" onClick={onSwap} disabled={swapping} style={{ padding: "8px 0", fontSize: 12 }}>
-                    {swapping ? "swapping…" : "swap ⇄"}
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div className="result-banner">
-                <strong>Game over</strong>
-                <span>{state.result ?? state.status}</span>
-                <a href={`/games/${gameId}`} className="result-banner-link">Open review →</a>
-              </div>
-            )}
-            {error && <p className="error-text" style={{ marginTop: 4 }}>{error}</p>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
+            {error && <p className="error-text">{error}</p>}
             <div style={styles.footerLinks}>
               <a href={sgfUrl(gameId)} download style={styles.textLink}>Export SGF</a>
               <button className="gs-btn" onClick={onExit} style={{ padding: "7px 14px", fontSize: 13 }}>← Lobby</button>
@@ -381,63 +394,68 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
 
 // ─── Studio sub-components ──────────────────────────────────────────
 
-function StudioPlayerCard({
+function SandwichPlayerCard({
   color,
   game,
   state,
   role,
   aiThinking,
+  playerHandles,
+  isYou = false,
 }: {
   color: ColorCode;
   game: GameT;
   state: GameStateT;
   role: ColorCode | null;
   aiThinking: boolean;
+  playerHandles: Record<string, string>;
+  isYou?: boolean;
 }) {
   const isActive = state.turn === color && state.status === "active";
   const isThinking = aiThinking && game.opponent_type === "ai" && color !== role;
   const isMe = color === role;
-  const userId = color === "B" ? game.black_user_id : game.white_user_id;
+  const uid = color === "B" ? game.black_user_id : game.white_user_id;
   const isAi = game.opponent_type === "ai" && !isMe;
-  const displayName = isMe ? "You" : isAi ? `KataGo · ${game.ai_rank ?? "?"}k` : (userId ?? "—");
+  const displayName = isMe
+    ? "You"
+    : isAi
+      ? `KataGo · ${game.ai_rank ?? "?"}k`
+      : (uid ? (playerHandles[uid] ?? uid) : "—");
   const captures = state.captures[color];
 
   return (
-    <div className={`studio-player-card${isActive ? " is-active" : ""}`}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <div style={{
-          width: 40, height: 40, borderRadius: 99,
-          border: "2.5px solid var(--ink)",
-          background: color === "B" ? "var(--ink)" : "var(--bg-2)",
-          color: color === "B" ? "var(--bg-2)" : "var(--ink)",
-          display: "grid", placeItems: "center",
-          fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16,
-          flexShrink: 0,
-        }}>{color}</div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 14 }}>{displayName}</span>
-            {isMe && <span className="gs-tag" style={{ background: "var(--pastel-pink)" }}>YOU</span>}
-          </div>
-          <div style={{ fontSize: 11, color: "var(--ink-mute)", fontFamily: "var(--font-mono)" }}>
-            captured · {captures}
-          </div>
+    <div style={{
+      display: "grid", gridTemplateColumns: "auto 1fr auto", alignItems: "center", gap: 12,
+      padding: "8px 12px",
+      background: isActive ? "var(--pastel-yellow)" : "var(--bg-2)",
+      border: isActive ? "2.5px solid var(--ink)" : "2.5px solid var(--border)",
+      borderRadius: 14,
+      width: "100%", boxSizing: "border-box",
+    }}>
+      <div style={{
+        width: 38, height: 38, borderRadius: 10,
+        border: "2.5px solid var(--ink)",
+        background: color === "B" ? "var(--ink)" : "var(--bg-2)",
+        color: color === "B" ? "var(--bg-2)" : "var(--ink)",
+        display: "grid", placeItems: "center",
+        fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16,
+        flexShrink: 0,
+      }}>{color}</div>
+      <div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 15 }}>{displayName}</span>
+          {isYou && isMe && <span className="gs-tag" style={{ background: "var(--pastel-pink)" }}>YOU</span>}
+        </div>
+        <div style={{ fontSize: 11, color: "var(--ink-mute)", fontFamily: "var(--font-mono)" }}>
+          {isThinking ? "thinking…" : isActive ? "your move" : "waiting"} · captures {captures}
         </div>
       </div>
       <div style={{
-        padding: "6px 10px",
-        border: "2px solid var(--ink)", borderRadius: 10,
-        background: isThinking ? "var(--pastel-cyan)" : "var(--bg)",
-        display: "flex", justifyContent: "space-between", alignItems: "center",
-      }}>
-        <span style={{ fontFamily: "var(--font-mono)", fontSize: 17, fontWeight: 700 }}>—</span>
-        {isThinking
-          ? <span style={{ fontSize: 11, fontFamily: "var(--font-display)", fontWeight: 600 }}>thinking…</span>
-          : isActive
-            ? <span style={{ fontSize: 11, fontFamily: "var(--font-display)", fontWeight: 600 }}>your turn</span>
-            : <span style={{ fontSize: 11, fontFamily: "var(--font-display)", color: "var(--ink-mute)" }}>waiting</span>
-        }
-      </div>
+        padding: "6px 12px", border: "2.5px solid var(--ink)", borderRadius: 12,
+        background: isThinking ? "var(--pastel-cyan)" : isActive ? "var(--bg)" : "var(--bg)",
+        fontFamily: "var(--font-mono)", fontWeight: 700, fontSize: 20,
+        minWidth: 60, textAlign: "center",
+      }}>—</div>
     </div>
   );
 }
@@ -452,8 +470,8 @@ function MikuSlot() {
           {" "}idle
         </span>
       </div>
-      <div style={{ display: "grid", placeItems: "center", minHeight: 200, paddingTop: 44 }}>
-        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--ink-mute)" }}>live2d · placeholder</span>
+      <div className="studio-miku-body">
+        <MikuLive2D />
       </div>
     </div>
   );
@@ -514,13 +532,15 @@ function AskSenseiPanel({
   onOpen,
   chatOpen,
   senseiThinking,
+  embedded,
 }: {
   onOpen: () => void;
   chatOpen: boolean;
   senseiThinking: boolean;
+  embedded?: boolean;
 }) {
-  return (
-    <div className="gs-card" style={{ padding: 12, background: "var(--bg-2)" }}>
+  const inner = (
+    <>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
         <span className="gs-tag" style={{ background: "var(--pastel-cyan)" }}>ASK SENSEI · 先生</span>
         <span className={`gs-pill ${chatOpen && senseiThinking ? "gs-pill--yellow" : "gs-pill--mint"}`} style={{ fontSize: 10 }}>
@@ -528,17 +548,17 @@ function AskSenseiPanel({
         </span>
       </div>
       <div style={{ display: "grid", gap: 6 }}>
-        <button style={askChipStyle("var(--pastel-pink)")} onClick={onOpen}>
+        <button type="button" style={askChipStyle("var(--pastel-pink)")} onClick={onOpen}>
           <span style={{ width: 22, height: 22, borderRadius: 99, background: "var(--bg-2)", border: "1.5px solid var(--ink)", display: "grid", placeItems: "center", fontSize: 12 }}>?</span>
           What am I missing?
           <span style={{ fontSize: 13, opacity: 0.6 }}>→</span>
         </button>
-        <button style={askChipStyle("var(--pastel-yellow)")} onClick={onOpen}>
+        <button type="button" style={askChipStyle("var(--pastel-yellow)")} onClick={onOpen}>
           <span style={{ width: 22, height: 22, borderRadius: 99, background: "var(--bg-2)", border: "1.5px solid var(--ink)", display: "grid", placeItems: "center", fontSize: 12 }}>◎</span>
-          What's my plan?
+          What&apos;s my plan?
           <span style={{ fontSize: 13, opacity: 0.6 }}>→</span>
         </button>
-        <button style={askChipStyle("var(--pastel-green)")} onClick={onOpen}>
+        <button type="button" style={askChipStyle("var(--pastel-green)")} onClick={onOpen}>
           <span style={{ width: 22, height: 22, borderRadius: 99, background: "var(--bg-2)", border: "1.5px solid var(--ink)", display: "grid", placeItems: "center", fontSize: 12 }}>⚔</span>
           Help me read this fight
           <span style={{ fontSize: 13, opacity: 0.6 }}>→</span>
@@ -550,8 +570,16 @@ function AskSenseiPanel({
           onKeyDown={(e) => e.key === "Enter" && onOpen()}
           style={{ border: "2px solid var(--ink)", borderRadius: 10, padding: "7px 10px", fontFamily: "var(--font-body)", fontSize: 12, background: "var(--bg)", outline: "none" }}
         />
-        <button className="gs-btn gs-btn--primary" onClick={onOpen} style={{ padding: "6px 10px", fontSize: 11 }}>↵</button>
+        <button type="button" className="gs-btn gs-btn--primary" onClick={onOpen} style={{ padding: "6px 10px", fontSize: 11 }}>↵</button>
       </div>
+    </>
+  );
+
+  if (embedded) return <div style={{ padding: "10px 12px" }}>{inner}</div>;
+
+  return (
+    <div className="gs-card" style={{ padding: 12, background: "var(--bg-2)" }}>
+      {inner}
     </div>
   );
 }
@@ -562,16 +590,18 @@ function StrategySection({
   playerNotes,
   onSaved,
   userId,
+  embedded,
 }: {
   gameId: string;
   state: GameStateT;
   playerNotes: Record<number, string>;
   onSaved: (mn: number, body: string) => void;
   userId: string;
+  embedded?: boolean;
 }) {
   const noteEntries = Object.entries(playerNotes).filter(([, v]) => v);
-  return (
-    <div className="gs-card" style={{ padding: 10, background: "var(--pastel-lavender)" }}>
+  const inner = (
+    <>
       <span className="gs-tag" style={{ background: "var(--bg-2)" }}>STRATEGY · fed to AI</span>
       {noteEntries.length > 0 && (
         <div style={{ display: "grid", gap: 5, marginTop: 6 }}>
@@ -595,72 +625,290 @@ function StrategySection({
           onSaved={onSaved}
         />
       </div>
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <div style={{ padding: "10px 12px", background: "var(--pastel-lavender)", minHeight: "100%", boxSizing: "border-box" }}>
+        {inner}
+      </div>
+    );
+  }
+
+  return (
+    <div className="gs-card" style={{ padding: 10, background: "var(--pastel-lavender)" }}>
+      {inner}
     </div>
   );
 }
 
-function StudioMoveList({
+function moveDisplayLabel(move: GameStateT["moves"][number], boardSize: number): string {
+  if (move.kind === "pass") return "pass";
+  if (move.kind === "resign") return "resign";
+  if (move.point) return COLS[move.point.col] + (boardSize - move.point.row);
+  return "?";
+}
+
+type SideTabId = "moves" | "notes" | "sensei";
+
+function PlaySidePanel({
+  game,
+  gameId,
+  state,
+  role,
+  userId,
+  isAiGame,
+  playerNotes,
+  onNoteSaved,
+  liveTiers,
+  chatOpen,
+  senseiThinking,
+  onOpenChat,
+  canUndo,
+  isMyTurn,
+  preGame,
+  swapping,
+  onSwap,
+  onUndo,
+  onPass,
+  onResign,
+}: {
+  game: GameT;
+  gameId: string;
+  state: GameStateT;
+  role: ColorCode | null;
+  userId: string;
+  isAiGame: boolean;
+  playerNotes: Record<number, string>;
+  onNoteSaved: (mn: number, body: string) => void;
+  liveTiers: Map<number, "green" | "yellow" | "red">;
+  chatOpen: boolean;
+  senseiThinking: boolean;
+  onOpenChat: () => void;
+  canUndo: boolean;
+  isMyTurn: boolean;
+  preGame: boolean;
+  swapping: boolean;
+  onSwap: () => void;
+  onUndo: () => void;
+  onPass: () => void;
+  onResign: () => void;
+}) {
+  const [tab, setTab] = useState<SideTabId>("moves");
+
+  const noteCount = useMemo(
+    () => Object.values(playerNotes).filter((v) => typeof v === "string" && v.trim().length > 0).length,
+    [playerNotes],
+  );
+
+  const showNotesTooling = isAiGame && !!role && state.status === "active";
+  const showSenseiTooling = isAiGame && state.status === "active";
+
+  const tabs: { id: SideTabId; label: string }[] = [
+    { id: "moves", label: `Moves · ${state.moves.length}` },
+    { id: "notes", label: `Notes · ${noteCount}` },
+    { id: "sensei", label: "Sensei" },
+  ];
+
+  return (
+    <div className="play-side-dock gs-card" style={{ background: "var(--bg-2)" }}>
+      <div className="play-side-tabs" role="tablist" aria-label="Game panel">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            id={`play-tab-${t.id}`}
+            aria-controls={`play-tabpanel-${t.id}`}
+            aria-selected={tab === t.id}
+            tabIndex={tab === t.id ? 0 : -1}
+            className="play-side-tab"
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="play-side-meta">
+        <span className="gs-tag">{game.size}×{game.size}</span>
+        <span className="gs-tag">komi {game.komi}</span>
+        <span className="gs-tag">CHN</span>
+        <span className="play-side-meta__id">game #{gameId.slice(0, 8)}</span>
+      </div>
+
+      <div className="play-side-body">
+        {tab === "moves" && (
+          <div
+            className="play-side-panel-fill"
+            role="tabpanel"
+            id="play-tabpanel-moves"
+            aria-labelledby="play-tab-moves"
+          >
+            {game.training_mode && role && (
+              <div className="play-side-panel-moves__training">
+                <LiveTierDot
+                  gameId={gameId}
+                  userId={userId}
+                  tiers={liveTiers}
+                  pendingCount={state.moves.reduce((n, m, i) => m.color === role && !liveTiers.has(i + 1) ? n + 1 : n, 0)}
+                  onShowOnBoard={() => {}}
+                />
+              </div>
+            )}
+            <MoveListBody moves={state.moves} boardSize={game.size} liveTiers={liveTiers} />
+          </div>
+        )}
+
+        {tab === "notes" && (
+          <div
+            className="play-side-pane-scroll"
+            role="tabpanel"
+            id="play-tabpanel-notes"
+            aria-labelledby="play-tab-notes"
+          >
+            {showNotesTooling ? (
+              <StrategySection
+                embedded
+                gameId={gameId}
+                state={state}
+                playerNotes={playerNotes}
+                onSaved={onNoteSaved}
+                userId={userId}
+              />
+            ) : (
+              <p className="play-side-placeholder">
+                Strategy notes and AI-fed context are available when you&apos;re seated in an active AI game.
+              </p>
+            )}
+          </div>
+        )}
+
+        {tab === "sensei" && (
+          <div
+            className="play-side-pane-scroll"
+            role="tabpanel"
+            id="play-tabpanel-sensei"
+            aria-labelledby="play-tab-sensei"
+          >
+            {showSenseiTooling ? (
+              <AskSenseiPanel
+                embedded
+                onOpen={onOpenChat}
+                chatOpen={chatOpen}
+                senseiThinking={senseiThinking}
+              />
+            ) : (
+              <p className="play-side-placeholder">
+                Live Sensei coaching appears here during AI games. A shared chat lane for humans can tie into this tab later.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="play-side-actions play-side-actions--row3">
+        {state.status === "active" ? (
+          <>
+            <button type="button" className="gs-btn" onClick={onUndo} disabled={!canUndo} style={{ padding: "8px 0", fontSize: 12 }}>↶</button>
+            <button type="button" className="gs-btn" onClick={onPass} disabled={!isMyTurn} style={{ padding: "8px 0", fontSize: 12 }}>pass</button>
+            <button type="button" className="gs-btn gs-btn--red" onClick={onResign} disabled={!isMyTurn} style={{ padding: "8px 0", fontSize: 12 }}>resign</button>
+            {preGame && role && (
+              <button type="button" className="gs-btn play-side-actions__swap" onClick={onSwap} disabled={swapping} style={{ padding: "8px 0", fontSize: 12 }}>
+                {swapping ? "swapping…" : "swap colors ⇄"}
+              </button>
+            )}
+          </>
+        ) : (
+          <div className="result-banner" style={{ gridColumn: "1 / -1" }}>
+            <strong>Game over</strong>
+            <span>{state.result ?? state.status}</span>
+            <a href={`/games/${gameId}`} className="result-banner-link">Open review →</a>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MoveListBody({
   moves,
   boardSize,
   liveTiers,
-  gameId,
-  userId,
-  game,
-  role,
 }: {
   moves: GameStateT["moves"];
   boardSize: number;
   liveTiers: Map<number, "green" | "yellow" | "red">;
-  gameId: string;
-  userId: string;
-  game: GameT;
-  role: ColorCode | null;
 }) {
   const tierColor = (t: string | undefined) =>
     t === "green" ? "var(--tier-good)" : t === "yellow" ? "var(--tier-ok)" : t === "red" ? "var(--tier-bad)" : "transparent";
 
+  const pairCount = Math.ceil(moves.length / 2);
+  const lastIdx = moves.length - 1;
+
   return (
-    <div className="gs-card" style={{ background: "var(--bg-2)", overflow: "hidden", display: "grid", gridTemplateRows: "auto auto 1fr" }}>
-      <div style={{ padding: "8px 12px", borderBottom: "2px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span className="gs-tag">MOVES · {moves.length}</span>
-      </div>
-      {game?.training_mode && role && (
-        <div style={{ padding: "4px 8px", borderBottom: "1px solid var(--border)" }}>
-          <LiveTierDot
-            gameId={gameId}
-            userId={userId}
-            tiers={liveTiers}
-            pendingCount={moves.reduce((n, m, i) => m.color === role && !liveTiers.has(i + 1) ? n + 1 : n, 0)}
-            onShowOnBoard={() => {}}
-          />
-        </div>
-      )}
-      <div className="studio-move-grid">
-        {moves.map((move, i) => {
-          const num = i + 1;
-          const isLatest = num === moves.length;
-          let label: string;
-          if (move.kind === "pass") label = "pass";
-          else if (move.kind === "resign") label = "resign";
-          else if (move.point) label = COLS[move.point.col] + (boardSize - move.point.row);
-          else label = "?";
-          const tier = liveTiers.get(num);
+    <div className={`sandwich-move-list${pairCount === 0 ? " sandwich-move-list--empty" : ""}`}>
+      {pairCount === 0 ? (
+        <div style={{ fontSize: 12, color: "var(--ink-mute)", fontFamily: "var(--font-mono)" }}>No moves yet</div>
+      ) : (
+        Array.from({ length: pairCount }, (_, row) => {
+          const bi = row * 2;
+          const wi = row * 2 + 1;
+          const blackMove = moves[bi];
+          const whiteMove = moves[wi];
+          const moveNo = row + 1;
+          const isLatestBlack = blackMove !== undefined && bi === lastIdx;
+          const isLatestWhite = whiteMove !== undefined && wi === lastIdx;
+          const tierB = liveTiers.get(bi + 1);
+          const tierW = whiteMove !== undefined ? liveTiers.get(wi + 1) : undefined;
+
+          let cellBClass = "sandwich-move-cell";
+          if (isLatestBlack) cellBClass += " sandwich-move-cell--latest-b";
+
+          let cellWClass = "sandwich-move-cell";
+          if (!whiteMove) cellWClass += " sandwich-move-cell--muted";
+          else if (isLatestWhite) cellWClass += " sandwich-move-cell--latest-w";
+
           return (
-            <div key={num} className={`studio-move-row${isLatest ? " is-latest" : ""}`}>
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--ink-mute)", minWidth: 16 }}>{num}</span>
-              <span style={{
-                width: 12, height: 12, borderRadius: 99, flexShrink: 0,
-                background: move.color === "B" ? "var(--ink)" : "var(--bg-2)",
-                border: "1.5px solid var(--ink)",
-              }} />
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 600 }}>{label}</span>
-              {tier && (
-                <span style={{ marginLeft: "auto", width: 7, height: 7, borderRadius: 99, background: tierColor(tier), border: "1px solid var(--ink)", flexShrink: 0 }} />
-              )}
+            <div key={moveNo} className="sandwich-move-row">
+              <span className="sandwich-move-num">{moveNo}.</span>
+              <span className={cellBClass}>
+                {moveDisplayLabel(blackMove, boardSize)}
+                {tierB && (
+                  <span
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: 99,
+                      background: tierColor(tierB),
+                      border: "1px solid var(--ink)",
+                      flexShrink: 0,
+                    }}
+                    aria-hidden
+                  />
+                )}
+              </span>
+              <span className={cellWClass}>
+                {!whiteMove ? "—" : moveDisplayLabel(whiteMove, boardSize)}
+                {whiteMove && tierW && (
+                  <span
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: 99,
+                      background: tierColor(tierW),
+                      border: "1px solid var(--ink)",
+                      flexShrink: 0,
+                    }}
+                    aria-hidden
+                  />
+                )}
+              </span>
             </div>
           );
-        })}
-      </div>
+        })
+      )}
     </div>
   );
 }

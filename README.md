@@ -389,6 +389,7 @@ Go-senpai/
 │       │   ├── WeaknessBar.tsx   ← Severity bar
 │       │   ├── Sparkline.tsx     ← Progress mini-charts
 │       │   └── PlayerNoteInput.tsx ← Per-move annotations
+│       ├── live2d/               ← Live2D Cubism + Miku rig (`MikuLive2D.tsx`, `live2dInit.ts`)
 │       └── lib/                  ← Auth, replay, SGF, HTTP helpers
 └── backend/db/init.sql           ← Run once in Supabase SQL Editor to create the schema
 ```
@@ -460,7 +461,7 @@ Six-person team, class project. Decisions that affect more than one module shoul
 
 | Layer | Tech |
 |---|---|
-| Frontend | React 18 + Vite + TypeScript + @sabaki/shudan |
+| Frontend | React 18 + Vite + TypeScript + @sabaki/shudan (+ PixiJS / pixi-live2d-display for optional Miku Live2D) |
 | Backend | FastAPI + asyncpg + Python 3.11 |
 | Database | PostgreSQL 16 + pgvector (Supabase) |
 | Analysis | KataGo (runs on host) |
@@ -527,6 +528,56 @@ npm run dev
 ```
 
 Open `http://localhost:5173`. Create a user, create a game, and play.
+
+### 3b. Miku Live2D (optional — for teammates)
+
+The **live play** screen (`GameView`) can show a **Live2D** Miku model in the left column. This is **purely frontend**: no extra backend or API keys.
+
+#### What `npm install` already covers
+
+From `frontend/package.json`, the runtime libraries are:
+
+- **`pixi.js`** — WebGL renderer
+- **`pixi-live2d-display`** (Cubism 4 integration) — loads `.model3.json` models
+
+After `cd frontend && npm install`, these are in `node_modules/` like any other dependency.
+
+#### Static files you must have under `frontend/public/`
+
+Two things are **not** downloaded by npm; they are served as static assets:
+
+| File / folder | Purpose |
+|---|---|
+| **`public/live2dcubismcore.min.js`** | **Live2D Cubism Core for Web** — exposes the global `Live2DCubismCore` that the app waits for before starting the model. Loaded **before** the Vite bundle in `frontend/index.html`. |
+| **`public/live2d/21miku_normal_3.0_f_t02/`** | The **Miku** model (`.model3.json`, textures, motions, etc.). The entry file is referenced in code as `/live2d/21miku_normal_3.0_f_t02/21miku_normal_3.0_f_t02.model3.json` (see `frontend/src/live2d/MikuLive2D.tsx`). |
+
+If you cloned a copy of the repo that **already includes** those paths, you do not need to install anything else for Live2D — start the dev server and open a live game.
+
+#### If `live2dcubismcore.min.js` or the model folder is missing
+
+These files are omitted from npm on purpose (they come from Live2D’s SDK or from whoever prepared the rig).
+
+1. **Cubism Core for Web**
+   - Download the **Cubism SDK for Web** from the [official Live2D developer site](https://www.live2d.com/download/cubism-sdk/download-web/) (account + license acceptance required).
+   - From the extracted SDK, copy the bundled **`live2dcubismcore.min.js`** (the exact subfolder name can vary by Cubism version; look under the Web/Core distribution) into:
+     - **`frontend/public/live2dcubismcore.min.js`**
+   - Keep the `<script src="/live2dcubismcore.min.js"></script>` line in **`frontend/index.html`** **above** `<script type="module" src="/src/main.tsx"></script>` so the global exists before React runs.
+
+2. **Model**
+   - Restore the folder **`frontend/public/live2d/21miku_normal_3.0_f_t02/`** from your team’s copy, asset pack, or internal storage. Folder layout must match what `21miku_normal_3.0_f_t02.model3.json` expects (relative paths to `.moc3`, textures, motions).
+   - To use a **different** model later, replace that directory and update **`MODEL_JSON`** in `frontend/src/live2d/MikuLive2D.tsx` (and motion paths if you change idle animations).
+
+#### Troubleshooting
+
+- **`Live2DCubismCore not loaded`** in the Miku slot — `live2dcubismcore.min.js` failed to load (404, ad blocker), or loaded after the app. Fix path in `public/`, verify the script tag order in `index.html`, hard-refresh.
+- **Model loads but errors in console** — usually a broken path inside the `.model3.json` or a missing texture/motion file; compare your tree to a working checkout.
+
+#### Licensing (important for redistribution)
+
+- **Live2D Cubism** runtime and SDK are subject to [Live2D’s terms](https://www.live2d.com/eula/); your team is responsible for compliance when shipping the Core script or SDK pieces.
+- **Hatsune Miku** and related character assets are governed by **Crypton Future Media / Piapro** guidelines. Only use and share Miku (or other vocaloid) models and artwork in ways your license allows. This README does not grant any character rights.
+
+---
 
 ### 4. Drive the coaching loop (curl walkthrough)
 
