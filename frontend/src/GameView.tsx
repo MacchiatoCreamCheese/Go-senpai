@@ -43,9 +43,19 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
   const [playerNotes, setPlayerNotes] = useState<Record<number, string>>({});
   const [ownershipRaw, setOwnershipRaw] = useState<{ data: number[]; boardSize: number } | null>(null);
   const [playerHandles, setPlayerHandles] = useState<Record<string, string>>({});
+  const centerRef = useRef<HTMLDivElement>(null);
+  const [centerWidth, setCenterWidth] = useState(0);
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => { setOverlayDismissed(false); }, [gameId]);
+
+  useEffect(() => {
+    const el = centerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => setCenterWidth(entry.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     const uid = localStorage.getItem(USER_ID_KEY);
@@ -223,30 +233,56 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
   const opponentColor: ColorCode = role === "B" ? "W" : "B";
   const myColor: ColorCode = role ?? "B";
 
+  const BOARD_SHELL_PAD = 28; // 2 × 14px padding on each side of the board card
+  const boardWidth = centerWidth > 0
+    ? Math.min(520, Math.max(260, centerWidth - BOARD_SHELL_PAD))
+    : 520;
+
   return (
     <>
       <div className="play-sandwich">
 
-        {/* ── LEFT: Miku + game info ── */}
+        {/* ── LEFT: opponent → Miku → you */}
         <div className="sandwich-left">
+          <div className="sandwich-left-player-top">
+            <SandwichPlayerCard
+              color={role ? opponentColor : "W"}
+              game={game}
+              state={state}
+              role={role}
+              aiThinking={aiThinking}
+              playerHandles={playerHandles}
+            />
+          </div>
           <MikuSlot />
-          <StudioGameInfo game={game} gameId={gameId} copied={copied} onCopy={copyId} />
+          <div className="sandwich-left-player-bottom">
+            <SandwichPlayerCard
+              color={role ? myColor : "B"}
+              game={game}
+              state={state}
+              role={role}
+              aiThinking={aiThinking}
+              playerHandles={playerHandles}
+              isYou
+            />
+          </div>
         </div>
 
-        {/* ── CENTER: opponent → board → you (sandwich) ── */}
-        <div className="sandwich-center">
-          {/* Opponent card on top */}
-          <SandwichPlayerCard
-            color={role ? opponentColor : "W"}
-            game={game}
-            state={state}
-            role={role}
-            aiThinking={aiThinking}
-            playerHandles={playerHandles}
-          />
+        {/* ── CENTER: board (player cards duplicated here on narrow viewports — see sandwich-mobile-player) ── */}
+        <div className="sandwich-center" ref={centerRef}>
+          <div className="sandwich-mobile-player sandwich-mobile-player--top">
+            <SandwichPlayerCard
+              color={role ? opponentColor : "W"}
+              game={game}
+              state={state}
+              role={role}
+              aiThinking={aiThinking}
+              playerHandles={playerHandles}
+            />
+          </div>
 
-          {/* Board */}
-          <div style={{ position: "relative", display: "grid", placeItems: "center" }}>
+          {/* Board — shell shrink-wraps square GoBoard so the card stays square */}
+          <div style={{ position: "relative", width: "100%", display: "flex", flexDirection: "column", alignItems: "center" }}>
             {game?.training_mode && isAiGame && (
               <div style={{ position: "absolute", top: -6, left: 0, right: 0, display: "flex", justifyContent: "center", zIndex: 1 }}>
                 <span className="gs-sticker" style={{ background: "var(--pastel-cyan)" }}>
@@ -255,14 +291,15 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
               </div>
             )}
             <div
-              className="ai-thinking-shell gs-card"
-              style={{ padding: 14, background: "var(--bg-2)", boxShadow: "var(--shadow-block)", marginTop: game?.training_mode && isAiGame ? 26 : 0 }}
+              className="ai-thinking-shell board-shell-square"
+              style={{ boxSizing: "border-box", padding: 14, background: "var(--bg-2)", boxShadow: "var(--shadow-block)", marginTop: game?.training_mode && isAiGame ? 26 : 0 }}
             >
               <GoBoard
                 state={state}
                 disabled={disabled}
                 onPlay={(p) => send("play", p)}
                 ownershipGhosts={ownershipGhosts}
+                width={boardWidth}
               />
               {aiThinking && (
                 <div className="ai-thinking-overlay" aria-hidden="true">
@@ -275,7 +312,7 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
               )}
             </div>
             {game?.training_mode && isAiGame && (
-              <div style={{ position: "absolute", bottom: -28, display: "flex", gap: 10 }}>
+              <div style={{ position: "absolute", bottom: -28, left: 0, right: 0, display: "flex", justifyContent: "center", gap: 10 }}>
                 <TierPill tier="good" label="ideal" />
                 <TierPill tier="ok" label="ok" />
                 <TierPill tier="bad" label="lost ≥ 2pt" />
@@ -283,16 +320,17 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
             )}
           </div>
 
-          {/* Your card on bottom */}
-          <SandwichPlayerCard
-            color={role ? myColor : "B"}
-            game={game}
-            state={state}
-            role={role}
-            aiThinking={aiThinking}
-            playerHandles={playerHandles}
-            isYou
-          />
+          <div className="sandwich-mobile-player sandwich-mobile-player--bottom">
+            <SandwichPlayerCard
+              color={role ? myColor : "B"}
+              game={game}
+              state={state}
+              role={role}
+              aiThinking={aiThinking}
+              playerHandles={playerHandles}
+              isYou
+            />
+          </div>
         </div>
 
         {/* ── RIGHT: tabbed dock (moves · notes · sensei) ── */}
@@ -318,6 +356,8 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
             onUndo={handleUndo}
             onPass={() => send("pass", null)}
             onResign={() => send("resign", null)}
+            gameIdCopied={copied}
+            onCopyGameId={copyId}
           />
 
           <div style={{ display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
@@ -477,48 +517,6 @@ function MikuSlot() {
   );
 }
 
-function StudioGameInfo({
-  game,
-  gameId,
-  copied,
-  onCopy,
-}: {
-  game: GameT;
-  gameId: string;
-  copied: boolean;
-  onCopy: () => void;
-}) {
-  return (
-    <div className="gs-card" style={{ padding: "12px 14px", background: "var(--bg-2)" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-        <span className="gs-tag">GAME · #{gameId.slice(0, 6)}</span>
-        <button
-          onClick={onCopy}
-          style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, fontFamily: "var(--font-mono)", color: copied ? "var(--tier-good)" : "var(--ink-mute)", padding: "2px 6px" }}
-          title="Copy game ID"
-        >
-          {copied ? "✓ copied" : "copy id"}
-        </button>
-      </div>
-      <div style={{ fontSize: 12.5, lineHeight: 1.7 }}>
-        <InfoRow k="board" v={`${game.size} × ${game.size}`} />
-        <InfoRow k="komi" v={String(game.komi)} />
-        <InfoRow k="rules" v="Chinese" />
-        <InfoRow k="vs" v={game.opponent_type === "ai" ? `Sensei AI · ${game.ai_rank ?? "?"}k` : "Human"} />
-      </div>
-    </div>
-  );
-}
-
-function InfoRow({ k, v }: { k: string; v: string }) {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px dashed var(--ink-mute)", padding: "2px 0" }}>
-      <span style={{ color: "var(--ink-mute)", fontFamily: "var(--font-mono)", fontSize: 11 }}>{k}</span>
-      <span style={{ fontFamily: "var(--font-display)", fontWeight: 500, fontSize: 13 }}>{v}</span>
-    </div>
-  );
-}
-
 const askChipStyle = (color: string): React.CSSProperties => ({
   display: "grid", gridTemplateColumns: "22px 1fr auto", gap: 8, alignItems: "center",
   padding: "8px 10px",
@@ -673,6 +671,8 @@ function PlaySidePanel({
   onUndo,
   onPass,
   onResign,
+  gameIdCopied,
+  onCopyGameId,
 }: {
   game: GameT;
   gameId: string;
@@ -694,6 +694,8 @@ function PlaySidePanel({
   onUndo: () => void;
   onPass: () => void;
   onResign: () => void;
+  gameIdCopied: boolean;
+  onCopyGameId: () => void;
 }) {
   const [tab, setTab] = useState<SideTabId>("moves");
 
@@ -712,7 +714,7 @@ function PlaySidePanel({
   ];
 
   return (
-    <div className="play-side-dock gs-card" style={{ background: "var(--bg-2)" }}>
+    <div className="play-side-dock">
       <div className="play-side-tabs" role="tablist" aria-label="Game panel">
         {tabs.map((t) => (
           <button
@@ -735,7 +737,14 @@ function PlaySidePanel({
         <span className="gs-tag">{game.size}×{game.size}</span>
         <span className="gs-tag">komi {game.komi}</span>
         <span className="gs-tag">CHN</span>
-        <span className="play-side-meta__id">game #{gameId.slice(0, 8)}</span>
+        <button
+          type="button"
+          className={`play-side-meta__id${gameIdCopied ? " play-side-meta__id--copied" : ""}`}
+          onClick={onCopyGameId}
+          title="Copy full game ID"
+        >
+          {gameIdCopied ? "✓ copied" : `game #${gameId.slice(0, 8)}`}
+        </button>
       </div>
 
       <div className="play-side-body">

@@ -731,6 +731,12 @@ a { color: inherit; }
 /* ─── AI thinking overlay ────────────────────────────────── */
 .ai-thinking-shell { position: relative; display: inline-block; }
 
+/* Live play: board card hugs square SVG (avoid stretching full column width). */
+.board-shell-square {
+  width: fit-content;
+  max-width: 100%;
+}
+
 .ai-thinking-overlay {
   position: absolute;
   inset: 0;
@@ -1202,7 +1208,7 @@ a { color: inherit; }
 .play-sandwich {
   flex: 1;
   display: grid;
-  grid-template-columns: 200px 1fr 340px;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr) minmax(260px, 340px);
   gap: 16px;
   padding: 20px;
   min-height: 0;
@@ -1213,16 +1219,52 @@ a { color: inherit; }
   display: grid;
   gap: 12px;
   align-content: start;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
+.sandwich-left-player-top,
+.sandwich-left-player-bottom {
+  width: 100%;
+  min-width: 0;
+}
+
+/* Board column: vertically center the goban; opponent/you sit beside Miku on desktop */
 .sandwich-center {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: 1fr;
   gap: 10px;
   min-width: 0;
   align-items: center;
   justify-items: center;
+}
+
+/* Narrow viewports: left column hidden — show stacked player rails above/below board */
+.sandwich-mobile-player {
+  display: none;
+  width: 100%;
+  max-width: 560px;
+  min-width: 0;
+}
+
+@media (max-width: 960px) {
+  .play-sandwich {
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);
+  }
+
+  .sandwich-left {
+    display: none;
+  }
+
+  .sandwich-center {
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    align-items: stretch;
+    justify-items: center;
+  }
+
+  .sandwich-mobile-player {
+    display: block;
+  }
 }
 
 .sandwich-right {
@@ -1241,6 +1283,9 @@ a { color: inherit; }
   display: grid;
   grid-template-rows: auto auto 1fr auto;
   align-content: stretch;
+  background: var(--bg-2);
+  border: var(--border-thick) solid var(--border);
+  border-radius: 18px;
 }
 
 .play-side-tabs {
@@ -1288,6 +1333,20 @@ a { color: inherit; }
   font-size: 10px;
   font-family: var(--font-mono);
   color: var(--ink-mute);
+  border: none;
+  background: transparent;
+  padding: 2px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: right;
+}
+
+.play-side-meta__id:hover {
+  color: var(--ink);
+}
+
+.play-side-meta__id--copied {
+  color: var(--tier-good);
 }
 
 .play-side-body {

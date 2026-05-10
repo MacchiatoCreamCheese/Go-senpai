@@ -248,7 +248,7 @@ function SenseiHero({
 
       {/* Mini board */}
       <div style={{ transform: "rotate(-4deg)", justifySelf: "center" }}>
-        <div className="gs-card gs-card--ink" style={{
+        <div className="panel panel--ink" style={{
           padding: 6,
           background: "var(--bg-2)",
           boxShadow: "var(--shadow-block-sm)",
@@ -508,7 +508,7 @@ function WelcomeStub() {
       minHeight: "60vh",
       padding: 40,
     }}>
-      <div className="gs-card gs-card--ink" style={{
+      <div className="panel panel--ink" style={{
         padding: "36px 44px",
         background: "var(--pastel-cyan)",
         maxWidth: 460,
@@ -552,7 +552,7 @@ function NameSetupScreen({ email, onConfirm }: { email: string | null; onConfirm
         alignItems: "flex-start",
       }}>
         {/* Main card */}
-        <div className="gs-card gs-card--ink" style={{
+        <div className="panel panel--ink" style={{
           flex: "1 1 360px",
           padding: "32px 36px",
           background: "var(--pastel-cyan)",
@@ -602,7 +602,7 @@ function NameSetupScreen({ email, onConfirm }: { email: string | null; onConfirm
             { color: "var(--pastel-green)",  tag: "DRILL",    title: "Tsumego every day",     body: "Sharpen your reading with life-and-death problems." },
             { color: "var(--pastel-lavender)", tag: "LEARN",  title: "Concept library",       body: "Study joseki, fuseki, and key Go ideas at your own pace." },
           ].map((f) => (
-            <div key={f.tag} className="gs-card gs-card--ink" style={{
+            <div key={f.tag} className="panel panel--ink" style={{
               padding: "16px 20px",
               background: f.color,
               boxShadow: "var(--shadow-block-sm)",
