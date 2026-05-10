@@ -143,35 +143,40 @@ export default function Login() {
 
             {tab === "password" ? (
               <form onSubmit={submitPassword} className="login-form">
-                <label className="login-label" htmlFor="email">Email</label>
-                <input
-                  id="email"
-                  className="input"
-                  type="email"
-                  required
-                  autoFocus
-                  autoComplete="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@school.edu"
-                />
+                <div className="login-field">
+                  <label className="login-label" htmlFor="email">Email</label>
+                  <input
+                    id="email"
+                    className="input"
+                    type="email"
+                    required
+                    autoFocus
+                    autoComplete="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@school.edu"
+                  />
+                </div>
 
-                <label className="login-label" htmlFor="password">Password</label>
-                <input
-                  id="password"
-                  className="input"
-                  type="password"
-                  required
-                  minLength={6}
-                  autoComplete={mode === "signup" ? "new-password" : "current-password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder={mode === "signup" ? "At least 6 characters" : "••••••••"}
-                />
+                <div className="login-field">
+                  <label className="login-label" htmlFor="password">Password</label>
+                  <input
+                    id="password"
+                    className="input"
+                    type="password"
+                    required
+                    minLength={6}
+                    autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder={mode === "signup" ? "At least 6 characters" : "••••••••"}
+                  />
+                </div>
 
                 <button
                   type="submit"
                   className="btn btn-primary"
+                  style={{ width: "100%", justifyContent: "center" }}
                   disabled={pending || !email.trim() || password.length < 6}
                 >
                   {pending
@@ -192,21 +197,24 @@ export default function Login() {
               </form>
             ) : (
               <form onSubmit={submitMagic} className="login-form">
-                <label className="login-label" htmlFor="magic-email">Email</label>
-                <input
-                  id="magic-email"
-                  className="input"
-                  type="email"
-                  required
-                  autoFocus
-                  autoComplete="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@school.edu"
-                />
+                <div className="login-field">
+                  <label className="login-label" htmlFor="magic-email">Email</label>
+                  <input
+                    id="magic-email"
+                    className="input"
+                    type="email"
+                    required
+                    autoFocus
+                    autoComplete="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@school.edu"
+                  />
+                </div>
                 <button
                   type="submit"
                   className="btn btn-primary"
+                  style={{ width: "100%", justifyContent: "center" }}
                   disabled={pending || !email.trim()}
                 >
                   {pending ? "Sending…" : "Send magic link"}
