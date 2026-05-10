@@ -1298,19 +1298,18 @@ a { color: inherit; }
 .games-row:hover { border-color: var(--ink); transform: translate(-1px,-1px); }
 
 .games-row-color {
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   border: 2px solid var(--ink);
-  border-radius: 8px;
+  border-radius: 10px;
   display: grid;
   place-items: center;
-  font-family: var(--font-display);
+  font-family: var(--font-mono);
   font-weight: 700;
-  font-size: 18px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
 }
-
-.games-row-color.black { background: var(--ink); color: var(--bg-2); }
-.games-row-color.white { background: var(--bg-2); color: var(--ink); }
 
 .games-row-info { display: flex; flex-direction: column; gap: 2px; }
 
@@ -1336,6 +1335,55 @@ a { color: inherit; }
 }
 
 .games-load-more { display: flex; justify-content: center; padding-top: 12px; }
+
+/* Games filter bar + segmented controls */
+.games-filter-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+.games-seg {
+  display: flex;
+  background: var(--bg-2);
+  border: 2px solid var(--line-dark);
+  border-radius: 999px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.games-seg-btn {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 13px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--ink-mute);
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+.games-seg-btn:hover:not(.is-active) { background: color-mix(in srgb, var(--pastel-pink) 50%, transparent); color: var(--ink); }
+.games-seg-btn.is-active { background: var(--pastel-pink); color: var(--ink); }
+
+.games-row-action {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+  color: var(--ink-soft);
+}
+
+.games-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding-top: 8px;
+}
+.games-pager-label {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ink-mute);
+}
 
 /* ─── Coach page ─────────────────────────────────────────── */
 .coach-page {
