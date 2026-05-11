@@ -14,7 +14,7 @@ export default function PlayGame() {
       gameId={gameId}
       onExit={() => navigate("/lobby")}
       onPlayAgain={(id) => navigate(`/play/${id}`)}
-      onOpenReview={(id) => navigate(`/games/${id}`)}
+      onOpenReview={(id) => navigate(`/games/${id}/review`)}
     />
   );
 }

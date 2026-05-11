@@ -14,12 +14,22 @@ import { MoveScrubber } from "../components/MoveScrubber";
 import { EngineOverlay } from "../components/EngineOverlay";
 import { ScoreLineChart } from "../components/ScoreLineChart";
 import { boardAtMove, formatCoord, parseCoord } from "../lib/replay";
+import { useChatStream } from "../hooks/useChatStream";
 import type { MoveT } from "../types";
+
+const USER_ID_KEY = "senpai_user_id";
+
+const SENSEI_MODES = [
+  { id: "whats_missing", label: "What am I missing?" },
+  { id: "help_read_fight", label: "Help me read this fight" },
+  { id: "whats_my_plan", label: "What's my plan?" },
+] as const;
 
 export default function GameViewer() {
   const { gameId = "" } = useParams<{ gameId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const moveParam = parseInt(searchParams.get("move") ?? "", 10);
+  const userId = localStorage.getItem(USER_ID_KEY) ?? "";
 
   const game = useQuery({
     queryKey: ["game", gameId],
@@ -59,10 +69,6 @@ export default function GameViewer() {
     return map;
   }, [analysis.data]);
 
-  // Score line: derive Black's score lead per move from score_before, normalised
-  // by colour-to-play. KataGo's score_before is from the perspective of the
-  // colour about to play; flip when it's White's turn so the curve is always
-  // "Black ahead = positive".
   const scorePoints = useMemo(() => {
     const fs = analysis.data?.features ?? [];
     return fs
@@ -106,8 +112,6 @@ export default function GameViewer() {
     return Math.max(MIN, Math.floor((w > 0 ? w : h) - pad * 2));
   }, [boardSlotSize]);
 
-  // Top-move overlay for the position about to be played at currentMove + 1
-  // (i.e. the move immediately after the displayed board state).
   const overlayTop = useMemo(() => {
     if (!showTopMove || !game.data) return null;
     const f = featuresByMove.get(currentMove + 1);
@@ -115,7 +119,6 @@ export default function GameViewer() {
     return parseCoord(f.top_move, game.data.size);
   }, [showTopMove, game.data, featuresByMove, currentMove]);
 
-  // Fetch ownership from the backend when the toggle is on or the move changes.
   useEffect(() => {
     if (!showOwnership || !gameId || currentMove < 1) {
       setOwnershipRaw(null);
@@ -146,6 +149,9 @@ export default function GameViewer() {
       <section className="viewer-stage" aria-label="Board">
         <header className="viewer-stage-header">
           <Link to="/games" className="viewer-back-link">← Games</Link>
+          <Link to={`/games/${gameId}/review`} className="gs-btn gs-btn--primary" style={{ padding: "6px 12px", fontSize: 12 }}>
+            Review & analysis
+          </Link>
           <h1 className="viewer-stage-title">Game #{gameId.slice(0, 6)}</h1>
           {game.data && (
             <div className="viewer-stage-meta">
@@ -203,8 +209,8 @@ export default function GameViewer() {
         )}
       </section>
 
-      <aside className="viewer-rail" aria-label="Sensei chat and moves">
-        <ViewerSenseiChatCard gameShortId={gameId.slice(0, 8)} />
+      <aside className="viewer-rail" aria-label="Sensei and moves">
+        <ViewerSenseiChat gameId={gameId} userId={userId} />
 
         <section className="viewer-rail-moves gs-card gs-card--tight">
           {game.data ? (
@@ -226,103 +232,104 @@ export default function GameViewer() {
   );
 }
 
-/** Ask Sensei — viewer rail chat (styled like design mock). */
-function ViewerSenseiChatCard({ gameShortId }: { gameShortId: string }) {
+export function ViewerSenseiChat({ gameId, userId }: { gameId: string; userId: string }) {
+  const { messages, isStreaming, send, reset } = useChatStream(gameId, userId);
+  const [input, setInput] = useState("");
+  const [aiError, setAiError] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages]);
+
+  useEffect(() => {
+    if (!isStreaming && messages.length > 0) {
+      const last = messages[messages.length - 1];
+      if (last.role === "assistant" && last.text.startsWith("Error")) {
+        setAiError(true);
+      }
+    }
+  }, [isStreaming, messages]);
+
+  const handleMode = (mode: string) => { if (!isStreaming) send(mode); };
+  const handleFollowup = () => {
+    const text = input.trim();
+    if (!text || isStreaming) return;
+    send("followup", text);
+    setInput("");
+  };
+
+  const hasMessages = messages.length > 0;
+
   return (
-    <section
-      className="viewer-rail-chat sensei-chat-card gs-card gs-card--ink"
-      aria-label="Ask Sensei"
-    >
-      <header className="sensei-chat-head">
-        <div className="sensei-chat-avatar" aria-hidden>
-          <span className="sensei-chat-avatar-mark">先</span>
-        </div>
-        <div className="sensei-chat-head-copy">
-          <h2 className="sensei-chat-title">Ask Sensei</h2>
-        </div>
-        <span className="sensei-chat-live">streaming</span>
-      </header>
-
-      <div className="sensei-chat-rule" role="presentation" />
-
-      <div className="sensei-chat-thread" role="log" aria-live="polite">
-        <div className="sensei-chat-bubble sensei-chat-bubble--sensei">
-          <p className="sensei-chat-copy">
-            You&apos;re ahead on territory, but the group around{" "}
-            <span className="sensei-chat-coord">F4</span> is thinner than it
-            feels. Ask yourself:
-          </p>
-          <ol className="sensei-chat-list">
-            <li>If White plays <span className="sensei-chat-coord">G6</span>, can you answer with thickness instead of greed?</li>
-            <li>Would an empty triangle here actually cost you nothing long-term?</li>
-          </ol>
-          <p className="sensei-chat-copy sensei-chat-copy-muted">
-            (Light demo copy — wired chat arrives next.)
-          </p>
-          <div className="sensei-chat-inline-actions">
-            <button type="button" className="sensei-chat-pill-btn" disabled>
-              what&apos;s missing?
-            </button>
-            <button type="button" className="sensei-chat-pill-btn sensei-chat-pill-btn--primary" disabled>
-              show follow-up sequence
-            </button>
-          </div>
-        </div>
-
-        <div className="sensei-chat-bubble sensei-chat-bubble--user">
-          <p className="sensei-chat-copy">explain the cut at move 73 like I&apos;m 12k?</p>
-        </div>
-
-        <div className="sensei-chat-bubble sensei-chat-bubble--think">
-          <p className="sensei-chat-think-dots">… counting liberties …</p>
-        </div>
+    <section className="viewer-rail-chat gs-card gs-card--ink" aria-label="Ask Sensei">
+      <div className="viewer-sensei-head">
+        <span className="gs-tag" style={{ background: "var(--pastel-cyan)" }}>ASK SENSEI · 先生</span>
+        <span className={`gs-pill ${isStreaming ? "gs-pill--yellow" : "gs-pill--mint"}`} style={{ fontSize: 10 }}>
+          {isStreaming ? "thinking…" : "ready"}
+        </span>
       </div>
 
-      <div className="sensei-chat-rule" role="presentation" />
-
-      <div className="sensei-chat-fill" aria-hidden />
-
-      <footer className="sensei-chat-foot">
-        <div className="sensei-chat-compose-row">
-          <label className="visually-hidden" htmlFor="sensei-chat-input">
-            Message Sensei
-          </label>
-          <input
-            id="sensei-chat-input"
-            className="sensei-chat-input"
-            type="text"
-            placeholder="Ask about this fight…"
-            disabled
-            readOnly
-            aria-describedby="sensei-chat-input-hint"
-          />
-          <button type="button" className="sensei-chat-send" disabled aria-label="Send message">
-            <span>send</span>
-            <span className="sensei-chat-send-icon" aria-hidden>
-              ↵
-            </span>
-          </button>
+      {aiError && (
+        <div className="viewer-sensei-unavailable">
+          <p>Sensei AI is currently unavailable.</p>
+          <button type="button" className="gs-btn" onClick={() => { reset(); setAiError(false); }}>retry</button>
         </div>
-        <div className="sensei-chat-quick" role="group" aria-label="Quick prompts">
-          {(["plan", "read fight", "tesuji?", "next move"] as const).map((q) => (
-            <button key={q} type="button" className="sensei-chat-chip" disabled>
-              {q}
+      )}
+
+      {!aiError && !hasMessages && (
+        <div className="viewer-sensei-modes">
+          {SENSEI_MODES.map((m) => (
+            <button key={m.id} type="button" className="gs-btn" style={{ textAlign: "left", justifyContent: "flex-start" }}
+              onClick={() => handleMode(m.id)} disabled={isStreaming}>
+              {m.label}
             </button>
           ))}
         </div>
-      </footer>
+      )}
+
+      {!aiError && hasMessages && (
+        <div className="viewer-sensei-thread" ref={scrollRef}>
+          {messages.map((msg, i) => (
+            <div key={i} className={`viewer-sensei-bubble viewer-sensei-bubble--${msg.role}`}>
+              {msg.streaming && !msg.text
+                ? <span className="viewer-sensei-thinking">thinking…</span>
+                : msg.text}
+              {msg.streaming && msg.text && <span className="chat-cursor" aria-hidden />}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!aiError && hasMessages && (
+        <div className="viewer-sensei-compose">
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleFollowup(); }
+            }}
+            placeholder="ask a follow-up…"
+            disabled={isStreaming}
+            className="viewer-sensei-input"
+          />
+          <button type="button" className="gs-btn gs-btn--primary"
+            onClick={handleFollowup} disabled={isStreaming || !input.trim()}
+            style={{ padding: "6px 10px", fontSize: 11 }}>↵</button>
+        </div>
+      )}
     </section>
   );
 }
 
-function moveLabel(m: MoveT, size: number): string {
+export function moveLabel(m: MoveT, size: number): string {
   if (m.kind === "pass") return "pass";
   if (m.kind === "resign") return "resign";
   if (!m.point) return "—";
   return formatCoord(m.point.row, m.point.col, size);
 }
 
-function ViewerPairedMoves({
+export function ViewerPairedMoves({
   moves,
   boardSize,
   currentMove,
@@ -357,7 +364,9 @@ function ViewerPairedMoves({
 
   return (
     <div className="viewer-movelist">
-      <div className="viewer-movelist-head">Moves</div>
+      <div className="viewer-movelist-head">
+        <span className="gs-tag">MOVES · {totalMoves}</span>
+      </div>
       <div className="viewer-movelist-body">
         {rows.map((row) => {
           const blackMn = row.num * 2 - 1;

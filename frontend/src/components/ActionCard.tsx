@@ -48,7 +48,7 @@ function ActionBody({ action }: { action: NextActionResponse }) {
           Your last game has lessons waiting. Open the review viewer when you're ready.
         </p>
         <div className="action-card-cta">
-          <Link to={`/games/${action.game_id}`} className="btn btn-primary">Review now</Link>
+          <Link to={`/games/${action.game_id}/review`} className="btn btn-primary">Review now</Link>
           <Link to="/lobby" className="btn btn-ghost">Play another instead</Link>
         </div>
       </>

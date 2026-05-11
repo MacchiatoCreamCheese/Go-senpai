@@ -111,7 +111,7 @@ export default function Games() {
               return (
                 <Link
                   key={g.id}
-                  to={isFinished ? `/games/${g.id}` : `/play/${g.id}`}
+                  to={isFinished ? `/games/${g.id}/review` : `/play/${g.id}`}
                   className="games-row"
                 >
                   <div

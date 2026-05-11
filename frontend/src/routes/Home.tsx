@@ -363,7 +363,7 @@ function RecentGames({ games, isLoading }: { games: UserGameListItem[]; isLoadin
                 background: isActive ? "var(--pastel-pink)" : "var(--bg)",
                 cursor: "pointer",
               }}
-                onClick={() => navigate(isActive ? `/play/${g.id}` : `/games/${g.id}`)}
+                onClick={() => navigate(isActive ? `/play/${g.id}` : `/games/${g.id}/review`)}
               >
                 <div style={{
                   width: 44,

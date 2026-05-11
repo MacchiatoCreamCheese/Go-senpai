@@ -3,8 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createGame, fetchGame, fetchUser, getPlayerNotes, playMove, requestAiMove, sgfUrl, swapColors, undoMove } from "./api";
 import type { UserT } from "./api";
 import { GoBoard } from "./GoBoard";
-import { LiveTierDot } from "./components/LiveTierDot";
-import { ChatDrawer } from "./components/ChatDrawer";
+import { useChatStream } from "./hooks/useChatStream";
 import { PlayerNoteInput } from "./components/PlayerNoteInput";
 import { MikuLive2D } from "./live2d/MikuLive2D";
 import { connectGameSocket } from "./ws";
@@ -33,14 +32,12 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
   const [game, setGame] = useState<GameT | null>(null);
   const [state, setState] = useState<GameStateT | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorDialog, setErrorDialog] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [swapping, setSwapping] = useState(false);
   const [aiThinking, setAiThinking] = useState(false);
   const [overlayDismissed, setOverlayDismissed] = useState(false);
   const [playAgainPending, setPlayAgainPending] = useState(false);
-  const [liveTiers, setLiveTiers] = useState<Map<number, "green" | "yellow" | "red">>(new Map());
-  const [chatOpen, setChatOpen] = useState(false);
-  const [senseiThinking, setSenseiThinking] = useState(false);
   const [playerNotes, setPlayerNotes] = useState<Record<number, string>>({});
   const [ownershipRaw, setOwnershipRaw] = useState<{ data: number[]; boardSize: number } | null>(null);
   const [playerHandles, setPlayerHandles] = useState<Record<string, string>>({});
@@ -127,7 +124,6 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
   }, [game?.opponent_type, state?.turn, state?.status, role, gameId]);
 
   useEffect(() => {
-    setLiveTiers(new Map());
     setHumanChatMessages([]);
     const { disconnect, sendChat } = connectGameSocket(
       gameId,
@@ -136,23 +132,13 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
         setGame((prev) =>
           prev ? { ...prev, black_user_id: players.black_user_id, white_user_id: players.white_user_id } : prev,
         ),
-      (e) => setLiveTiers((prev) => new Map(prev).set(e.move_number, e.tier)),
+      () => {},
       (msg) => setHumanChatMessages((prev) => [...prev, msg]),
     );
     sendChatRef.current = sendChat;
     return disconnect;
   }, [gameId]);
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") return;
-      if (e.key === "c" || e.key === "C") setChatOpen((prev) => !prev);
-      if (e.key === "Escape") setChatOpen(false);
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
 
   function copyId() {
     navigator.clipboard.writeText(gameId).catch(() => {});
@@ -168,7 +154,7 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
       const next = await playMove(gameId, role, kind, point);
       setState(next);
     } catch (e) {
-      setError(String(e));
+      setErrorDialog(String(e));
     }
   }
 
@@ -191,14 +177,6 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
     try {
       const newState = await undoMove(gameId);
       setState(newState);
-      const undonePlayer = newState.moves.length + 1;
-      const undoneAi = newState.moves.length + 2;
-      setLiveTiers((prev) => {
-        const next = new Map(prev);
-        next.delete(undonePlayer);
-        next.delete(undoneAi);
-        return next;
-      });
     } catch (e) {
       setError(String(e));
     }
@@ -314,7 +292,7 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
             {game?.training_mode && isAiGame && (
               <div style={{ position: "absolute", top: -6, left: 0, right: 0, display: "flex", justifyContent: "center", zIndex: 1 }}>
                 <span className="gs-sticker" style={{ background: "var(--pastel-cyan)" }}>
-                  ⊙  TRAINING MODE · live coaching tier dots
+                  ⊙  TRAINING MODE
                 </span>
               </div>
             )}
@@ -342,13 +320,6 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
                 </div>
               )}
             </div>
-            {game?.training_mode && isAiGame && (
-              <div style={{ position: "absolute", bottom: -28, left: 0, right: 0, display: "flex", justifyContent: "center", gap: 10 }}>
-                <TierPill tier="good" label="ideal" />
-                <TierPill tier="ok" label="ok" />
-                <TierPill tier="bad" label="lost ≥ 2pt" />
-              </div>
-            )}
           </div>
           </div>
 
@@ -376,10 +347,8 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
             isAiGame={isAiGame}
             playerNotes={playerNotes}
             onNoteSaved={(mn, body) => setPlayerNotes((prev) => ({ ...prev, [mn]: body }))}
-            liveTiers={liveTiers}
-            chatOpen={chatOpen}
-            senseiThinking={senseiThinking}
-            onOpenChat={() => setChatOpen(true)}
+            onSenseiStreamingChange={() => {}}
+            onSenseiOwnership={(data, boardSize) => setOwnershipRaw({ data, boardSize })}
             canUndo={canUndo}
             isMyTurn={isMyTurn}
             preGame={preGame}
@@ -395,7 +364,6 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
           />
 
           <div style={{ display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
-            {error && <p className="error-text">{error}</p>}
             <div style={styles.footerLinks}>
               <a href={sgfUrl(gameId)} download style={styles.textLink}>Export SGF</a>
               <button className="gs-btn" onClick={onExit} style={{ padding: "7px 14px", fontSize: 13 }}>← Lobby</button>
@@ -405,15 +373,53 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
       </div>
       </div>
 
-      {/* Outside play layout */}
-      <ChatDrawer
-        gameId={gameId}
-        userId={userId}
-        open={chatOpen}
-        onClose={() => { setChatOpen(false); setOwnershipRaw(null); }}
-        onStreamingChange={setSenseiThinking}
-        onOwnership={(data, boardSize) => setOwnershipRaw({ data, boardSize })}
-      />
+      {errorDialog && (
+        <div
+          style={{
+            position: "fixed", inset: 0, zIndex: 60,
+            background: "rgba(26,23,20,0.5)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: 20,
+          }}
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setErrorDialog(null)}
+        >
+          <div
+            className="gs-card"
+            style={{
+              padding: "28px 32px",
+              background: "var(--pastel-pink)",
+              boxShadow: "var(--shadow-block)",
+              maxWidth: 380, width: "100%",
+              textAlign: "center",
+              position: "relative",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setErrorDialog(null)}
+              aria-label="Dismiss"
+              style={{ position: "absolute", top: 10, right: 12, background: "none", border: "none", cursor: "pointer", fontSize: 20, color: "var(--ink-mute)", lineHeight: 1 }}
+            >×</button>
+            <div className="gs-tag" style={{ marginBottom: 10 }}>ILLEGAL MOVE</div>
+            <p style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 15, marginBottom: 6 }}>
+              That move is not allowed.
+            </p>
+            <p style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 18 }}>
+              {errorDialog.toLowerCase().includes("suicide")
+                ? "Suicide moves are forbidden — a group must have at least one liberty after being placed."
+                : errorDialog.toLowerCase().includes("ko")
+                  ? "Ko rule: you cannot recreate the previous board position immediately."
+                  : "Try a different intersection."}
+            </p>
+            <button type="button" className="gs-btn gs-btn--primary" onClick={() => setErrorDialog(null)}>
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
 
       {state.status !== "active" && !overlayDismissed && (
         <div style={{
@@ -449,7 +455,7 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
               <button
                 type="button"
                 className="gs-btn gs-btn--primary"
-                onClick={() => (onOpenReview ? onOpenReview(gameId) : (window.location.href = `/games/${gameId}`))}
+                onClick={() => (onOpenReview ? onOpenReview(gameId) : (window.location.href = `/games/${gameId}/review`))}
               >
                 Review this game
               </button>
@@ -552,68 +558,92 @@ function MikuSlot() {
   );
 }
 
-const askChipStyle = (color: string): React.CSSProperties => ({
-  display: "grid", gridTemplateColumns: "22px 1fr auto", gap: 8, alignItems: "center",
-  padding: "8px 10px",
-  border: "2px solid var(--ink)", borderRadius: 10,
-  background: color, cursor: "pointer", textAlign: "left",
-  fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 13,
-  color: "var(--ink)", width: "100%",
-});
 
-function AskSenseiPanel({
-  onOpen,
-  chatOpen,
-  senseiThinking,
-  embedded,
+const SENSEI_MODES = [
+  { id: "whats_missing", label: "What am I missing?" },
+  { id: "help_read_fight", label: "Help me read this fight" },
+  { id: "whats_my_plan", label: "What's my plan?" },
+] as const;
+
+function PlaySenseiChat({
+  gameId,
+  userId,
+  onStreamingChange,
+  onOwnership,
 }: {
-  onOpen: () => void;
-  chatOpen: boolean;
-  senseiThinking: boolean;
-  embedded?: boolean;
+  gameId: string;
+  userId: string;
+  onStreamingChange: (v: boolean) => void;
+  onOwnership: (data: number[], boardSize: number) => void;
 }) {
-  const inner = (
-    <>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-        <span className="gs-tag" style={{ background: "var(--pastel-cyan)" }}>ASK SENSEI · 先生</span>
-        <span className={`gs-pill ${chatOpen && senseiThinking ? "gs-pill--yellow" : "gs-pill--mint"}`} style={{ fontSize: 10 }}>
-          {chatOpen && senseiThinking ? "thinking…" : "ready"}
-        </span>
-      </div>
-      <div style={{ display: "grid", gap: 6 }}>
-        <button type="button" style={askChipStyle("var(--pastel-pink)")} onClick={onOpen}>
-          <span style={{ width: 22, height: 22, borderRadius: 99, background: "var(--bg-2)", border: "1.5px solid var(--ink)", display: "grid", placeItems: "center", fontSize: 12 }}>?</span>
-          What am I missing?
-          <span style={{ fontSize: 13, opacity: 0.6 }}>→</span>
-        </button>
-        <button type="button" style={askChipStyle("var(--pastel-yellow)")} onClick={onOpen}>
-          <span style={{ width: 22, height: 22, borderRadius: 99, background: "var(--bg-2)", border: "1.5px solid var(--ink)", display: "grid", placeItems: "center", fontSize: 12 }}>◎</span>
-          What&apos;s my plan?
-          <span style={{ fontSize: 13, opacity: 0.6 }}>→</span>
-        </button>
-        <button type="button" style={askChipStyle("var(--pastel-green)")} onClick={onOpen}>
-          <span style={{ width: 22, height: 22, borderRadius: 99, background: "var(--bg-2)", border: "1.5px solid var(--ink)", display: "grid", placeItems: "center", fontSize: 12 }}>⚔</span>
-          Help me read this fight
-          <span style={{ fontSize: 13, opacity: 0.6 }}>→</span>
-        </button>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 6, marginTop: 8 }}>
-        <input
-          placeholder="ask anything…"
-          onKeyDown={(e) => e.key === "Enter" && onOpen()}
-          style={{ border: "2px solid var(--ink)", borderRadius: 10, padding: "7px 10px", fontFamily: "var(--font-body)", fontSize: 12, background: "var(--bg)", outline: "none" }}
-        />
-        <button type="button" className="gs-btn gs-btn--primary" onClick={onOpen} style={{ padding: "6px 10px", fontSize: 11 }}>↵</button>
-      </div>
-    </>
-  );
+  const { messages, isStreaming, ownership, send } = useChatStream(gameId, userId);
+  const [input, setInput] = useState("");
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const hasMessages = messages.length > 0;
 
-  if (embedded) return <div style={{ padding: "10px 12px" }}>{inner}</div>;
+  useEffect(() => { onStreamingChange(isStreaming); }, [isStreaming]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (ownership) onOwnership(ownership.data, ownership.boardSize); }, [ownership]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages]);
+
+  const handleFollowup = () => {
+    const text = input.trim();
+    if (!text || isStreaming) return;
+    send("followup", text);
+    setInput("");
+  };
 
   return (
-    <div className="gs-card" style={{ padding: 12, background: "var(--bg-2)" }}>
-      {inner}
-    </div>
+    <section className="viewer-rail-chat gs-card gs-card--ink" style={{ flex: 1, minHeight: 0, margin: 0, borderRadius: 0, border: "none", borderTop: "2px solid var(--border)" }} aria-label="Ask Sensei">
+      <div className="viewer-sensei-head">
+        <span className="gs-tag" style={{ background: "var(--pastel-cyan)" }}>ASK SENSEI · 先生</span>
+        <span className={`gs-pill ${isStreaming ? "gs-pill--yellow" : "gs-pill--mint"}`} style={{ fontSize: 10 }}>
+          {isStreaming ? "thinking…" : "ready"}
+        </span>
+      </div>
+
+      {!hasMessages && (
+        <div className="viewer-sensei-modes">
+          {SENSEI_MODES.map((m) => (
+            <button key={m.id} type="button" className="gs-btn"
+              style={{ textAlign: "left", justifyContent: "flex-start" }}
+              onClick={() => !isStreaming && send(m.id)} disabled={isStreaming}>
+              {m.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {hasMessages && (
+        <div className="viewer-sensei-thread" ref={scrollRef}>
+          {messages.map((msg, i) => (
+            <div key={i} className={`viewer-sensei-bubble viewer-sensei-bubble--${msg.role}`}>
+              {msg.streaming && !msg.text
+                ? <span className="viewer-sensei-thinking">thinking…</span>
+                : msg.text}
+              {msg.streaming && msg.text && <span className="chat-cursor" aria-hidden />}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {hasMessages && (
+        <div className="viewer-sensei-compose">
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleFollowup(); } }}
+            placeholder="ask a follow-up…"
+            disabled={isStreaming}
+            className="viewer-sensei-input"
+          />
+          <button type="button" className="gs-btn gs-btn--primary"
+            onClick={handleFollowup} disabled={isStreaming || !input.trim()}
+            style={{ padding: "6px 10px", fontSize: 11 }}>↵</button>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -694,10 +724,8 @@ function PlaySidePanel({
   isAiGame,
   playerNotes,
   onNoteSaved,
-  liveTiers,
-  chatOpen,
-  senseiThinking,
-  onOpenChat,
+  onSenseiStreamingChange,
+  onSenseiOwnership,
   canUndo,
   isMyTurn,
   preGame,
@@ -719,10 +747,8 @@ function PlaySidePanel({
   isAiGame: boolean;
   playerNotes: Record<number, string>;
   onNoteSaved: (mn: number, body: string) => void;
-  liveTiers: Map<number, "green" | "yellow" | "red">;
-  chatOpen: boolean;
-  senseiThinking: boolean;
-  onOpenChat: () => void;
+  onSenseiStreamingChange: (v: boolean) => void;
+  onSenseiOwnership: (data: number[], boardSize: number) => void;
   canUndo: boolean;
   isMyTurn: boolean;
   preGame: boolean;
@@ -797,18 +823,7 @@ function PlaySidePanel({
             id="play-tabpanel-moves"
             aria-labelledby="play-tab-moves"
           >
-            {game.training_mode && role && (
-              <div className="play-side-panel-moves__training">
-                <LiveTierDot
-                  gameId={gameId}
-                  userId={userId}
-                  tiers={liveTiers}
-                  pendingCount={state.moves.reduce((n, m, i) => m.color === role && !liveTiers.has(i + 1) ? n + 1 : n, 0)}
-                  onShowOnBoard={() => {}}
-                />
-              </div>
-            )}
-            <MoveListBody moves={state.moves} boardSize={game.size} liveTiers={liveTiers} />
+            <MoveListBody moves={state.moves} boardSize={game.size} />
           </div>
         )}
 
@@ -838,17 +853,17 @@ function PlaySidePanel({
 
         {tab === "sensei" && (
           <div
-            className="play-side-pane-scroll"
+            className="play-side-panel-fill"
             role="tabpanel"
             id="play-tabpanel-sensei"
             aria-labelledby="play-tab-sensei"
           >
             {showSenseiTooling ? (
-              <AskSenseiPanel
-                embedded
-                onOpen={onOpenChat}
-                chatOpen={chatOpen}
-                senseiThinking={senseiThinking}
+              <PlaySenseiChat
+                gameId={gameId}
+                userId={userId}
+                onStreamingChange={onSenseiStreamingChange}
+                onOwnership={onSenseiOwnership}
               />
             ) : (
               <p className="play-side-placeholder">
@@ -890,7 +905,7 @@ function PlaySidePanel({
           <div className="result-banner" style={{ gridColumn: "1 / -1" }}>
             <strong>Game over</strong>
             <span>{state.result ?? state.status}</span>
-            <a href={`/games/${gameId}`} className="result-banner-link">Open review →</a>
+            <a href={`/games/${gameId}/review`} className="result-banner-link">Open review →</a>
           </div>
         )}
       </div>
@@ -901,15 +916,10 @@ function PlaySidePanel({
 function MoveListBody({
   moves,
   boardSize,
-  liveTiers,
 }: {
   moves: GameStateT["moves"];
   boardSize: number;
-  liveTiers: Map<number, "green" | "yellow" | "red">;
 }) {
-  const tierColor = (t: string | undefined) =>
-    t === "green" ? "var(--tier-good)" : t === "yellow" ? "var(--tier-ok)" : t === "red" ? "var(--tier-bad)" : "transparent";
-
   const pairCount = Math.ceil(moves.length / 2);
   const lastIdx = moves.length - 1;
 
@@ -926,8 +936,6 @@ function MoveListBody({
           const moveNo = row + 1;
           const isLatestBlack = blackMove !== undefined && bi === lastIdx;
           const isLatestWhite = whiteMove !== undefined && wi === lastIdx;
-          const tierB = liveTiers.get(bi + 1);
-          const tierW = whiteMove !== undefined ? liveTiers.get(wi + 1) : undefined;
 
           let cellBClass = "sandwich-move-cell";
           if (isLatestBlack) cellBClass += " sandwich-move-cell--latest-b";
@@ -941,35 +949,9 @@ function MoveListBody({
               <span className="sandwich-move-num">{moveNo}.</span>
               <span className={cellBClass}>
                 {moveDisplayLabel(blackMove, boardSize)}
-                {tierB && (
-                  <span
-                    style={{
-                      width: 7,
-                      height: 7,
-                      borderRadius: 99,
-                      background: tierColor(tierB),
-                      border: "1px solid var(--ink)",
-                      flexShrink: 0,
-                    }}
-                    aria-hidden
-                  />
-                )}
               </span>
               <span className={cellWClass}>
                 {!whiteMove ? "—" : moveDisplayLabel(whiteMove, boardSize)}
-                {whiteMove && tierW && (
-                  <span
-                    style={{
-                      width: 7,
-                      height: 7,
-                      borderRadius: 99,
-                      background: tierColor(tierW),
-                      border: "1px solid var(--ink)",
-                      flexShrink: 0,
-                    }}
-                    aria-hidden
-                  />
-                )}
               </span>
             </div>
           );
@@ -1051,15 +1033,6 @@ function HumanChatPanel({
   );
 }
 
-function TierPill({ tier, label }: { tier: "good" | "ok" | "bad"; label: string }) {
-  const c = tier === "good" ? "var(--tier-good)" : tier === "ok" ? "var(--tier-ok)" : "var(--tier-bad)";
-  return (
-    <span className="gs-pill" style={{ background: "var(--bg-2)" }}>
-      <span style={{ width: 10, height: 10, borderRadius: 99, background: c, border: "1.5px solid var(--ink)", display: "inline-block" }} />
-      {" "}{label}
-    </span>
-  );
-}
 
 const styles: Record<string, React.CSSProperties> = {
   errorPage: {

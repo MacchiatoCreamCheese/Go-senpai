@@ -7,6 +7,7 @@ import Lobby from "./routes/Lobby";
 import Login from "./routes/Login";
 import PlayGame from "./routes/PlayGame";
 import GameViewer from "./routes/GameViewer";
+import Review from "./routes/Review";
 import Coach from "./routes/Coach";
 import Drill from "./routes/Drill";
 import Profile from "./routes/Profile";
@@ -26,7 +27,7 @@ export function App() {
 
         <Route path="games" element={<Games />} />
         <Route path="games/:gameId" element={<GameViewer />} />
-        <Route path="games/:gameId/review" element={<GameViewer />} />
+        <Route path="games/:gameId/review" element={<Review />} />
 
         <Route path="coach" element={<RequireAuth><Coach /></RequireAuth>} />
 

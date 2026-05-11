@@ -343,7 +343,7 @@ function HistoryTab({ games }: { games: EnrichedMatch[] }) {
                 {g.opening && <span className="prf-history-opening">{g.opening}</span>}
                 <ResultChip match={g} />
                 <span className="prf-history-date">{fmt(g.startedAt)}</span>
-                <Link to={`/games/${g.id}`} className="prf-review-btn">Review →</Link>
+                <Link to={`/games/${g.id}/review`} className="prf-review-btn">Review →</Link>
               </div>
             </li>
           ))}
