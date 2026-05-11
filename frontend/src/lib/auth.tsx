@@ -7,6 +7,7 @@ import { api, AUTH_401_EVENT, getAccessTokenSync, setAccessToken } from "./http"
 
 export const USER_ID_KEY = "senpai_user_id";
 export const HANDLE_KEY = "senpai_user_handle";
+export const SETUP_DONE_KEY = "senpai_setup_done";
 
 export interface BackendProfile {
   id: string;
