@@ -4,19 +4,22 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import {
   fetchGame,
+  fetchUser,
   getGameAnalysis,
   getMoveOwnership,
   getReview,
   generateReview,
   triggerAnalyze,
+  sgfUrl,
   type MoveFeature,
+  type UserT,
 } from "../api";
 import type { GhostStone } from "../GoBoard";
 import { GoBoard } from "../GoBoard";
 import { MoveScrubber } from "../components/MoveScrubber";
 import { ScoreLineChart } from "../components/ScoreLineChart";
 import { boardAtMove, formatCoord, parseCoord } from "../lib/replay";
-import type { MoveT } from "../types";
+import type { GameT, MoveT } from "../types";
 
 function moveTier(f: MoveFeature | undefined): "good" | "ok" | "bad" {
   if (!f || f.points_lost == null) return "good";
@@ -42,7 +45,8 @@ export default function Review() {
   const userId = localStorage.getItem(USER_ID_KEY) ?? "";
   const queryClient = useQueryClient();
 
-  const [reviewTab, setReviewTab] = useState<ReviewTab>("review");
+  const [reviewTab, setReviewTab] = useState<ReviewTab>("analysis");
+  const autoAnalyzeStartedRef = useRef<string | null>(null);
 
   const game = useQuery({
     queryKey: ["game", gameId],
@@ -91,6 +95,34 @@ export default function Review() {
     next.set("move", String(n));
     setSearchParams(next, { replace: true });
   }
+
+  useEffect(() => {
+    autoAnalyzeStartedRef.current = null;
+  }, [gameId]);
+
+  /** When opening the review route, run KataGo analysis once if missing (review generation needs move_features). */
+  useEffect(() => {
+    if (!gameId || !game.isSuccess || !game.data) return;
+    const moveCount = game.data.state.moves.length;
+    if (moveCount === 0) return;
+    if (analysis.isLoading || analysis.isFetching) return;
+    if (analysis.isError) return;
+    if (analysis.data) return;
+    if (analyzeMutation.isPending) return;
+    if (autoAnalyzeStartedRef.current === gameId) return;
+    autoAnalyzeStartedRef.current = gameId;
+    analyzeMutation.mutate();
+  }, [
+    gameId,
+    game.isSuccess,
+    game.data,
+    analysis.isLoading,
+    analysis.isFetching,
+    analysis.data,
+    analysis.isError,
+    analyzeMutation.isPending,
+    analyzeMutation.mutate,
+  ]);
 
   const replay = useMemo(() => {
     if (!game.data) return null;
@@ -182,24 +214,9 @@ export default function Review() {
   const reviewLoading = reviewQuery.isLoading;
 
   return (
-    <div style={{
-      height: "100%",
-      display: "grid",
-      gridTemplateColumns: "1fr 400px",
-      gap: 16,
-      padding: 18,
-      overflow: "hidden",
-      boxSizing: "border-box",
-    }}>
-
+    <div className="review-page">
       {/* ── LEFT: board column ── */}
-      <div style={{
-        display: "grid",
-        gridTemplateRows: "auto 1fr",
-        gap: 10,
-        minWidth: 0,
-        overflow: "hidden",
-      }}>
+      <div className="review-page-board">
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
@@ -220,7 +237,9 @@ export default function Review() {
             )}
           </div>
           <div style={{ display: "flex", gap: 6 }}>
-            <button className="gs-btn" style={{ padding: "6px 12px", fontSize: 12 }}>↓ SGF</button>
+            <a href={sgfUrl(gameId)} download className="gs-btn gs-btn--sgf">
+              ↓ SGF
+            </a>
           </div>
         </div>
 
@@ -233,7 +252,7 @@ export default function Review() {
           <div className="gs-card" style={{
             padding: 12,
             background: "var(--bg-2)",
-            boxShadow: "var(--shadow-block)",
+            // boxShadow: "var(--shadow-block)",
             display: "flex",
             flexDirection: "column",
             minHeight: 0,
@@ -288,13 +307,16 @@ export default function Review() {
             </div>
 
             <footer className="viewer-stage-footer">
-              <ScoreLineChart
-                points={scorePoints}
-                currentMove={currentMove}
-                onScrub={setMove}
-                height={80}
-              />
-              <MoveScrubber current={currentMove} total={totalMoves} onChange={setMove} />
+              <div className="viewer-chart-scrub-stack">
+                <ScoreLineChart
+                  points={scorePoints}
+                  currentMove={currentMove}
+                  onScrub={setMove}
+                  width={640}
+                  height={80}
+                />
+                <MoveScrubber current={currentMove} total={totalMoves} onChange={setMove} />
+              </div>
             </footer>
           </div>
         )}
@@ -304,7 +326,7 @@ export default function Review() {
       <div className="review-rail">
         {/* Tab strip */}
         <div className="play-side-tabs review-tab-strip" role="tablist">
-          {(["review", "analysis", "info"] as ReviewTab[]).map((t) => (
+          {(["analysis", "review", "info"] as ReviewTab[]).map((t) => (
             <button
               key={t}
               type="button"
@@ -322,19 +344,6 @@ export default function Review() {
 
         {/* Tab panels */}
         <div className="review-rail-body">
-          {reviewTab === "review" && (
-            <ReviewPanel
-              gameId={gameId}
-              userId={userId}
-              reviewData={reviewData}
-              loading={reviewLoading}
-              generating={generateMutation.isPending}
-              onGenerate={() => generateMutation.mutate(false)}
-              onRegenerate={() => generateMutation.mutate(true)}
-              onShowMove={setMove}
-            />
-          )}
-
           {reviewTab === "analysis" && (
             <AnalysisMoveList
               moves={game.data?.state.moves ?? []}
@@ -346,6 +355,22 @@ export default function Review() {
               analyzing={analyzeMutation.isPending}
               onGoToMove={setMove}
               onRunAnalysis={() => analyzeMutation.mutate()}
+            />
+          )}
+
+          {reviewTab === "review" && (
+            <ReviewPanel
+              gameId={gameId}
+              userId={userId}
+              reviewData={reviewData}
+              moves={game.data?.state.moves ?? []}
+              boardSize={game.data?.size ?? 9}
+              loading={reviewLoading}
+              generating={generateMutation.isPending}
+              generateError={generateMutation.isError ? generateMutation.error.message : null}
+              onGenerate={() => generateMutation.mutate(false)}
+              onRegenerate={() => generateMutation.mutate(true)}
+              onShowMove={setMove}
             />
           )}
 
@@ -362,8 +387,11 @@ export default function Review() {
 
 function ReviewPanel({
   reviewData,
+  moves,
+  boardSize,
   loading,
   generating,
+  generateError,
   onGenerate,
   onRegenerate,
   onShowMove,
@@ -371,15 +399,18 @@ function ReviewPanel({
   gameId: string;
   userId: string;
   reviewData: Awaited<ReturnType<typeof getReview>>;
+  moves: MoveT[];
+  boardSize: number;
   loading: boolean;
   generating: boolean;
+  generateError: string | null;
   onGenerate: () => void;
   onRegenerate: () => void;
   onShowMove: (n: number) => void;
 }) {
   if (loading) {
     return (
-      <div style={{ padding: 24, textAlign: "center", color: "var(--ink-mute)", fontFamily: "var(--font-mono)", fontSize: 12 }}>
+      <div className="review-rail-scroll" style={{ padding: 24, textAlign: "center", color: "var(--ink-mute)", fontFamily: "var(--font-mono)", fontSize: 12 }}>
         Loading review…
       </div>
     );
@@ -387,7 +418,7 @@ function ReviewPanel({
 
   if (!reviewData) {
     return (
-      <div style={{ padding: 24, display: "flex", flexDirection: "column", alignItems: "center", gap: 14, textAlign: "center" }}>
+      <div className="review-rail-scroll" style={{ padding: 24, display: "flex", flexDirection: "column", alignItems: "center", gap: 14, textAlign: "center" }}>
         <div className="gs-tag" style={{ background: "var(--pastel-lavender)" }}>NO REVIEW YET</div>
         <p style={{ fontSize: 12.5, color: "var(--ink-soft)", fontFamily: "var(--font-body)", lineHeight: 1.5, margin: 0 }}>
           Generate an AI-powered review of your game to see key moments and improvement suggestions.
@@ -400,6 +431,21 @@ function ReviewPanel({
         >
           {generating ? "Generating…" : "Generate review"}
         </button>
+        {generateError && (
+          <p
+            role="alert"
+            style={{
+              margin: 0,
+              maxWidth: 320,
+              fontSize: 12,
+              lineHeight: 1.45,
+              color: "var(--tier-bad)",
+              fontFamily: "var(--font-mono)",
+            }}
+          >
+            {generateError}
+          </p>
+        )}
       </div>
     );
   }
@@ -410,7 +456,7 @@ function ReviewPanel({
   });
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+    <div>
       {/* Header */}
       <div style={{
         padding: "10px 14px",
@@ -434,8 +480,26 @@ function ReviewPanel({
         </button>
       </div>
 
+      {generateError && (
+        <p
+          role="alert"
+          style={{
+            margin: 0,
+            padding: "8px 14px",
+            borderBottom: "2px solid var(--border)",
+            fontSize: 12,
+            lineHeight: 1.45,
+            color: "var(--tier-bad)",
+            fontFamily: "var(--font-mono)",
+            background: "color-mix(in srgb, var(--pastel-pink) 35%, transparent)",
+          }}
+        >
+          {generateError}
+        </p>
+      )}
+
       {/* Scrollable content */}
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "14px 14px 20px" }}>
+      <div className="review-rail-scroll" style={{ padding: "14px 14px 20px" }}>
         {/* Summary */}
         <p style={{
           fontFamily: "var(--font-body)", fontSize: 13.5, lineHeight: 1.65,
@@ -454,6 +518,11 @@ function ReviewPanel({
           const isBad = moment.kind === "blunder" || moment.kind === "mistake";
           const pillClass = isBad ? "gs-pill gs-pill--red" : "gs-pill gs-pill--yellow";
 
+          const ply = Math.min(Math.max(0, moment.move_number), moves.length);
+          const replay = boardAtMove(boardSize, moves, ply);
+          const topPt = moment.top_move ? parseCoord(moment.top_move, boardSize) : null;
+          const MOMENT_BOARD_W = 118;
+
           return (
             <div key={moment.move_number} className="review-moment-card">
               {/* Card header */}
@@ -470,26 +539,39 @@ function ReviewPanel({
                 </span>
               </div>
 
-              {/* Explanation */}
-              <p style={{
-                fontFamily: "var(--font-body)", fontSize: 12.5, lineHeight: 1.6,
-                color: "var(--ink-soft)", margin: "0 0 10px",
-              }}>
-                {moment.explanation_md}
-              </p>
-
-              {/* Show on board */}
-              <button
-                type="button"
-                onClick={() => onShowMove(moment.move_number)}
-                style={{
-                  background: "none", border: "none", cursor: "pointer",
-                  fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 12,
-                  color: "var(--border-deep)", padding: 0,
-                }}
-              >
-                Show on board →
-              </button>
+              <div className="review-moment-body">
+                {moves.length > 0 && (
+                  <div className="review-moment-board" aria-hidden>
+                    <GoBoard
+                      width={MOMENT_BOARD_W}
+                      board={replay.cells}
+                      lastMove={replay.last}
+                      topMove={topPt}
+                      disabled
+                      showCoordinates={false}
+                    />
+                  </div>
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{
+                    fontFamily: "var(--font-body)", fontSize: 12.5, lineHeight: 1.6,
+                    color: "var(--ink-soft)", margin: "0 0 10px",
+                  }}>
+                    {moment.explanation_md}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => onShowMove(moment.move_number)}
+                    style={{
+                      background: "none", border: "none", cursor: "pointer",
+                      fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 12,
+                      color: "var(--border-deep)", padding: 0,
+                    }}
+                  >
+                    Show on board →
+                  </button>
+                </div>
+              </div>
             </div>
           );
         })}
@@ -571,7 +653,7 @@ function AnalysisMoveList({
 
   if (totalMoves === 0) {
     return (
-      <div style={{ padding: 24, textAlign: "center", color: "var(--ink-mute)", fontFamily: "var(--font-mono)", fontSize: 12 }}>
+      <div className="review-rail-scroll" style={{ padding: 24, textAlign: "center", color: "var(--ink-mute)", fontFamily: "var(--font-mono)", fontSize: 12 }}>
         No moves yet.
       </div>
     );
@@ -579,7 +661,7 @@ function AnalysisMoveList({
 
   if (!hasAnalysis) {
     return (
-      <div style={{ padding: 24, display: "flex", flexDirection: "column", alignItems: "center", gap: 14, textAlign: "center" }}>
+      <div className="review-rail-scroll" style={{ padding: 24, display: "flex", flexDirection: "column", alignItems: "center", gap: 14, textAlign: "center" }}>
         <div className="gs-tag" style={{ background: "var(--pastel-lavender)" }}>NO ANALYSIS YET</div>
         <p style={{ fontSize: 12.5, color: "var(--ink-soft)", fontFamily: "var(--font-body)", lineHeight: 1.5, margin: 0 }}>
           Run KataGo analysis to see move quality, top moves, and score data.
@@ -597,7 +679,7 @@ function AnalysisMoveList({
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+    <div className="analysis-move-list">
       {/* Header */}
       <div style={{
         padding: "10px 14px",
@@ -626,7 +708,7 @@ function AnalysisMoveList({
       </div>
 
       {/* Rows */}
-      <div ref={listRef} style={{ overflow: "auto", flex: 1 }}>
+      <div ref={listRef} className="analysis-move-list-rows">
         {moves.map((move, i) => {
           const mn = i + 1;
           const feature = featuresByMove.get(mn);
@@ -700,40 +782,79 @@ function AnalysisMoveList({
 
 // ── InfoPanel ───────────────────────────────────────────────────────────────
 
-function InfoPanel({ game }: { game: Awaited<ReturnType<typeof fetchGame>> | null }) {
+function InfoPanel({ game }: { game: GameT | null }) {
+  const [seatHandles, setSeatHandles] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!game) return;
+    setSeatHandles({});
+    const ids = [game.black_user_id, game.white_user_id].filter(Boolean) as string[];
+    let cancelled = false;
+    ids.forEach((id) => {
+      fetchUser(id)
+        .then((u: UserT) => {
+          if (!cancelled) setSeatHandles((prev) => ({ ...prev, [id]: u.handle }));
+        })
+        .catch(() => {});
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [game?.id, game?.black_user_id, game?.white_user_id]);
+
+  function seatLabel(userId: string | null): string {
+    if (!userId) return "—";
+    const h = seatHandles[userId];
+    return h?.trim() ? h : `${userId.slice(0, 8)}…`;
+  }
+
   if (!game) {
     return (
-      <div style={{ padding: 24, textAlign: "center", color: "var(--ink-mute)", fontFamily: "var(--font-mono)", fontSize: 12 }}>
-        Loading…
+      <div className="review-info-panel review-info-panel--loading">
+        <span className="gs-tag" style={{ background: "var(--pastel-lavender)" }}>GAME INFO</span>
+        <p className="review-info-loading-text">Loading record…</p>
       </div>
     );
   }
 
-  const rows: [string, string][] = [
-    ["Board size", `${game.size}×${game.size}`],
-    ["Komi", String(game.komi)],
-    ["Result", game.state.result ?? "—"],
-    ["Opponent", game.opponent_type === "ai" ? `KataGo ${game.ai_rank ?? "?"}k` : "Human"],
-    ["Black", game.black_user_id?.slice(0, 8) ?? "—"],
-    ["White", game.white_user_id?.slice(0, 8) ?? "—"],
-    ["Moves", String(game.state.moves.length)],
+  const opponentLabel =
+    game.opponent_type === "ai"
+      ? `Sensei AI · ${game.ai_rank ?? "?"}k`
+      : "Human";
+
+  const rows: { label: string; value: string }[] = [
+    { label: "Board", value: `${game.size}×${game.size}` },
+    { label: "Komi", value: String(game.komi) },
+    { label: "Status", value: game.state.status },
+    { label: "Result", value: game.state.result?.trim() ? game.state.result : "—" },
+    { label: "Opponent", value: opponentLabel },
+    ...(game.training_mode ? [{ label: "Mode", value: "Training" }] : []),
+    { label: "Black seat", value: seatLabel(game.black_user_id) },
+    { label: "White seat", value: seatLabel(game.white_user_id) },
+    { label: "Moves played", value: String(game.state.moves.length) },
   ];
 
   return (
-    <div style={{ padding: "16px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
-      <span className="gs-tag" style={{ marginBottom: 4 }}>GAME INFO</span>
-      {rows.map(([label, value]) => (
-        <div key={label} style={{
-          display: "flex", justifyContent: "space-between", alignItems: "center",
-          padding: "7px 10px",
-          background: "var(--bg-2)",
-          border: "1.5px solid var(--border)",
-          borderRadius: 8,
-        }}>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--ink-mute)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}</span>
-          <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 13 }}>{value}</span>
+    <div className="review-info-panel">
+      <header className="review-info-head">
+        <div>
+          <span className="gs-tag" style={{ background: "var(--pastel-mint)" }}>GAME INFO</span>
+          <p className="review-info-lede">Record and seats for this game.</p>
         </div>
-      ))}
+        <span className="gs-pill" style={{ fontSize: 10, fontFamily: "var(--font-mono)" }} title={game.id}>
+          #{game.id.slice(0, 8)}
+        </span>
+      </header>
+      <div className="review-rail-scroll review-info-scroll">
+        <dl className="review-info-dl">
+          {rows.map((row) => (
+            <div key={row.label} className="review-info-row">
+              <dt>{row.label}</dt>
+              <dd>{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
     </div>
   );
 }

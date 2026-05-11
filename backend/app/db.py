@@ -1152,6 +1152,14 @@ async def create_coach_session(game_id: str, user_id: str) -> str:
     return str(row["id"])
 
 
+async def get_coach_session(session_id: str) -> dict[str, Any] | None:
+    row = await _get_pool().fetchrow(
+        "SELECT id, game_id, user_id FROM coach_sessions WHERE id = $1",
+        session_id,
+    )
+    return dict(row) if row else None
+
+
 async def get_coach_turns(session_id: str, limit: int = 6) -> list[dict[str, Any]]:
     rows = await _get_pool().fetch(
         """

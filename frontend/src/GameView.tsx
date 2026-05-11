@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { createGame, fetchGame, fetchUser, getPlayerNotes, playMove, requestAiMove, sgfUrl, swapColors, undoMove } from "./api";
 import type { UserT } from "./api";
+import { COACH_PRESET_MODES } from "./constants/coachModes";
 import { GoBoard } from "./GoBoard";
 import { useChatStream } from "./hooks/useChatStream";
 import { PlayerNoteInput } from "./components/PlayerNoteInput";
@@ -42,6 +43,7 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
   const [ownershipRaw, setOwnershipRaw] = useState<{ data: number[]; boardSize: number } | null>(null);
   const [playerHandles, setPlayerHandles] = useState<Record<string, string>>({});
   const [humanChatMessages, setHumanChatMessages] = useState<ChatMessage[]>([]);
+  const [senseiStreaming, setSenseiStreaming] = useState(false);
   const sendChatRef = useRef<((userId: string, message: string) => void) | null>(null);
   const boardSlotRef = useRef<HTMLDivElement>(null);
   const [boardSlotSize, setBoardSlotSize] = useState({ w: 0, h: 0 });
@@ -268,7 +270,7 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
               playerHandles={playerHandles}
             />
           </div>
-          <MikuSlot />
+          <MikuSlot speaking={senseiStreaming} />
           <div className="sandwich-left-player-bottom">
             <SandwichPlayerCard
               color={role ? myColor : "B"}
@@ -356,7 +358,7 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
             isAiGame={isAiGame}
             playerNotes={playerNotes}
             onNoteSaved={(mn, body) => setPlayerNotes((prev) => ({ ...prev, [mn]: body }))}
-            onSenseiStreamingChange={() => {}}
+            onSenseiStreamingChange={setSenseiStreaming}
             onSenseiOwnership={(data, boardSize) => setOwnershipRaw({ data, boardSize })}
             canUndo={canUndo}
             isMyTurn={isMyTurn}
@@ -374,7 +376,9 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
 
           <div style={{ display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
             <div style={styles.footerLinks}>
-              <a href={sgfUrl(gameId)} download style={styles.textLink}>Export SGF</a>
+              <a href={sgfUrl(gameId)} download className="gs-btn gs-btn--sgf">
+                ↓ SGF
+              </a>
               <button className="gs-btn" onClick={onExit} style={{ padding: "7px 14px", fontSize: 13 }}>← Lobby</button>
             </div>
           </div>
@@ -515,7 +519,7 @@ function SandwichPlayerCard({
 
   return (
     <div style={{
-      display: "grid", gridTemplateColumns: "auto 1fr auto", alignItems: "center", gap: 12,
+      display: "grid", gridTemplateColumns: "auto 1fr", alignItems: "center", gap: 12,
       padding: "8px 12px",
       background: isActive ? "var(--pastel-yellow)" : "var(--bg-2)",
       border: isActive ? "2.5px solid var(--ink)" : "2.5px solid var(--border)",
@@ -540,52 +544,52 @@ function SandwichPlayerCard({
           {isThinking ? "thinking…" : isActive ? "your move" : "waiting"} · captures {captures}
         </div>
       </div>
-      <div style={{
-        padding: "6px 12px", border: "2.5px solid var(--ink)", borderRadius: 12,
-        background: isThinking ? "var(--pastel-cyan)" : isActive ? "var(--bg)" : "var(--bg)",
-        fontFamily: "var(--font-mono)", fontWeight: 700, fontSize: 20,
-        minWidth: 60, textAlign: "center",
-      }}>—</div>
     </div>
   );
 }
 
-function MikuSlot() {
+function MikuSlot({ speaking = false }: { speaking?: boolean }) {
   return (
     <div className="studio-miku">
       <div style={{ position: "absolute", top: 8, left: 10, right: 10, display: "flex", justifyContent: "space-between", zIndex: 2 }}>
         <span className="gs-tag" style={{ background: "var(--bg-2)" }}>LIVE2D · 初音ミク</span>
-        <span className="gs-pill" style={{ background: "var(--bg-2)", fontSize: 10, padding: "2px 8px" }}>
-          <span style={{ width: 6, height: 6, background: "var(--tier-good)", borderRadius: 99, border: "1px solid var(--ink)", display: "inline-block" }} />
-          {" "}idle
+        <span className="gs-pill" style={{ background: speaking ? "var(--pastel-cyan)" : "var(--bg-2)", fontSize: 10, padding: "2px 8px" }}>
+          <span style={{ width: 6, height: 6, background: speaking ? "var(--pastel-cyan)" : "var(--tier-good)", borderRadius: 99, border: "1px solid var(--ink)", display: "inline-block" }} />
+          {" "}{speaking ? "speaking" : "idle"}
         </span>
       </div>
       <div className="studio-miku-body">
-        <MikuLive2D />
+        <MikuLive2D speaking={speaking} />
       </div>
     </div>
   );
 }
 
 
-const SENSEI_MODES = [
-  { id: "whats_missing", label: "What am I missing?" },
-  { id: "help_read_fight", label: "Help me read this fight" },
-  { id: "whats_my_plan", label: "What's my plan?" },
-] as const;
+function cleanSenseiText(text: string): string {
+  const t = text
+    .replace(/^[ \t]*(analysis|coach note|note):\s*/gim, "")
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/\*(.+?)\*/g, "$1")
+    .replace(/_\(([\s\S]*?)\)_/g, "($1)")
+    .replace(/_(.+?)_/g, "$1")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return t;
+}
+
+const SENSEI_MODES = [...COACH_PRESET_MODES];
 
 function PlaySenseiChat({
-  gameId,
-  userId,
+  stream,
   onStreamingChange,
   onOwnership,
 }: {
-  gameId: string;
-  userId: string;
+  stream: ReturnType<typeof useChatStream>;
   onStreamingChange: (v: boolean) => void;
   onOwnership: (data: number[], boardSize: number) => void;
 }) {
-  const { messages, isStreaming, ownership, send } = useChatStream(gameId, userId);
+  const { messages, isStreaming, ownership, send } = stream;
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const hasMessages = messages.length > 0;
@@ -596,7 +600,7 @@ function PlaySenseiChat({
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
-  const handleFollowup = () => {
+  const handleSend = () => {
     const text = input.trim();
     if (!text || isStreaming) return;
     send("followup", text);
@@ -604,7 +608,7 @@ function PlaySenseiChat({
   };
 
   return (
-    <section className="viewer-rail-chat gs-card gs-card--ink" style={{ flex: 1, minHeight: 0, margin: 0, borderRadius: 0, border: "none", borderTop: "2px solid var(--border)" }} aria-label="Ask Sensei">
+    <section className="viewer-rail-chat viewer-rail-chat--live-play gs-card gs-card--ink" style={{ flex: 1, minHeight: 0, margin: 0, borderRadius: 0, border: "none", borderTop: "2px solid var(--border)" }} aria-label="Ask Sensei">
       <div className="viewer-sensei-head">
         <span className="gs-tag" style={{ background: "var(--pastel-cyan)" }}>ASK SENSEI · 先生</span>
         <span className={`gs-pill ${isStreaming ? "gs-pill--yellow" : "gs-pill--mint"}`} style={{ fontSize: 10 }}>
@@ -627,93 +631,49 @@ function PlaySenseiChat({
       {hasMessages && (
         <div className="viewer-sensei-thread" ref={scrollRef}>
           {messages.map((msg, i) => (
-            <div key={i} className={`viewer-sensei-bubble viewer-sensei-bubble--${msg.role}`}>
+            <div
+              key={i}
+              className={`viewer-sensei-bubble viewer-sensei-bubble--${msg.role}${
+                msg.strategyNoteMove != null ? " viewer-sensei-bubble--strategy-note" : ""
+              }`}
+            >
               {msg.streaming && !msg.text
                 ? <span className="viewer-sensei-thinking">thinking…</span>
-                : msg.text}
+                : msg.role === "assistant"
+                  ? cleanSenseiText(msg.text)
+                  : msg.strategyNoteMove != null ? (
+                    <>
+                      <div className="viewer-sensei-strategy-kicker">
+                        Strategy note · move {msg.strategyNoteMove}
+                      </div>
+                      <div className="viewer-sensei-strategy-body">{msg.text}</div>
+                    </>
+                  ) : (
+                    msg.text
+                  )}
               {msg.streaming && msg.text && <span className="chat-cursor" aria-hidden />}
             </div>
           ))}
         </div>
       )}
 
-      {hasMessages && (
-        <div className="viewer-sensei-compose">
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleFollowup(); } }}
-            placeholder="ask a follow-up…"
-            disabled={isStreaming}
-            className="viewer-sensei-input"
-          />
-          <button type="button" className="gs-btn gs-btn--primary"
-            onClick={handleFollowup} disabled={isStreaming || !input.trim()}
-            style={{ padding: "6px 10px", fontSize: 11 }}>↵</button>
-        </div>
-      )}
+      <div className="viewer-sensei-compose">
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+          placeholder={hasMessages ? "ask a follow-up…" : "or type your own question…"}
+          disabled={isStreaming}
+          className="viewer-sensei-input"
+        />
+        <button type="button" className="gs-btn gs-btn--primary"
+          onClick={handleSend} disabled={isStreaming || !input.trim()}
+          style={{ padding: "6px 10px", fontSize: 11 }}>↵</button>
+      </div>
     </section>
   );
 }
 
-function StrategySection({
-  gameId,
-  state,
-  playerNotes,
-  onSaved,
-  userId,
-  embedded,
-}: {
-  gameId: string;
-  state: GameStateT;
-  playerNotes: Record<number, string>;
-  onSaved: (mn: number, body: string) => void;
-  userId: string;
-  embedded?: boolean;
-}) {
-  const noteEntries = Object.entries(playerNotes).filter(([, v]) => v);
-  const inner = (
-    <>
-      <span className="gs-tag" style={{ background: "var(--bg-2)" }}>STRATEGY · fed to AI</span>
-      {noteEntries.length > 0 && (
-        <div style={{ display: "grid", gap: 5, marginTop: 6 }}>
-          {noteEntries.slice(-3).map(([mn, text]) => (
-            <div key={mn} style={{
-              display: "grid", gridTemplateColumns: "auto 1fr", gap: 6, alignItems: "start",
-              padding: "5px 8px", border: "1.5px solid var(--ink)", borderRadius: 8, background: "var(--bg-2)",
-            }}>
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 600, padding: "1px 5px", border: "1px solid var(--ink)", borderRadius: 4, background: "var(--pastel-yellow)" }}>m{mn}</span>
-              <span style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>{text}</span>
-            </div>
-          ))}
-        </div>
-      )}
-      <div style={{ marginTop: 8 }}>
-        <PlayerNoteInput
-          gameId={gameId}
-          userId={userId}
-          moveNumber={state.moves.length}
-          existingNote={playerNotes[state.moves.length]}
-          onSaved={onSaved}
-        />
-      </div>
-    </>
-  );
-
-  if (embedded) {
-    return (
-      <div style={{ padding: "10px 12px", background: "var(--pastel-lavender)", minHeight: "100%", boxSizing: "border-box" }}>
-        {inner}
-      </div>
-    );
-  }
-
-  return (
-    <div className="gs-card" style={{ padding: 10, background: "var(--pastel-lavender)" }}>
-      {inner}
-    </div>
-  );
-}
 
 function moveDisplayLabel(move: GameStateT["moves"][number], boardSize: number): string {
   if (move.kind === "pass") return "pass";
@@ -722,7 +682,7 @@ function moveDisplayLabel(move: GameStateT["moves"][number], boardSize: number):
   return "?";
 }
 
-type SideTabId = "moves" | "notes" | "sensei" | "chat";
+type SideTabId = "moves" | "sensei" | "chat";
 
 function PlaySidePanel({
   game,
@@ -772,18 +732,13 @@ function PlaySidePanel({
   onSendChat: (userId: string, message: string) => void;
 }) {
   const [tab, setTab] = useState<SideTabId>("moves");
-
-  const noteCount = useMemo(
-    () => Object.values(playerNotes).filter((v) => typeof v === "string" && v.trim().length > 0).length,
-    [playerNotes],
-  );
+  const senseiStream = useChatStream(gameId, userId);
 
   const showNotesTooling = isAiGame && !!role && state.status === "active";
   const showSenseiTooling = isAiGame && state.status === "active";
 
   const tabs: { id: SideTabId; label: string }[] = [
     { id: "moves", label: `Moves · ${state.moves.length}` },
-    { id: "notes", label: `Notes · ${noteCount}` },
     ...(isAiGame
       ? [{ id: "sensei" as SideTabId, label: "Sensei" }]
       : [{ id: "chat" as SideTabId, label: `Chat · ${humanChatMessages.length}` }]
@@ -831,31 +786,25 @@ function PlaySidePanel({
             role="tabpanel"
             id="play-tabpanel-moves"
             aria-labelledby="play-tab-moves"
+            style={{ display: "flex", flexDirection: "column" }}
           >
-            <MoveListBody moves={state.moves} boardSize={game.size} />
-          </div>
-        )}
-
-        {tab === "notes" && (
-          <div
-            className="play-side-pane-scroll"
-            role="tabpanel"
-            id="play-tabpanel-notes"
-            aria-labelledby="play-tab-notes"
-          >
-            {showNotesTooling ? (
-              <StrategySection
-                embedded
-                gameId={gameId}
-                state={state}
-                playerNotes={playerNotes}
-                onSaved={onNoteSaved}
-                userId={userId}
-              />
-            ) : (
-              <p className="play-side-placeholder">
-                Strategy notes and AI-fed context are available when you&apos;re seated in an active AI game.
-              </p>
+            <div className="play-moves-panel">
+              <MoveListBody moves={state.moves} boardSize={game.size} />
+            </div>
+            {showNotesTooling && (
+              <div className="play-player-note-shell">
+                <PlayerNoteInput
+                  gameId={gameId}
+                  userId={userId}
+                  moveNumber={state.moves.length}
+                  existingNote={playerNotes[state.moves.length]}
+                  onSaved={(mn, body) => {
+                    onNoteSaved(mn, body);
+                    senseiStream.appendStrategyNote(mn, body);
+                  }}
+                  onAfterSave={() => setTab("sensei")}
+                />
+              </div>
             )}
           </div>
         )}
@@ -869,8 +818,7 @@ function PlaySidePanel({
           >
             {showSenseiTooling ? (
               <PlaySenseiChat
-                gameId={gameId}
-                userId={userId}
+                stream={senseiStream}
                 onStreamingChange={onSenseiStreamingChange}
                 onOwnership={onSenseiOwnership}
               />
@@ -929,43 +877,51 @@ function MoveListBody({
   moves: GameStateT["moves"];
   boardSize: number;
 }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
   const pairCount = Math.ceil(moves.length / 2);
   const lastIdx = moves.length - 1;
 
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+  }, [moves]);
+
   return (
-    <div className={`sandwich-move-list${pairCount === 0 ? " sandwich-move-list--empty" : ""}`}>
-      {pairCount === 0 ? (
-        <div style={{ fontSize: 12, color: "var(--ink-mute)", fontFamily: "var(--font-mono)" }}>No moves yet</div>
-      ) : (
-        Array.from({ length: pairCount }, (_, row) => {
-          const bi = row * 2;
-          const wi = row * 2 + 1;
-          const blackMove = moves[bi];
-          const whiteMove = moves[wi];
-          const moveNo = row + 1;
-          const isLatestBlack = blackMove !== undefined && bi === lastIdx;
-          const isLatestWhite = whiteMove !== undefined && wi === lastIdx;
+    <div ref={scrollRef} className="sandwich-move-list">
+      <div className="sandwich-move-list-inner">
+        {pairCount > 0 &&
+          Array.from({ length: pairCount }, (_, row) => {
+            const bi = row * 2;
+            const wi = row * 2 + 1;
+            const blackMove = moves[bi];
+            const whiteMove = moves[wi];
+            const moveNo = row + 1;
+            const isLatestBlack = blackMove !== undefined && bi === lastIdx;
+            const isLatestWhite = whiteMove !== undefined && wi === lastIdx;
 
-          let cellBClass = "sandwich-move-cell";
-          if (isLatestBlack) cellBClass += " sandwich-move-cell--latest-b";
+            let cellBClass = "sandwich-move-cell";
+            if (isLatestBlack) cellBClass += " sandwich-move-cell--latest-b";
 
-          let cellWClass = "sandwich-move-cell";
-          if (!whiteMove) cellWClass += " sandwich-move-cell--muted";
-          else if (isLatestWhite) cellWClass += " sandwich-move-cell--latest-w";
+            let cellWClass = "sandwich-move-cell";
+            if (!whiteMove) cellWClass += " sandwich-move-cell--muted";
+            else if (isLatestWhite) cellWClass += " sandwich-move-cell--latest-w";
 
-          return (
-            <div key={moveNo} className="sandwich-move-row">
-              <span className="sandwich-move-num">{moveNo}.</span>
-              <span className={cellBClass}>
-                {moveDisplayLabel(blackMove, boardSize)}
-              </span>
-              <span className={cellWClass}>
-                {!whiteMove ? "—" : moveDisplayLabel(whiteMove, boardSize)}
-              </span>
-            </div>
-          );
-        })
-      )}
+            return (
+              <div key={moveNo} className="sandwich-move-row">
+                <span className="sandwich-move-num">{moveNo}.</span>
+                <span className={cellBClass}>
+                  {moveDisplayLabel(blackMove, boardSize)}
+                </span>
+                <span className={cellWClass}>
+                  {!whiteMove ? "—" : moveDisplayLabel(whiteMove, boardSize)}
+                </span>
+              </div>
+            );
+          })}
+      </div>
     </div>
   );
 }

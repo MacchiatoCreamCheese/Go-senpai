@@ -1,12 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
-  getNextAction,
+  appendCoachTurn,
+  createCoachSession,
   getActionHistory,
-  type NextActionResponse,
+  getCoachTurns,
+  getMyGames,
+  getNextAction,
   type ActionHistoryItem,
+  type NextActionResponse,
 } from "../api";
 import { useToast } from "../components/NotificationToast";
 import { useIdentity } from "../lib/auth";
@@ -138,6 +142,101 @@ export default function Coach() {
   const queryClient = useQueryClient();
   const [chatInput, setChatInput] = useState("");
   const [localMessages, setLocalMessages] = useState<LocalMessage[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [loadedRemote, setLoadedRemote] = useState(false);
+
+  const storageKey = `coach_chat_${userId ?? "anon"}`;
+  const sessionKey = `coach_session_${userId ?? "anon"}`;
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw) as LocalMessage[];
+        setLocalMessages(parsed);
+      } else if (userId) {
+        const anonData = localStorage.getItem("coach_chat_anon");
+        if (anonData) {
+          try {
+            const parsed = JSON.parse(anonData) as LocalMessage[];
+            setLocalMessages(parsed);
+          } catch {
+            // ignore malformed storage
+          }
+        }
+      }
+    } catch {
+      // ignore malformed storage
+    }
+    try {
+      const storedSession = localStorage.getItem(sessionKey);
+      if (storedSession) setSessionId(storedSession);
+    } catch {
+      // ignore storage errors
+    }
+  }, [storageKey, sessionKey, userId]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(localMessages));
+    } catch {
+      // ignore storage errors
+    }
+  }, [localMessages, storageKey]);
+
+  useEffect(() => {
+    if (!userId) return;
+    if (sessionId) return;
+    let alive = true;
+    async function ensureSession() {
+      try {
+        const games = await getMyGames(userId);
+        if (!alive) return;
+        const latestGame = games[0];
+        if (!latestGame) return;
+        const created = await createCoachSession(latestGame.id, userId);
+        if (!alive) return;
+        setSessionId(created.session_id);
+        localStorage.setItem(sessionKey, created.session_id);
+      } catch (err) {
+        // fall back to localStorage-only
+      }
+    }
+    ensureSession();
+    return () => {
+      alive = false;
+    };
+  }, [sessionId, sessionKey, userId]);
+
+  useEffect(() => {
+    if (!sessionId || loadedRemote) return;
+    let alive = true;
+    async function loadRemote() {
+      try {
+        const turns = await getCoachTurns(sessionId);
+        if (!alive) return;
+        if (turns.length) {
+          const mapped: LocalMessage[] = turns.map((t, idx) => {
+            const text = t.role === "user" ? (t.user_input ?? "") : (t.assistant_output_md ?? "");
+            return {
+              id: Date.now() + idx,
+              role: t.role === "assistant" ? "sensei" : "user",
+              text,
+            };
+          });
+          setLocalMessages(mapped);
+        }
+      } catch {
+        // ignore remote load errors
+      } finally {
+        if (alive) setLoadedRemote(true);
+      }
+    }
+    loadRemote();
+    return () => {
+      alive = false;
+    };
+  }, [loadedRemote, sessionId]);
 
   const history = useQuery({
     queryKey: ["action-history", userId],
@@ -160,6 +259,13 @@ export default function Coach() {
         ...prev,
         { id: Date.now(), role: "sensei", text },
       ]);
+      if (sessionId) {
+        appendCoachTurn(sessionId, {
+          role: "assistant",
+          mode: "planner",
+          assistant_output_md: text,
+        }).catch(() => undefined);
+      }
     },
     onError: (err) =>
       toast.push({ kind: "error", title: "Planner failed", body: String(err) }),
@@ -217,6 +323,19 @@ export default function Coach() {
       { id: Date.now(), role: "user", text },
       { id: Date.now() + 1, role: "sensei", text: "I'm still learning to answer free-form questions here. For now, press 'Ask Sensei' to get your next action recommendation." },
     ]);
+    if (sessionId) {
+      appendCoachTurn(sessionId, {
+        role: "user",
+        mode: "chat",
+        user_input: text,
+      }).catch(() => undefined);
+      appendCoachTurn(sessionId, {
+        role: "assistant",
+        mode: "chat",
+        assistant_output_md:
+          "I'm still learning to answer free-form questions here. For now, press 'Ask Sensei' to get your next action recommendation.",
+      }).catch(() => undefined);
+    }
     setChatInput("");
   }
 
@@ -232,6 +351,21 @@ export default function Coach() {
           : "Press 'Ask Sensei' first — I'll pick your next step and explain my reasoning.",
       },
     ]);
+    if (sessionId) {
+      appendCoachTurn(sessionId, {
+        role: "user",
+        mode: "chip",
+        user_input: label,
+      }).catch(() => undefined);
+      appendCoachTurn(sessionId, {
+        role: "assistant",
+        mode: "chip",
+        assistant_output_md:
+          action?.reason
+            ? action.reason
+            : "Press 'Ask Sensei' first — I'll pick your next step and explain my reasoning.",
+      }).catch(() => undefined);
+    }
   }
 
   if (!userId) {

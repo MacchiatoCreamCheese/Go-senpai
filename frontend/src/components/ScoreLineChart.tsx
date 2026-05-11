@@ -15,13 +15,15 @@ interface Props {
   height?: number;
 }
 
-const PAD = { l: 8, r: 8, t: 10, b: 14 };
+/** Horizontal padding 0 so the plotted line spans the full SVG width (matches range track). */
+const PAD = { l: 0, r: 0, t: 10, b: 14 };
+const LABEL_INSET = 4;
 
 export function ScoreLineChart({
   points,
   currentMove,
   onScrub,
-  width = 360,
+  width = 560,
   height = 90,
 }: Props) {
   const innerW = width - PAD.l - PAD.r;
@@ -48,13 +50,18 @@ export function ScoreLineChart({
   function handleClick(e: React.MouseEvent<SVGSVGElement>) {
     if (!onScrub || lastMove === 0) return;
     const rect = e.currentTarget.getBoundingClientRect();
+    const innerWpx = Math.max(1, rect.width);
     const x = e.clientX - rect.left;
-    const ratio = Math.max(0, Math.min(1, (x - PAD.l) / innerW));
+    const ratio = Math.max(0, Math.min(1, x / innerWpx));
     onScrub(Math.round(ratio * lastMove));
   }
 
   if (points.length === 0) {
-    return <div className="score-chart-empty">No score data yet.</div>;
+    return (
+      <div className="score-chart score-chart--empty">
+        <div className="score-chart-empty">No score data yet.</div>
+      </div>
+    );
   }
 
   return (
@@ -87,20 +94,12 @@ export function ScoreLineChart({
               stroke="var(--ink)" strokeWidth={1} />
         <circle cx={cursorX} cy={zeroY} r={2.5} fill="var(--ink)" />
 
-        {/* Axis labels */}
-        <text x={PAD.l} y={PAD.t + 8} className="score-chart-axis"
+        {/* Axis labels (inset from plot edge; do not shrink plot width) */}
+        <text x={LABEL_INSET} y={PAD.t + 8} className="score-chart-axis"
               fontSize="9" fill="var(--stone)">+{maxAbs.toFixed(0)}</text>
-        <text x={PAD.l} y={PAD.t + innerH} className="score-chart-axis"
+        <text x={LABEL_INSET} y={PAD.t + innerH} className="score-chart-axis"
               fontSize="9" fill="var(--stone)">−{maxAbs.toFixed(0)}</text>
       </svg>
-      <div className="score-chart-foot">
-        <span>Move 0</span>
-        <span className="score-chart-foot-mid">
-          Black {points[Math.min(currentMove, points.length - 1)]?.scoreLead >= 0 ? "ahead" : "behind"}{" "}
-          by {Math.abs(points[Math.min(currentMove, points.length - 1)]?.scoreLead ?? 0).toFixed(1)}
-        </span>
-        <span>Move {lastMove}</span>
-      </div>
     </div>
   );
 }

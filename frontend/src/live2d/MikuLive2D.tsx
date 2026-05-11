@@ -18,10 +18,12 @@ function disableLive2dSubtree(model: InstanceType<typeof Live2DModel>): void {
   disableDisplayEvents(model as unknown as { eventMode?: string; children?: unknown[] });
 }
 
-export function MikuLive2D() {
+export function MikuLive2D({ speaking = false }: { speaking?: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const speakingRef = useRef(speaking);
+  useEffect(() => { speakingRef.current = speaking; }, [speaking]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -132,6 +134,15 @@ export function MikuLive2D() {
             const idx = params.ids.indexOf(name);
             if (idx !== -1) {
               params.values[idx] = breathValue;
+              break;
+            }
+          }
+
+          const mouthValue = speakingRef.current ? Math.abs(Math.sin(time * 8)) * 0.8 : 0;
+          for (const name of ["ParamMouthOpenY", "PARAM_MOUTH_OPEN_Y", "ParamMouthOpen"]) {
+            const idx = params.ids.indexOf(name);
+            if (idx !== -1) {
+              params.values[idx] = mouthValue;
               break;
             }
           }

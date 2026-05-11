@@ -15,6 +15,14 @@ from ..services.review.reviewer import ReviewError, generate_review
 from .auth import soft_user
 
 
+def _http_for_llm_error(exc: LLMError) -> HTTPException:
+    """Misconfiguration → 500; provider outage / overload → 503."""
+    msg = str(exc)
+    if "is not set" in msg or "unknown REVIEW_LLM_PROVIDER" in msg:
+        return HTTPException(status_code=500, detail=msg)
+    return HTTPException(status_code=503, detail=msg)
+
+
 router = APIRouter(prefix="/api", tags=["review"])
 
 
@@ -84,7 +92,7 @@ async def create_review(
     except ReviewError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except LLMError as e:
-        raise HTTPException(status_code=503, detail=str(e)) from e
+        raise _http_for_llm_error(e) from e
     return _row_to_response(row)
 
 
@@ -106,7 +114,7 @@ async def get_move_note(
             board_size=game["board_size"],
         )
     except LLMError as e:
-        raise HTTPException(status_code=503, detail=str(e)) from e
+        raise _http_for_llm_error(e) from e
     if note is None:
         raise HTTPException(status_code=404, detail="no note for green moves")
     for concept_id in note.get("concept_ids") or []:
