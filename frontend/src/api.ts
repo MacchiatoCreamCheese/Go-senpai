@@ -99,6 +99,54 @@ export async function joinGame(id: string, userId: string): Promise<GameT> {
   return asJson<GameT>(resp);
 }
 
+// ─── Coach session / turns ─────────────────────────────
+
+export interface CoachTurn {
+  role: string;
+  invocation_mode?: string | null;
+  user_input?: string | null;
+  assistant_output_md?: string | null;
+}
+
+export async function createCoachSession(
+  gameId: string,
+  userId?: string,
+): Promise<{ session_id: string }> {
+  const body: Record<string, unknown> = { game_id: gameId };
+  if (userId) body.user_id = userId;
+  const resp = await api("/api/coaches/sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return asJson<{ session_id: string }>(resp);
+}
+
+export async function getCoachTurns(sessionId: string, limit = 100): Promise<CoachTurn[]> {
+  const resp = await api(
+    `/api/coaches/sessions/${encodeURIComponent(sessionId)}/turns?limit=${limit}`,
+  );
+  if (!resp.ok) return [];
+  const data = await resp.json();
+  return data.turns as CoachTurn[];
+}
+
+export async function appendCoachTurn(
+  sessionId: string,
+  payload: {
+    role: string;
+    mode: string;
+    user_input?: string | null;
+    assistant_output_md?: string | null;
+  },
+): Promise<void> {
+  await api(`/api/coaches/sessions/${encodeURIComponent(sessionId)}/turns`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function playMove(
   id: string,
   color: ColorCode,

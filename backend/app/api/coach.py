@@ -28,6 +28,18 @@ class CoachInvokeBody(BaseModel):
     session_id: str | None = None
 
 
+class SessionCreateBody(BaseModel):
+    game_id: str
+    user_id: str | None = None
+
+
+class TurnAppendBody(BaseModel):
+    role: str
+    mode: str
+    user_input: str | None = None
+    assistant_output_md: str | None = None
+
+
 @router.post("/api/games/{game_id}/coach/invoke")
 async def invoke_coach(
     game_id: str,
@@ -91,3 +103,56 @@ async def invoke_coach(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.post("/api/coaches/sessions")
+async def create_session(body: SessionCreateBody, _user=Depends(soft_user)):
+    user_id = body.user_id
+    if _user is not None:
+        user_id = str(_user["id"])
+    if not user_id:
+        raise HTTPException(400, "user_id required")
+    session_id = await db.create_coach_session(body.game_id, user_id)
+    return {"session_id": session_id}
+
+
+@router.get("/api/coaches/sessions/{session_id}/turns")
+async def get_session_turns(
+    session_id: str,
+    limit: int = 100,
+    _user=Depends(soft_user),
+):
+    if _user is not None:
+        session = await db.get_coach_session(session_id)
+        if not session:
+            raise HTTPException(404, "session not found")
+        if str(session.get("user_id")) != str(_user["id"]):
+            raise HTTPException(403, "forbidden")
+    turns = await db.get_coach_turns(session_id, limit=limit)
+    return {"turns": turns}
+
+
+@router.post("/api/coaches/sessions/{session_id}/turns")
+async def append_session_turn(
+    session_id: str,
+    body: TurnAppendBody,
+    _user=Depends(soft_user),
+):
+    if _user is not None:
+        session = await db.get_coach_session(session_id)
+        if not session:
+            raise HTTPException(404, "session not found")
+        if str(session.get("user_id")) != str(_user["id"]):
+            raise HTTPException(403, "forbidden")
+
+    prior_turns = await db.get_coach_turns(session_id, limit=1000)
+    turn_number = len(prior_turns) + 1
+    await db.insert_coach_turn(
+        session_id,
+        turn_number,
+        body.role,
+        body.mode,
+        body.user_input,
+        body.assistant_output_md,
+    )
+    return {"ok": True}
