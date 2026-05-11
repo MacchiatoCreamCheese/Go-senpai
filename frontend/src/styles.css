@@ -952,6 +952,108 @@ a { color: inherit; }
 }
 .lobby-toggle.is-on .toggle-thumb { background: var(--bg-2); transform: translateX(16px); }
 
+/* ── Fine-tune difficulty slider ────────────────────────── */
+.lobby-rank-slider-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 2px solid var(--line-dark);
+  border-radius: 14px;
+  background: var(--bg);
+}
+
+.lobby-rank-slider-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lobby-rank-badge {
+  font-family: var(--font-mono);
+  font-size: 17px;
+  font-weight: 700;
+  background: var(--pastel-pink);
+  border: 2.5px solid var(--ink);
+  border-radius: 8px;
+  padding: 2px 10px;
+  color: var(--ink);
+  box-shadow: var(--shadow-block-sm);
+  line-height: 1.4;
+}
+
+.lobby-rank-dir-labels {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  letter-spacing: 0.02em;
+}
+
+.lobby-rank-slider {
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  height: 7px;
+  border-radius: 99px;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  background: linear-gradient(
+    to right,
+    var(--ink) 0%,
+    var(--ink) var(--pct, 50%),
+    var(--line-dark) var(--pct, 50%),
+    var(--line-dark) 100%
+  );
+}
+
+.lobby-rank-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--bg-2);
+  border: 3px solid var(--ink);
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.lobby-rank-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+.lobby-rank-slider::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--bg-2);
+  border: 3px solid var(--ink);
+  cursor: pointer;
+}
+
+.lobby-rank-endpoints {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-mute);
+}
+
+.lobby-rank-hint {
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: var(--ink-mute);
+  margin: 0;
+  font-style: italic;
+  line-height: 1.4;
+}
+
 .home-stub {
   display: flex;
   flex-direction: column;

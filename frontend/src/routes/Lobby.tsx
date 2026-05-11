@@ -203,33 +203,36 @@ export default function Lobby() {
                 </div>
 
                 {/* Fine-tune slider */}
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <label className="login-label">
-                    Fine-tune difficulty —{" "}
-                    <strong style={{ fontFamily: "var(--font-mono)" }}>{rankLabel(aiRank)}</strong>
-                  </label>
+                <div className="lobby-rank-slider-wrap">
+                  <div className="lobby-rank-slider-header">
+                    <span className="login-label" style={{ margin: 0 }}>Fine-tune difficulty</span>
+                    <span className="lobby-rank-badge">{rankLabel(aiRank)}</span>
+                  </div>
+                  <div className="lobby-rank-dir-labels">
+                    <span>← Harder</span>
+                    <span>Easier →</span>
+                  </div>
                   <input
                     type="range"
+                    className="lobby-rank-slider"
                     min={-3}
                     max={20}
                     step={1}
                     value={aiRank}
+                    style={{ "--pct": `${((aiRank + 3) / 23) * 100}%` } as React.CSSProperties}
                     onChange={(e) => {
                       const r = parseInt(e.target.value, 10);
                       setAiRank(r);
                       setBotTier(BOTS.find((b) => b.rank === r)?.id ?? null);
                     }}
-                    style={{ width: "100%" }}
                   />
-                  <div style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 11,
-                    color: "var(--ink-mute)",
-                  }}>
-                    <span>4d ←</span><span>1d / 1k</span><span>→ 20k</span>
+                  <div className="lobby-rank-endpoints">
+                    <span>4d (strongest)</span>
+                    <span>20k (beginner)</span>
                   </div>
+                  <p className="lobby-rank-hint">
+                    Go ranks: lower kyu (k) = stronger · dan (d) = expert
+                  </p>
                 </div>
 
                 {/* Training mode */}
