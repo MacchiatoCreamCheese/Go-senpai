@@ -69,12 +69,21 @@ def test_with_retry_retries_transient_503_then_succeeds():
 
 
 def test_with_retry_gives_up_after_transient_exhaustion():
-    calls = AsyncMock(side_effect=[_FakeStatusError(503)] * 3)
+    calls = AsyncMock(side_effect=[_FakeStatusError(503)] * 4)
     with patch("app.services.review.llm.asyncio.sleep", new=AsyncMock(return_value=None)):
         with pytest.raises(LLMError) as exc_info:
             asyncio.run(_with_retry(calls, label="Test"))
     assert "unavailable" in str(exc_info.value).lower()
-    assert calls.await_count == 3  # initial + 2 retries
+    assert calls.await_count == 4  # initial try + 3 backoffs
+
+
+def test_with_retry_429_exhaustion_message_mentions_rate_limit():
+    calls = AsyncMock(side_effect=[_FakeStatusError(429)] * 5)
+    with patch("app.services.review.llm.asyncio.sleep", new=AsyncMock(return_value=None)):
+        with pytest.raises(LLMError) as exc_info:
+            asyncio.run(_with_retry(calls, label="Gemini"))
+    assert "429" in str(exc_info.value) or "rate limit" in str(exc_info.value).lower()
+    assert calls.await_count == 5  # initial + 4 backoffs for 429
 
 
 def test_with_retry_does_not_retry_non_transient():

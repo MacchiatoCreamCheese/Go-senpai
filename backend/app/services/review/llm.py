@@ -46,24 +46,68 @@ class LLMError(RuntimeError):
 
 
 _TRANSIENT_STATUSES = {408, 425, 429, 500, 502, 503, 504}
-_RETRY_DELAYS = (1.0, 3.0)  # seconds
+# Backoff after each failed attempt (not before the first try).
+_RETRY_DELAYS_DEFAULT = (1.0, 3.0, 8.0)  # seconds — most transient errors
+_RETRY_DELAYS_RATE_LIMIT = (2.0, 6.0, 14.0, 30.0)  # 429 / quota — Google often needs longer gaps
 T = TypeVar("T")
 
 
 def _status_of(exc: BaseException) -> int | None:
-    code = getattr(exc, "status_code", None)
-    if isinstance(code, int):
-        return code
-    code = getattr(exc, "code", None)
-    return code if isinstance(code, int) else None
+    """Best-effort HTTP status from provider SDK exceptions (incl. nested causes)."""
+    seen: set[int] = set()
+    stack: list[BaseException] = [exc]
+    if exc.__cause__ is not None:
+        stack.append(exc.__cause__)
+    if exc.__context__ is not None and exc.__context__ is not exc.__cause__:
+        stack.append(exc.__context__)
+
+    for e in stack:
+        eid = id(e)
+        if eid in seen:
+            continue
+        seen.add(eid)
+        for attr in ("status_code", "status", "http_status"):
+            v = getattr(e, attr, None)
+            if isinstance(v, int) and 100 <= v <= 599:
+                return v
+        code = getattr(e, "code", None)
+        if isinstance(code, int) and 100 <= code <= 599:
+            return code
+
+    blob = f"{exc!s} {type(exc).__name__}".upper()
+    if "429" in blob or "RESOURCE_EXHAUSTED" in blob or "TOO MANY REQUESTS" in blob:
+        return 429
+    return None
+
+
+def _retry_delay_queue(first_status: int | None) -> list[float]:
+    if first_status == 429:
+        return list(_RETRY_DELAYS_RATE_LIMIT)
+    return list(_RETRY_DELAYS_DEFAULT)
+
+
+def _transient_exhausted_message(label: str, status: int | None) -> str:
+    if status == 429:
+        return (
+            f"{label} hit the API rate limit (HTTP 429) after several retries. "
+            "Free tiers are strict: wait a few minutes, reduce how often you generate reviews, "
+            "or use a paid key / different model in Google AI Studio. "
+            "You can also set REVIEW_LLM_PROVIDER=claude if you have Anthropic credits."
+        )
+    return (
+        f"{label} provider is unavailable after retries "
+        f"(status={status}). Please try again in a minute."
+    )
 
 
 async def _with_retry(
     call: Callable[[], Awaitable[T]],
     label: str,
 ) -> T:
-    """Retry transient provider errors with short backoff; map others to LLMError."""
-    for attempt, delay in enumerate((*_RETRY_DELAYS, None)):
+    """Retry transient provider errors with backoff; longer waits for HTTP 429."""
+    pending_delays: list[float] | None = None
+    first_transient_status: int | None = None
+    while True:
         try:
             return await call()
         except LLMError:
@@ -71,20 +115,26 @@ async def _with_retry(
         except Exception as exc:
             status = _status_of(exc)
             transient = status in _TRANSIENT_STATUSES or "UNAVAILABLE" in str(exc).upper()
-            if transient and delay is not None:
-                log.warning(
-                    "%s transient error (status=%s, attempt=%d); retrying in %.1fs: %s",
-                    label, status, attempt + 1, delay, exc,
-                )
-                await asyncio.sleep(delay)
-                continue
-            if transient:
-                raise LLMError(
-                    f"{label} provider is unavailable after retries "
-                    f"(status={status}). Please try again in a minute."
-                ) from exc
-            raise LLMError(f"{label} call failed: {exc}") from exc
-    raise LLMError(f"{label} retries exhausted")
+            if not transient:
+                raise LLMError(f"{label} call failed: {exc}") from exc
+
+            if pending_delays is None:
+                first_transient_status = status
+                pending_delays = _retry_delay_queue(status)
+
+            if not pending_delays:
+                raise LLMError(_transient_exhausted_message(label, first_transient_status)) from exc
+
+            delay = pending_delays.pop(0)
+            log.warning(
+                "%s transient error (status=%s); sleeping %.1fs before retry (%d more backoff(s) if needed): %s",
+                label,
+                status,
+                delay,
+                len(pending_delays),
+                exc,
+            )
+            await asyncio.sleep(delay)
 
 
 class LLMClient(Protocol):

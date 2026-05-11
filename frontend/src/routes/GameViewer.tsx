@@ -16,14 +16,11 @@ import { ScoreLineChart } from "../components/ScoreLineChart";
 import { boardAtMove, formatCoord, parseCoord } from "../lib/replay";
 import { useChatStream } from "../hooks/useChatStream";
 import type { MoveT } from "../types";
+import { COACH_PRESET_MODES } from "../constants/coachModes";
 
 const USER_ID_KEY = "senpai_user_id";
 
-const SENSEI_MODES = [
-  { id: "whats_missing", label: "What am I missing?" },
-  { id: "help_read_fight", label: "Help me read this fight" },
-  { id: "whats_my_plan", label: "What's my plan?" },
-] as const;
+const SENSEI_MODES = [...COACH_PRESET_MODES];
 
 export default function GameViewer() {
   const { gameId = "" } = useParams<{ gameId: string }>();
@@ -197,13 +194,16 @@ export default function GameViewer() {
             </div>
 
             <footer className="viewer-stage-footer">
-              <ScoreLineChart
-                points={scorePoints}
-                currentMove={currentMove}
-                onScrub={setMove}
-                height={80}
-              />
-              <MoveScrubber current={currentMove} total={totalMoves} onChange={setMove} />
+              <div className="viewer-chart-scrub-stack">
+                <ScoreLineChart
+                  points={scorePoints}
+                  currentMove={currentMove}
+                  onScrub={setMove}
+                  width={640}
+                  height={80}
+                />
+                <MoveScrubber current={currentMove} total={totalMoves} onChange={setMove} />
+              </div>
             </footer>
           </div>
         )}
@@ -309,7 +309,7 @@ export function ViewerSenseiChat({ gameId, userId }: { gameId: string; userId: s
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleFollowup(); }
             }}
-            placeholder="ask a follow-up…"
+            placeholder="Ask a follow-up…"
             disabled={isStreaming}
             className="viewer-sensei-input"
           />

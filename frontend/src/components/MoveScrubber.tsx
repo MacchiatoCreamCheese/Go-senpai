@@ -46,8 +46,10 @@ export function MoveScrubber({ current, total, onChange, intervalMs = 700 }: Pro
   return (
     <div className="scrubber">
       <div className="scrubber-row">
-        <button className="scrubber-btn" title="First (Home)" onClick={() => onChange(0)} disabled={current === 0}>⏮</button>
-        <button className="scrubber-btn" title="Back (←)" onClick={() => onChange(Math.max(0, current - 1))} disabled={current === 0}>◀</button>
+        <div className="scrubber-cluster scrubber-cluster--end">
+          <button className="scrubber-btn" title="First (Home)" onClick={() => onChange(0)} disabled={current === 0}>⏮</button>
+          <button className="scrubber-btn" title="Back (←)" onClick={() => onChange(Math.max(0, current - 1))} disabled={current === 0}>◀</button>
+        </div>
         <button
           className="scrubber-btn scrubber-btn-play"
           title={playing ? "Pause (Space)" : "Play (Space)"}
@@ -56,13 +58,15 @@ export function MoveScrubber({ current, total, onChange, intervalMs = 700 }: Pro
         >
           {playing ? "⏸" : "▶"}
         </button>
-        <button className="scrubber-btn" title="Forward (→)" onClick={() => onChange(Math.min(total, current + 1))} disabled={current >= total}>▶</button>
-        <button className="scrubber-btn" title="Last (End)" onClick={() => onChange(total)} disabled={current >= total}>⏭</button>
-        <span className="scrubber-counter">
-          <strong>{current}</strong>
-          <span className="scrubber-counter-sep">/</span>
-          <span>{total}</span>
-        </span>
+        <div className="scrubber-cluster scrubber-cluster--start">
+          <button className="scrubber-btn" title="Forward (→)" onClick={() => onChange(Math.min(total, current + 1))} disabled={current >= total}>▶</button>
+          <button className="scrubber-btn" title="Last (End)" onClick={() => onChange(total)} disabled={current >= total}>⏭</button>
+          <span className="scrubber-counter">
+            <strong>{current}</strong>
+            <span className="scrubber-counter-sep">/</span>
+            <span>{total}</span>
+          </span>
+        </div>
       </div>
       <input
         type="range"

@@ -1,4 +1,5 @@
-import { useState, useRef, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { coachPresetLabel } from "../constants/coachModes";
 import { api } from "../lib/http";
 
 export interface ChatMessage {
@@ -6,6 +7,8 @@ export interface ChatMessage {
   mode: string;
   text: string;
   streaming?: boolean;
+  /** When set, this user bubble is a saved strategy note for this move (no AI invoke). */
+  strategyNoteMove?: number;
 }
 
 export interface OwnershipData {
@@ -20,14 +23,42 @@ export function useChatStream(gameId: string, userId: string) {
   const [ownership, setOwnership] = useState<OwnershipData | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  useEffect(() => {
+    abortRef.current?.abort();
+    setMessages([]);
+    setSessionId(null);
+    setIsStreaming(false);
+    setOwnership(null);
+  }, [gameId]);
+
+  const appendStrategyNote = useCallback((moveNumber: number, body: string) => {
+    const trimmed = body.trim();
+    if (!trimmed) return;
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "user",
+        mode: "strategy_note",
+        text: trimmed,
+        strategyNoteMove: moveNumber,
+      },
+    ]);
+  }, []);
+
   const send = useCallback(
     async (mode: string, userInput?: string) => {
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
 
-      if (userInput) {
-        setMessages((prev) => [...prev, { role: "user", mode, text: userInput }]);
+      const trimmedInput = userInput?.trim();
+      if (trimmedInput) {
+        setMessages((prev) => [...prev, { role: "user", mode, text: trimmedInput }]);
+      } else {
+        const presetText = coachPresetLabel(mode);
+        if (presetText) {
+          setMessages((prev) => [...prev, { role: "user", mode, text: presetText }]);
+        }
       }
       setMessages((prev) => [
         ...prev,
@@ -145,5 +176,5 @@ export function useChatStream(gameId: string, userId: string) {
     setOwnership(null);
   }, []);
 
-  return { messages, isStreaming, ownership, send, reset };
+  return { messages, isStreaming, ownership, send, reset, appendStrategyNote };
 }

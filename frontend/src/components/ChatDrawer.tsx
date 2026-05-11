@@ -1,11 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useChatStream } from "../hooks/useChatStream";
-
-const MODES = [
-  { id: "whats_missing", label: "What am I missing?" },
-  { id: "help_read_fight", label: "Help me read this fight" },
-  { id: "whats_my_plan", label: "What's my plan?" },
-] as const;
+import { COACH_PRESET_MODES } from "../constants/coachModes";
 
 interface Props {
   gameId: string;
@@ -78,7 +73,7 @@ export function ChatDrawer({ gameId, userId, open, onClose, onStreamingChange, o
         {!hasMessages && (
           <div className="chat-mode-buttons">
             <p className="chat-mode-hint">What would you like to explore?</p>
-            {MODES.map((m) => (
+            {COACH_PRESET_MODES.map((m) => (
               <button
                 key={m.id}
                 className="btn chat-mode-btn"

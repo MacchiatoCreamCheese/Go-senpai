@@ -5,7 +5,14 @@ export type { ColorCode } from "./types";
 
 async function asJson<T>(resp: Response): Promise<T> {
   if (!resp.ok) {
-    const detail = await resp.text();
+    const text = await resp.text();
+    let detail = text;
+    try {
+      const j = JSON.parse(text) as { detail?: unknown };
+      if (typeof j.detail === "string") detail = j.detail;
+    } catch {
+      /* use raw body */
+    }
     throw new Error(detail || `${resp.status} ${resp.statusText}`);
   }
   return resp.json() as Promise<T>;

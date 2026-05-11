@@ -82,46 +82,50 @@ async def analyze_game(
 
     responses: dict[int, dict[str, Any]] = {}
     if missing_turns:
-        request = {
-            "rules": rules,
-            "komi": komi,
-            "boardXSize": board_size,
-            "boardYSize": board_size,
-            "initialStones": [],
-            "moves": [list(m) for m in katago_moves],
-            "analyzeTurns": missing_turns,
-            "maxVisits": visits,
-            "includePolicy": True,
-            "includeOwnership": True,
-            "includeOwnershipStdev": True,
-            "analysisPVLen": 8,
-        }
-        responses = await engine.analyze(
-            request,
-            expected_turns=missing_turns,
-            timeout=_analyze_timeout(len(missing_turns)),
-            priority=0,  # background work; live AI moves (priority=10) preempt
-        )
-
-        # Persist fresh responses into the cross-game cache.
-        new_entries = []
-        seen: set[bytes] = set()
-        for t in missing_turns:
-            h = hashes_before[t]
-            if h in seen:
-                continue
-            seen.add(h)
-            new_entries.append(
-                {
-                    "position_hash": h,
-                    "board_size": board_size,
-                    "visits": visits,
-                    "katago_version": engine.version,
-                    "model_name": engine.model_name,
-                    "raw_response": responses[t],
-                }
+        chunk_size = _env_int("KATAGO_ANALYZE_CHUNK_TURNS", 32)
+        chunk_size = max(1, chunk_size)
+        for c0 in range(0, len(missing_turns), chunk_size):
+            chunk = missing_turns[c0 : c0 + chunk_size]
+            request = {
+                "rules": rules,
+                "komi": komi,
+                "boardXSize": board_size,
+                "boardYSize": board_size,
+                "initialStones": [],
+                "moves": [list(m) for m in katago_moves],
+                "analyzeTurns": chunk,
+                "maxVisits": visits,
+                "includePolicy": True,
+                "includeOwnership": True,
+                "includeOwnershipStdev": True,
+                "analysisPVLen": 8,
+            }
+            chunk_resp = await engine.analyze(
+                request,
+                expected_turns=chunk,
+                timeout=_analyze_timeout(len(chunk)),
+                priority=0,  # background work; live AI moves (priority=10) preempt
             )
-        await db.put_cached_analyses(new_entries)
+            responses.update(chunk_resp)
+
+            new_entries = []
+            seen: set[bytes] = set()
+            for t in chunk:
+                h = hashes_before[t]
+                if h in seen:
+                    continue
+                seen.add(h)
+                new_entries.append(
+                    {
+                        "position_hash": h,
+                        "board_size": board_size,
+                        "visits": visits,
+                        "katago_version": engine.version,
+                        "model_name": engine.model_name,
+                        "raw_response": chunk_resp[t],
+                    }
+                )
+            await db.put_cached_analyses(new_entries)
 
     out: list[AnalyzedMove] = []
     for idx, (color, kcoord) in enumerate(katago_moves):
@@ -183,19 +187,26 @@ def default_rules() -> str:
 
 
 def _analyze_timeout(turn_count: int) -> float:
-    """Budget KataGo's wall time per request.
+    """Budget KataGo's wall time per analyze() call (one chunk of analyzeTurns).
 
     Override with KATAGO_ANALYZE_TIMEOUT (floor in seconds); otherwise
-    scale by KATAGO_TIMEOUT_PER_TURN (default 8s) * turns, with a floor
-    of 60s so tiny games aren't rushed.
+    scale by KATAGO_TIMEOUT_PER_TURN (default 12s) * turns, with a floor
+    of 120s so small batches are not rushed on CPU-only KataGo.
     """
-    floor = _env_float("KATAGO_ANALYZE_TIMEOUT", 60.0)
-    per_turn = _env_float("KATAGO_TIMEOUT_PER_TURN", 8.0)
+    floor = _env_float("KATAGO_ANALYZE_TIMEOUT", 120.0)
+    per_turn = _env_float("KATAGO_TIMEOUT_PER_TURN", 12.0)
     return max(floor, turn_count * per_turn)
 
 
 def _env_float(name: str, fallback: float) -> float:
     try:
-        return float(os.environ.get(name, fallback))
+        return float(os.environ.get(name, str(fallback)))
+    except ValueError:
+        return fallback
+
+
+def _env_int(name: str, fallback: int) -> int:
+    try:
+        return int(os.environ.get(name, str(fallback)))
     except ValueError:
         return fallback
