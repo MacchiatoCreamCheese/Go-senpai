@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import logging
+from datetime import datetime
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -49,8 +51,21 @@ async def game_socket(ws: WebSocket, game_id: str) -> None:
         # Send initial state on connect so the client can render without a separate GET.
         await ws.send_json({"event": "state", "state": StateSchema.from_game(record.game).model_dump()})
         while True:
-            # We don't expect client messages for this slice; keep the socket open.
-            await ws.receive_text()
+            raw = await ws.receive_text()
+            try:
+                msg = json.loads(raw)
+            except Exception:
+                continue
+            if msg.get("event") == "chat":
+                message = str(msg.get("message", "")).strip()[:500]
+                user_id = str(msg.get("user_id", ""))
+                if message:
+                    await _broadcast(record, {
+                        "event": "chat",
+                        "user_id": user_id,
+                        "message": message,
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                    })
     except WebSocketDisconnect:
         pass
     finally:

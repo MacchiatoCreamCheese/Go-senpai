@@ -8,6 +8,7 @@ import { ChatDrawer } from "./components/ChatDrawer";
 import { PlayerNoteInput } from "./components/PlayerNoteInput";
 import { MikuLive2D } from "./live2d/MikuLive2D";
 import { connectGameSocket } from "./ws";
+import type { ChatMessage } from "./ws";
 import type { ColorCode, GameT, GameStateT, MoveKind, PointT } from "./types";
 import type { GhostStone } from "./GoBoard";
 
@@ -43,6 +44,8 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
   const [playerNotes, setPlayerNotes] = useState<Record<number, string>>({});
   const [ownershipRaw, setOwnershipRaw] = useState<{ data: number[]; boardSize: number } | null>(null);
   const [playerHandles, setPlayerHandles] = useState<Record<string, string>>({});
+  const [humanChatMessages, setHumanChatMessages] = useState<ChatMessage[]>([]);
+  const sendChatRef = useRef<((userId: string, message: string) => void) | null>(null);
   const boardSlotRef = useRef<HTMLDivElement>(null);
   const [boardSlotSize, setBoardSlotSize] = useState({ w: 0, h: 0 });
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -125,7 +128,8 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
 
   useEffect(() => {
     setLiveTiers(new Map());
-    const close = connectGameSocket(
+    setHumanChatMessages([]);
+    const { disconnect, sendChat } = connectGameSocket(
       gameId,
       (s) => setState(s),
       (players) =>
@@ -133,8 +137,10 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
           prev ? { ...prev, black_user_id: players.black_user_id, white_user_id: players.white_user_id } : prev,
         ),
       (e) => setLiveTiers((prev) => new Map(prev).set(e.move_number, e.tier)),
+      (msg) => setHumanChatMessages((prev) => [...prev, msg]),
     );
-    return close;
+    sendChatRef.current = sendChat;
+    return disconnect;
   }, [gameId]);
 
   useEffect(() => {
@@ -384,6 +390,8 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
             onResign={() => send("resign", null)}
             gameIdCopied={copied}
             onCopyGameId={copyId}
+            humanChatMessages={humanChatMessages}
+            onSendChat={(uid, msg) => sendChatRef.current?.(uid, msg)}
           />
 
           <div style={{ display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
@@ -675,7 +683,7 @@ function moveDisplayLabel(move: GameStateT["moves"][number], boardSize: number):
   return "?";
 }
 
-type SideTabId = "moves" | "notes" | "sensei";
+type SideTabId = "moves" | "notes" | "sensei" | "chat";
 
 function PlaySidePanel({
   game,
@@ -700,6 +708,8 @@ function PlaySidePanel({
   onResign,
   gameIdCopied,
   onCopyGameId,
+  humanChatMessages,
+  onSendChat,
 }: {
   game: GameT;
   gameId: string;
@@ -723,6 +733,8 @@ function PlaySidePanel({
   onResign: () => void;
   gameIdCopied: boolean;
   onCopyGameId: () => void;
+  humanChatMessages: ChatMessage[];
+  onSendChat: (userId: string, message: string) => void;
 }) {
   const [tab, setTab] = useState<SideTabId>("moves");
 
@@ -737,7 +749,10 @@ function PlaySidePanel({
   const tabs: { id: SideTabId; label: string }[] = [
     { id: "moves", label: `Moves · ${state.moves.length}` },
     { id: "notes", label: `Notes · ${noteCount}` },
-    { id: "sensei", label: "Sensei" },
+    ...(isAiGame
+      ? [{ id: "sensei" as SideTabId, label: "Sensei" }]
+      : [{ id: "chat" as SideTabId, label: `Chat · ${humanChatMessages.length}` }]
+    ),
   ];
 
   return (
@@ -837,9 +852,24 @@ function PlaySidePanel({
               />
             ) : (
               <p className="play-side-placeholder">
-                Live Sensei coaching appears here during AI games. A shared chat lane for humans can tie into this tab later.
+                Live Sensei coaching appears here during AI games.
               </p>
             )}
+          </div>
+        )}
+
+        {tab === "chat" && (
+          <div
+            className="play-side-panel-fill"
+            role="tabpanel"
+            id="play-tabpanel-chat"
+            aria-labelledby="play-tab-chat"
+          >
+            <HumanChatPanel
+              messages={humanChatMessages}
+              userId={userId}
+              onSend={(msg) => onSendChat(userId, msg)}
+            />
           </div>
         )}
       </div>
@@ -945,6 +975,78 @@ function MoveListBody({
           );
         })
       )}
+    </div>
+  );
+}
+
+function HumanChatPanel({
+  messages,
+  userId,
+  onSend,
+}: {
+  messages: ChatMessage[];
+  userId: string;
+  onSend: (msg: string) => void;
+}) {
+  const [input, setInput] = useState("");
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages]);
+
+  function submit() {
+    const text = input.trim();
+    if (!text) return;
+    onSend(text);
+    setInput("");
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", padding: "10px 12px", boxSizing: "border-box", gap: 8 }}>
+      <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+        {messages.length === 0 ? (
+          <p style={{ fontSize: 12, color: "var(--ink-mute)", fontFamily: "var(--font-mono)", margin: 0 }}>No messages yet — say something!</p>
+        ) : (
+          messages.map((m, i) => {
+            const isMe = m.user_id === userId;
+            return (
+              <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start" }}>
+                <div style={{
+                  maxWidth: "85%",
+                  padding: "6px 10px",
+                  borderRadius: isMe ? "12px 12px 4px 12px" : "12px 12px 12px 4px",
+                  background: isMe ? "var(--pastel-cyan)" : "var(--bg-2)",
+                  border: "1.5px solid var(--ink)",
+                  fontSize: 12.5,
+                  fontFamily: "var(--font-body)",
+                  wordBreak: "break-word",
+                }}>
+                  {m.message}
+                </div>
+                <span style={{ fontSize: 10, color: "var(--ink-mute)", marginTop: 2, fontFamily: "var(--font-mono)" }}>
+                  {isMe ? "you" : "opponent"} · {new Date(m.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              </div>
+            );
+          })
+        )}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 6, flexShrink: 0 }}>
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          placeholder="message…"
+          style={{
+            border: "2px solid var(--ink)", borderRadius: 10,
+            padding: "7px 10px", fontFamily: "var(--font-body)", fontSize: 12,
+            background: "var(--bg)", outline: "none",
+          }}
+        />
+        <button type="button" className="gs-btn gs-btn--primary" onClick={submit} style={{ padding: "6px 10px", fontSize: 11 }}>↵</button>
+      </div>
     </div>
   );
 }

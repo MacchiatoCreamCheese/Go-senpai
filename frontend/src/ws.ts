@@ -10,20 +10,31 @@ export type TierListener = (e: {
   tier: "green" | "yellow" | "red";
 }) => void;
 
+export interface ChatMessage {
+  user_id: string;
+  message: string;
+  timestamp: string;
+}
+export type ChatListener = (msg: ChatMessage) => void;
+
+export interface GameSocketHandle {
+  disconnect: () => void;
+  sendChat: (userId: string, message: string) => void;
+}
+
 export function connectGameSocket(
   id: string,
   onState: StateListener,
   onPlayers?: PlayersListener,
   onTier?: TierListener,
-): () => void {
+  onChat?: ChatListener,
+): GameSocketHandle {
   const proto = window.location.protocol === "https:" ? "wss" : "ws";
   const url = `${proto}://${window.location.host}/ws/games/${id}`;
   const socket = new WebSocket(url);
   let cancelled = false;
 
   socket.addEventListener("open", () => {
-    // If React StrictMode (or a fast route change) cancelled us before the
-    // handshake finished, close cleanly now that we're OPEN.
     if (cancelled) socket.close(1000, "cancelled");
   });
   socket.addEventListener("message", (ev) => {
@@ -37,6 +48,8 @@ export function connectGameSocket(
         });
       } else if (msg.event === "move_tier" && onTier) {
         onTier({ move_number: msg.move_number, tier: msg.tier });
+      } else if (msg.event === "chat" && onChat) {
+        onChat({ user_id: msg.user_id, message: msg.message, timestamp: msg.timestamp });
       } else if (msg.state) {
         onState(msg.state as GameStateT);
       }
@@ -45,12 +58,18 @@ export function connectGameSocket(
     }
   });
 
-  return () => {
+  function disconnect() {
     cancelled = true;
     if (socket.readyState === WebSocket.OPEN) {
       socket.close(1000, "cancelled");
     }
-    // CONNECTING: the 'open' handler above will close it.
-    // CLOSING / CLOSED: nothing to do.
-  };
+  }
+
+  function sendChat(userId: string, message: string) {
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ event: "chat", user_id: userId, message }));
+    }
+  }
+
+  return { disconnect, sendChat };
 }
