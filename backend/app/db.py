@@ -740,18 +740,22 @@ async def insert_action_history(
 
 
 async def list_action_history(user_id: str, limit: int = 20) -> list[dict[str, Any]]:
-    rows = await _get_pool().fetch(
-        """
-        SELECT id, kind, game_id, problem_id, concept_id, reason, picked_at
-        FROM action_history
-        WHERE user_id = $1
-        ORDER BY picked_at DESC
-        LIMIT $2
-        """,
-        user_id,
-        limit,
-    )
-    return [dict(r) for r in rows]
+    try:
+        rows = await _get_pool().fetch(
+            """
+            SELECT id, kind, game_id, problem_id, concept_id, reason, picked_at
+            FROM action_history
+            WHERE user_id = $1
+            ORDER BY picked_at DESC
+            LIMIT $2
+            """,
+            user_id,
+            limit,
+        )
+        return [dict(r) for r in rows]
+    except RuntimeError:
+        # DB pool not initialised (e.g. in unit tests); return empty history.
+        return []
 
 
 async def record_drill_attempt(
@@ -760,22 +764,42 @@ async def record_drill_attempt(
     success: bool,
     moves_played: list[dict[str, Any]],
     hint_used: bool,
+    session_id: str | None = None,
+    is_retry: bool = False,
+    retry_of_attempt_id: int | None = None,
 ) -> dict[str, Any]:
     row = await _get_pool().fetchrow(
         """
-        INSERT INTO drill_attempts (user_id, problem_id, success, moves_played, hint_used)
-        VALUES ($1, $2, $3, $4::jsonb, $5)
-        RETURNING id, user_id, problem_id, attempted_at, success
+        INSERT INTO drill_attempts (user_id, problem_id, success, moves_played, hint_used, session_id, is_retry, retry_of_attempt_id)
+        VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8)
+        RETURNING id, user_id, problem_id, attempted_at, success, session_id, is_retry, retry_of_attempt_id
         """,
         user_id,
         problem_id,
         success,
         json.dumps(moves_played),
         hint_used,
+        session_id,
+        is_retry,
+        retry_of_attempt_id,
     )
     if success:
         await _mark_demonstrated_for_problem(user_id, problem_id)
     return dict(row)
+
+
+async def delete_drill_session(session_id: str, user_id: str) -> bool:
+    """Delete a drill session owned by `user_id`. Returns True if deleted."""
+    row = await _get_pool().fetchrow(
+        """
+        DELETE FROM drill_sessions
+        WHERE id = $1 AND user_id = $2
+        RETURNING id
+        """,
+        session_id,
+        user_id,
+    )
+    return row is not None
 
 
 async def _mark_demonstrated_for_problem(user_id: str, problem_id: str) -> None:
@@ -1102,11 +1126,173 @@ async def get_player_move_notes(game_id: str, user_id: str) -> dict[int, str]:
 async def list_user_games(user_id: str) -> list[dict[str, Any]]:
     rows = await _get_pool().fetch(
         """
-        SELECT id, board_size, result, started_at, ended_at
-        FROM games
-        WHERE black_user_id = $1 OR white_user_id = $1
-        ORDER BY started_at DESC
+        SELECT
+            g.id,
+            g.board_size,
+            g.result,
+            g.started_at,
+            g.ended_at,
+            CASE
+                WHEN g.black_user_id = $1::uuid THEN 'B'
+                WHEN g.white_user_id = $1::uuid THEN 'W'
+            END AS player_color,
+            g.opponent_type,
+            CASE
+                WHEN g.opponent_type = 'ai'         THEN 'Sensei AI'
+                WHEN g.black_user_id = $1::uuid     THEN opp_w.handle
+                WHEN g.white_user_id = $1::uuid     THEN opp_b.handle
+            END AS opponent_handle
+        FROM games g
+        LEFT JOIN users opp_b
+               ON opp_b.id = g.black_user_id AND g.white_user_id = $1::uuid
+        LEFT JOIN users opp_w
+               ON opp_w.id = g.white_user_id AND g.black_user_id = $1::uuid
+        WHERE g.black_user_id = $1::uuid OR g.white_user_id = $1::uuid
+        ORDER BY g.started_at DESC
         """,
         user_id,
     )
     return [dict(r) for r in rows]
+
+
+async def get_drill_stats(user_id: str) -> dict[str, Any]:
+    row = await _get_pool().fetchrow(
+        """
+        SELECT
+            COUNT(*)                             AS total_attempts,
+            COUNT(*) FILTER (WHERE success)      AS correct
+        FROM drill_attempts
+        WHERE user_id = $1
+        """,
+        user_id,
+    )
+    return dict(row) if row else {"total_attempts": 0, "correct": 0}
+
+
+async def create_drill_session(user_id: str, target_problem_count: int = 5) -> dict[str, Any]:
+    pool = _get_pool()
+    existing = await pool.fetchrow(
+        """
+        SELECT s.*,
+               COUNT(a.id)                          AS attempt_count,
+               COUNT(a.id) FILTER (WHERE a.success) AS correct_count
+        FROM drill_sessions s
+        LEFT JOIN drill_attempts a ON a.session_id = s.id
+        WHERE s.user_id = $1 AND s.status = 'active'
+        GROUP BY s.id
+        """,
+        user_id,
+    )
+    if existing:
+        return dict(existing)
+    row = await pool.fetchrow(
+        "INSERT INTO drill_sessions (user_id, target_problem_count) VALUES ($1, $2) RETURNING *",
+        user_id, target_problem_count,
+    )
+    d = dict(row)
+    d["attempt_count"] = 0
+    d["correct_count"] = 0
+    return d
+
+
+async def finish_drill_session(session_id: str) -> dict[str, Any] | None:
+    row = await _get_pool().fetchrow(
+        """
+        UPDATE drill_sessions
+        SET status = 'finished', finished_at = NOW()
+        WHERE id = $1 AND status = 'active'
+        RETURNING *
+        """,
+        session_id,
+    )
+    return dict(row) if row else None
+
+
+async def get_drill_session(session_id: str) -> dict[str, Any] | None:
+    row = await _get_pool().fetchrow(
+        """
+        SELECT s.*,
+               COUNT(a.id)                              AS attempt_count,
+               COUNT(a.id) FILTER (WHERE a.success)     AS correct_count
+        FROM drill_sessions s
+        LEFT JOIN drill_attempts a ON a.session_id = s.id
+        WHERE s.id = $1
+        GROUP BY s.id
+        """,
+        session_id,
+    )
+    return dict(row) if row else None
+
+
+async def list_drill_sessions(
+    user_id: str, limit: int = 20, offset: int = 0
+) -> list[dict[str, Any]]:
+    rows = await _get_pool().fetch(
+        """
+        SELECT s.*,
+               COUNT(a.id)                              AS attempt_count,
+               COUNT(a.id) FILTER (WHERE a.success)     AS correct_count
+        FROM drill_sessions s
+        LEFT JOIN drill_attempts a ON a.session_id = s.id
+        WHERE s.user_id = $1
+        GROUP BY s.id
+        ORDER BY s.started_at DESC
+        LIMIT $2 OFFSET $3
+        """,
+        user_id,
+        limit,
+        offset,
+    )
+    return [dict(r) for r in rows]
+
+
+async def get_drill_analytics(user_id: str) -> dict[str, Any]:
+    row = await _get_pool().fetchrow(
+        """
+        WITH stats AS (
+            SELECT
+                COUNT(*)                                                                    AS total_attempts,
+                COUNT(*) FILTER (WHERE success)                                             AS correct,
+                COUNT(*) FILTER (WHERE attempted_at >= NOW() - INTERVAL '7 days')          AS this_week_attempts,
+                COUNT(*) FILTER (WHERE success AND attempted_at >= NOW() - INTERVAL '7 days')
+                                                                                            AS this_week_correct,
+                COUNT(*) FILTER (WHERE attempted_at >= NOW() - INTERVAL '14 days'
+                                   AND attempted_at <  NOW() - INTERVAL '7 days')          AS last_week_attempts,
+                COUNT(*) FILTER (WHERE success
+                                   AND attempted_at >= NOW() - INTERVAL '14 days'
+                                   AND attempted_at <  NOW() - INTERVAL '7 days')          AS last_week_correct
+            FROM drill_attempts
+            WHERE user_id = $1
+        ),
+        session_count AS (
+            SELECT COUNT(*) AS sessions FROM drill_sessions WHERE user_id = $1
+        )
+        SELECT s.*, sc.sessions
+        FROM stats s, session_count sc
+        """,
+        user_id,
+    )
+    base = dict(row) if row else {
+        "total_attempts": 0, "correct": 0,
+        "this_week_attempts": 0, "this_week_correct": 0,
+        "last_week_attempts": 0, "last_week_correct": 0,
+        "sessions": 0,
+    }
+
+    theme_rows = await _get_pool().fetch(
+        """
+        SELECT
+            unnest(p.themes)                                 AS theme,
+            COUNT(a.id)                                      AS attempts,
+            COUNT(a.id) FILTER (WHERE a.success)             AS correct
+        FROM drill_attempts a
+        JOIN problems p ON p.id = a.problem_id
+        WHERE a.user_id = $1
+        GROUP BY 1
+        ORDER BY attempts DESC
+        LIMIT 20
+        """,
+        user_id,
+    )
+    base["theme_rows"] = [dict(r) for r in theme_rows]
+    return base

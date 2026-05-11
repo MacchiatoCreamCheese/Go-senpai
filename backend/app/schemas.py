@@ -104,6 +104,14 @@ class GameListItem(BaseModel):
     board_size: int
     result: Optional[str] = None
     started_at: str
+    player_color: Optional[ColorCode] = None
+    opponent_type: Literal["human", "ai"] = "human"
+    opponent_handle: Optional[str] = None
+
+
+class DrillStatsSchema(BaseModel):
+    total_attempts: int
+    accuracy: Optional[float] = None
 
 
 class WeaknessSchema(BaseModel):
@@ -128,6 +136,9 @@ class DrillAttemptRequest(BaseModel):
     success: bool
     moves_played: list[dict] = Field(default_factory=list)
     hint_used: bool = False
+    session_id: Optional[str] = None
+    is_retry: bool = False
+    retry_of_attempt_id: Optional[int] = None
 
 
 class DrillAttemptSchema(BaseModel):
@@ -136,6 +147,41 @@ class DrillAttemptSchema(BaseModel):
     problem_id: str
     attempted_at: str
     success: bool
+    session_id: Optional[str] = None
+    is_retry: bool = False
+    retry_of_attempt_id: Optional[int] = None
+
+
+class DrillSessionSchema(BaseModel):
+    id: str
+    user_id: str
+    started_at: str
+    finished_at: Optional[str] = None
+    status: Literal["active", "finished", "abandoned"]
+    problem_count: int
+    attempt_count: int
+    correct_count: int
+    target_problem_count: int
+
+
+class CreateDrillSessionRequest(BaseModel):
+    user_id: str
+    target_problem_count: int = 5
+
+
+class ThemeBreakdownItem(BaseModel):
+    theme: str
+    attempts: int
+    correct: int
+
+
+class DrillAnalyticsSchema(BaseModel):
+    total_attempts: int
+    accuracy: Optional[float] = None
+    sessions_count: int
+    accuracy_this_week: Optional[float] = None
+    accuracy_last_week: Optional[float] = None
+    theme_breakdown: list[ThemeBreakdownItem] = Field(default_factory=list)
 
 
 class ConceptSchema(BaseModel):

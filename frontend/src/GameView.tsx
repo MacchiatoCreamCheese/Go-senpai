@@ -70,7 +70,16 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
 
   useEffect(() => {
     const uid = localStorage.getItem(USER_ID_KEY);
-    if (uid) getPlayerNotes(gameId, uid).then(setPlayerNotes);
+    if (!uid) return;
+    let cancelled = false;
+    getPlayerNotes(gameId, uid)
+      .then((notes) => {
+        if (!cancelled) setPlayerNotes(notes);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [gameId]);
 
   useEffect(() => {

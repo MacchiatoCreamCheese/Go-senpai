@@ -206,3 +206,32 @@ CREATE TABLE IF NOT EXISTS coach_turns (
   assistant_output_md TEXT,
   generated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS drill_sessions (
+    id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id       UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    started_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    finished_at   TIMESTAMPTZ,
+    status        TEXT        NOT NULL DEFAULT 'active'
+                  CHECK (status IN ('active', 'finished', 'abandoned')),
+    problem_count INT         NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_drill_sessions_user_time
+    ON drill_sessions (user_id, started_at DESC);
+
+ALTER TABLE drill_attempts
+    ADD COLUMN IF NOT EXISTS session_id UUID REFERENCES drill_sessions(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_drill_attempts_session ON drill_attempts (session_id);
+
+-- Per-problem retry tracking
+ALTER TABLE drill_attempts
+    ADD COLUMN IF NOT EXISTS is_retry BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE drill_attempts
+    ADD COLUMN IF NOT EXISTS retry_of_attempt_id BIGINT REFERENCES drill_attempts(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_drill_attempts_session_problem ON drill_attempts (session_id, problem_id);
+
+ALTER TABLE drill_sessions
+    ADD COLUMN IF NOT EXISTS target_problem_count INT NOT NULL DEFAULT 5;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_drill_sessions_one_active_per_user
+    ON drill_sessions (user_id) WHERE (status = 'active');

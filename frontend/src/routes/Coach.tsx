@@ -250,12 +250,7 @@ function NextActionPanel({
                 Start drill →
               </button>
             )}
-            {action.concept?.id && (
-              <button className="gs-btn"
-                onClick={() => navigate(`/concepts/${action.concept!.id}`)}>
-                Study concept →
-              </button>
-            )}
+            
             <button className="gs-btn" onClick={onAsk} disabled={isPending}>
               {isPending ? "Thinking…" : "Ask again"}
             </button>
