@@ -43,19 +43,30 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
   const [playerNotes, setPlayerNotes] = useState<Record<number, string>>({});
   const [ownershipRaw, setOwnershipRaw] = useState<{ data: number[]; boardSize: number } | null>(null);
   const [playerHandles, setPlayerHandles] = useState<Record<string, string>>({});
-  const centerRef = useRef<HTMLDivElement>(null);
-  const [centerWidth, setCenterWidth] = useState(0);
+  const boardSlotRef = useRef<HTMLDivElement>(null);
+  const [boardSlotSize, setBoardSlotSize] = useState({ w: 0, h: 0 });
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => { setOverlayDismissed(false); }, [gameId]);
 
   useEffect(() => {
-    const el = centerRef.current;
+    const el = boardSlotRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(([entry]) => setCenterWidth(entry.contentRect.width));
+    const sync = () => {
+      const box = boardSlotRef.current;
+      if (!box) return;
+      const r = box.getBoundingClientRect();
+      setBoardSlotSize({ w: r.width, h: r.height });
+    };
+    const ro = new ResizeObserver((entries) => {
+      const cr = entries[0]?.contentRect;
+      if (cr) setBoardSlotSize({ w: cr.width, h: cr.height });
+    });
     ro.observe(el);
+    sync();
+    requestAnimationFrame(sync);
     return () => ro.disconnect();
-  }, []);
+  }, [game?.id, state?.status]);
 
   useEffect(() => {
     const uid = localStorage.getItem(USER_ID_KEY);
@@ -187,6 +198,20 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
     }
   }
 
+  /** Square goban side from board slot size (must run before early returns — Rules of Hooks). */
+  const boardWidth = useMemo(() => {
+    const MIN = 200;
+    const padX = 24;
+    const train = Boolean(game?.training_mode && game?.opponent_type === "ai");
+    const reserveY = train ? 88 : 20;
+    const { w: sw, h: sh } = boardSlotSize;
+    if (sw <= 0 || sh <= 0) return 520;
+    const aw = Math.max(0, sw - padX);
+    const ah = Math.max(0, sh - reserveY);
+    const side = Math.floor(Math.min(aw, ah));
+    return Math.max(MIN, side);
+  }, [boardSlotSize, game?.training_mode, game?.opponent_type]);
+
   if (error && !state) {
     return (
       <div style={styles.errorPage}>
@@ -233,13 +258,9 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
   const opponentColor: ColorCode = role === "B" ? "W" : "B";
   const myColor: ColorCode = role ?? "B";
 
-  const BOARD_SHELL_PAD = 28; // 2 × 14px padding on each side of the board card
-  const boardWidth = centerWidth > 0
-    ? Math.min(520, Math.max(260, centerWidth - BOARD_SHELL_PAD))
-    : 520;
-
   return (
     <>
+      <div className="game-view-root">
       <div className="play-sandwich">
 
         {/* ── LEFT: opponent → Miku → you */}
@@ -269,7 +290,7 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
         </div>
 
         {/* ── CENTER: board (player cards duplicated here on narrow viewports — see sandwich-mobile-player) ── */}
-        <div className="sandwich-center" ref={centerRef}>
+        <div className="sandwich-center">
           <div className="sandwich-mobile-player sandwich-mobile-player--top">
             <SandwichPlayerCard
               color={role ? opponentColor : "W"}
@@ -281,7 +302,8 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
             />
           </div>
 
-          {/* Board — shell shrink-wraps square GoBoard so the card stays square */}
+          <div className="sandwich-board-slot" ref={boardSlotRef}>
+          {/* Board */}
           <div style={{ position: "relative", width: "100%", display: "flex", flexDirection: "column", alignItems: "center" }}>
             {game?.training_mode && isAiGame && (
               <div style={{ position: "absolute", top: -6, left: 0, right: 0, display: "flex", justifyContent: "center", zIndex: 1 }}>
@@ -291,8 +313,11 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
               </div>
             )}
             <div
-              className="ai-thinking-shell board-shell-square"
-              style={{ boxSizing: "border-box", padding: 14, background: "var(--bg-2)", boxShadow: "var(--shadow-block)", marginTop: game?.training_mode && isAiGame ? 26 : 0 }}
+              style={{
+                position: "relative",
+                display: "inline-block",
+                marginTop: game?.training_mode && isAiGame ? 26 : 0,
+              }}
             >
               <GoBoard
                 state={state}
@@ -318,6 +343,7 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
                 <TierPill tier="bad" label="lost ≥ 2pt" />
               </div>
             )}
+          </div>
           </div>
 
           <div className="sandwich-mobile-player sandwich-mobile-player--bottom">
@@ -369,8 +395,9 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
           </div>
         </div>
       </div>
+      </div>
 
-      {/* Outside 3-col grid */}
+      {/* Outside play layout */}
       <ChatDrawer
         gameId={gameId}
         userId={userId}
@@ -820,9 +847,9 @@ function PlaySidePanel({
       <div className="play-side-actions play-side-actions--row3">
         {state.status === "active" ? (
           <>
-            <button type="button" className="gs-btn" onClick={onUndo} disabled={!canUndo} style={{ padding: "8px 0", fontSize: 12 }}>↶</button>
-            <button type="button" className="gs-btn" onClick={onPass} disabled={!isMyTurn} style={{ padding: "8px 0", fontSize: 12 }}>pass</button>
-            <button type="button" className="gs-btn gs-btn--red" onClick={onResign} disabled={!isMyTurn} style={{ padding: "8px 0", fontSize: 12 }}>resign</button>
+            <button type="button" className="gs-btn" onClick={onUndo} disabled={!canUndo} style={{ padding: "8px 0", fontSize: 12 }}>Undo</button>
+            <button type="button" className="gs-btn" onClick={onPass} disabled={!isMyTurn} style={{ padding: "8px 0", fontSize: 12 }}>Pass</button>
+            <button type="button" className="gs-btn gs-btn--red" onClick={onResign} disabled={!isMyTurn} style={{ padding: "8px 0", fontSize: 12 }}>Resign</button>
             {preGame && role && (
               <button type="button" className="gs-btn play-side-actions__swap" onClick={onSwap} disabled={swapping} style={{ padding: "8px 0", fontSize: 12 }}>
                 {swapping ? "swapping…" : "swap colors ⇄"}

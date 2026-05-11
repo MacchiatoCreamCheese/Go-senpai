@@ -162,11 +162,6 @@ export function AppShell() {
       <main className="shell-main">
         <Outlet />
       </main>
-
-      <NavLink to="/coach" className="coach-fab" aria-label="Open coach">
-        <span className="coach-fab-mark">先</span>
-        <span className="coach-fab-label">Sensei</span>
-      </NavLink>
     </div>
   );
 }
