@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { HANDLE_KEY, useAuth } from "../lib/auth";
+import { HandleGate } from "../components/HandleGate";
 
 const NAV = [
   { to: "/", label: "Home", end: true },
@@ -160,7 +161,9 @@ export function AppShell() {
         </header>
 
       <main className="shell-main">
-        <Outlet />
+        <HandleGate>
+          <Outlet />
+        </HandleGate>
       </main>
     </div>
   );

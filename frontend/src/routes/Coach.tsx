@@ -10,6 +10,12 @@ import {
 } from "../api";
 import { useToast } from "../components/NotificationToast";
 import { useIdentity } from "../lib/auth";
+import {
+  useDrillSessions,
+  useCreateDrillSession,
+  useDeleteDrillSession,
+} from "../hooks/useDrillData";
+import type { DrillSession } from "../types/drill";
 
 const KIND_LABEL: Record<string, string> = {
   review_game: "Review game",
@@ -37,6 +43,92 @@ interface LocalMessage {
   id: number;
   role: "user" | "sensei";
   text: string;
+}
+
+// ─── Active session conflict modal ────────────────────────────────────────────
+
+function ActiveDrillSessionModal({
+  session,
+  isDeleting,
+  isCreating,
+  onDeleteAndNew,
+  onResume,
+  onClose,
+}: {
+  session: DrillSession;
+  isDeleting: boolean;
+  isCreating: boolean;
+  onDeleteAndNew: () => void;
+  onResume: () => void;
+  onClose: () => void;
+}) {
+  const busy = isDeleting || isCreating;
+  return (
+    <div
+      style={{
+        position: "fixed", inset: 0, zIndex: 50,
+        background: "rgba(26,23,20,0.55)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: 20,
+      }}
+      onClick={e => { if (e.target === e.currentTarget && !busy) onClose(); }}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="gs-card"
+        style={{
+          padding: "32px 36px",
+          background: "var(--bg)",
+          boxShadow: "var(--shadow-block)",
+          maxWidth: 400, width: "100%",
+          textAlign: "center",
+        }}
+      >
+        <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 44, lineHeight: 1, marginBottom: 14 }}>
+          練
+        </div>
+        <h2 style={{ fontSize: 20, marginBottom: 8, fontFamily: "var(--font-display)", letterSpacing: "-0.02em" }}>
+          Active session in progress
+        </h2>
+        <p style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 6 }}>
+          {session.attemptCount} problem{session.attemptCount !== 1 ? "s" : ""} attempted so far.
+        </p>
+        <p style={{ fontSize: 13, color: "var(--ink-mute)", marginBottom: 28 }}>
+          What would you like to do?
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <button
+            type="button"
+            className="gs-btn gs-btn--primary"
+            disabled={busy}
+            onClick={onDeleteAndNew}
+            style={{ width: "100%" }}
+          >
+            {isDeleting ? "Deleting…" : isCreating ? "Starting…" : "Delete & start new drill"}
+          </button>
+          <button
+            type="button"
+            className="gs-btn"
+            disabled={busy}
+            onClick={onResume}
+            style={{ width: "100%", background: "var(--pastel-cyan)" }}
+          >
+            Resume existing session →
+          </button>
+          <button
+            type="button"
+            className="gs-btn"
+            disabled={busy}
+            onClick={onClose}
+            style={{ width: "100%" }}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function Coach() {
@@ -74,6 +166,48 @@ export default function Coach() {
   });
 
   const action: NextActionResponse | null = planner.data ?? null;
+
+  // ── Quick drill ────────────────────────────────────────────────────────────
+  const [showDrillModal, setShowDrillModal] = useState(false);
+  const { data: sessions } = useDrillSessions(userId);
+  const activeSession = sessions?.find(s => s.status === "active") ?? null;
+  const createSession = useCreateDrillSession();
+  const removeSession = useDeleteDrillSession();
+
+  async function handleQuickDrill() {
+    if (activeSession) {
+      setShowDrillModal(true);
+      return;
+    }
+    await startNewDrill();
+  }
+
+  async function startNewDrill() {
+    if (!userId) return;
+    try {
+      const session = await createSession.mutateAsync({ userId, targetProblemCount: 1 });
+      setShowDrillModal(false);
+      navigate(`/drill/session/${session.id}`);
+    } catch (err) {
+      toast.push({ kind: "error", title: "Could not start drill", body: String(err) });
+    }
+  }
+
+  async function handleDeleteAndNew() {
+    if (!activeSession || !userId) return;
+    try {
+      await removeSession.mutateAsync({ sessionId: activeSession.id, userId });
+      await startNewDrill();
+    } catch (err) {
+      toast.push({ kind: "error", title: "Could not start drill", body: String(err) });
+    }
+  }
+
+  function handleResumeSession() {
+    if (!activeSession) return;
+    setShowDrillModal(false);
+    navigate(`/drill/session/${activeSession.id}`);
+  }
 
   function handleSend() {
     const text = chatInput.trim();
@@ -120,9 +254,42 @@ export default function Coach() {
 
   return (
     <div className="coach-page">
+      {showDrillModal && activeSession && (
+        <ActiveDrillSessionModal
+          session={activeSession}
+          isDeleting={removeSession.isPending}
+          isCreating={createSession.isPending}
+          onDeleteAndNew={handleDeleteAndNew}
+          onResume={handleResumeSession}
+          onClose={() => setShowDrillModal(false)}
+        />
+      )}
+
       {/* ── Left: action + history ────────────────────── */}
       <div className="coach-left">
         <NextActionPanel action={action} isPending={planner.isPending} onAsk={() => planner.mutate()} navigate={navigate} />
+
+        {/* Quick drill shortcut */}
+        <div className="action-card" style={{ background: "var(--pastel-cyan)", marginTop: 0 }}>
+          <div className="action-card-mark">DRILL</div>
+          <div className="action-card-title" style={{ marginBottom: 6 }}>
+            {activeSession ? "Session in progress" : "Quick drill"}
+          </div>
+          <div className="action-card-body" style={{ marginBottom: 14 }}>
+            {activeSession
+              ? `${activeSession.attemptCount} problem${activeSession.attemptCount !== 1 ? "s" : ""} attempted — resume or start fresh.`
+              : "Jump straight into one focused problem targeted to your weaknesses."}
+          </div>
+          <button
+            type="button"
+            className="gs-btn gs-btn--primary"
+            onClick={handleQuickDrill}
+            disabled={createSession.isPending || removeSession.isPending}
+          >
+            {createSession.isPending ? "Starting…" : activeSession ? "Manage session →" : "Start 1-problem drill →"}
+          </button>
+        </div>
+
         <ActionHistoryPanel items={history.data ?? []} />
       </div>
 

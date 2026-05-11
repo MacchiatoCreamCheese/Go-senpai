@@ -25,6 +25,15 @@ export async function updateMyHandle(handle: string): Promise<UserT> {
   return asJson<UserT>(resp);
 }
 
+export async function updateHandleByUserId(userId: string, handle: string): Promise<UserT> {
+  const resp = await api(`/api/users/${encodeURIComponent(userId)}/handle`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ handle }),
+  });
+  return asJson<UserT>(resp);
+}
+
 export async function createUser(handle: string): Promise<UserT> {
   const resp = await api("/api/users", {
     method: "POST",

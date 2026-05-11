@@ -8,6 +8,46 @@ import asyncpg
 pool: asyncpg.Pool | None = None
 
 
+async def _ensure_runtime_schema(p: asyncpg.Pool) -> None:
+    """Apply lightweight idempotent schema guards for older databases.
+
+    Some environments reuse an existing DB where `init.sql` was not re-applied,
+    so drill retry/session columns may be missing even though the code expects
+    them. These ALTERs are safe to run on every startup.
+    """
+    async with p.acquire() as conn:
+        await conn.execute(
+            """
+            ALTER TABLE drill_attempts
+                ADD COLUMN IF NOT EXISTS session_id UUID REFERENCES drill_sessions(id) ON DELETE SET NULL
+            """
+        )
+        await conn.execute(
+            """
+            ALTER TABLE drill_attempts
+                ADD COLUMN IF NOT EXISTS is_retry BOOLEAN NOT NULL DEFAULT FALSE
+            """
+        )
+        await conn.execute(
+            """
+            ALTER TABLE drill_attempts
+                ADD COLUMN IF NOT EXISTS retry_of_attempt_id BIGINT REFERENCES drill_attempts(id) ON DELETE SET NULL
+            """
+        )
+        await conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_drill_attempts_session
+            ON drill_attempts (session_id)
+            """
+        )
+        await conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_drill_attempts_session_problem
+            ON drill_attempts (session_id, problem_id)
+            """
+        )
+
+
 async def connect(dsn: str) -> None:
     global pool
     use_ssl = "localhost" not in dsn and "127.0.0.1" not in dsn
@@ -15,6 +55,7 @@ async def connect(dsn: str) -> None:
         dsn=dsn, min_size=2, max_size=10,
         ssl="require" if use_ssl else None,
     )
+    await _ensure_runtime_schema(pool)
 
 
 async def close() -> None:
@@ -53,6 +94,28 @@ async def get_user(user_id: str) -> dict[str, Any] | None:
         user_id,
     )
     return dict(row) if row else None
+
+
+async def ensure_legacy_user(user_id: str) -> dict[str, Any]:
+    """Upsert a minimal user row for a UUID that lives in the client's
+    localStorage but is absent from this DB instance (stale after a DB reset
+    or a switch from Supabase → legacy mode).  The generated handle can be
+    customised later via the Profile page."""
+    pool = _get_pool()
+    # Use 16 hex chars so the temp handle is effectively unique per UUID.
+    uid_short = str(user_id).replace("-", "")[:16]
+    temp_handle = f"user-{uid_short}"
+    row = await pool.fetchrow(
+        """
+        INSERT INTO users (id, handle, created_via)
+        VALUES ($1, $2, 'local')
+        ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
+        RETURNING id, handle, email, created_at
+        """,
+        user_id,
+        temp_handle,
+    )
+    return dict(row)
 
 
 def _default_auth_handle(supabase_user_id: str, email: str | None) -> str:
@@ -768,7 +831,44 @@ async def record_drill_attempt(
     is_retry: bool = False,
     retry_of_attempt_id: int | None = None,
 ) -> dict[str, Any]:
-    row = await _get_pool().fetchrow(
+    if is_retry and retry_of_attempt_id is None:
+        raise ValueError("retry_of_attempt_id required when is_retry is true")
+    if not is_retry and retry_of_attempt_id is not None:
+        raise ValueError("retry_of_attempt_id must be null when is_retry is false")
+
+    pool = _get_pool()
+    if session_id:
+        session = await pool.fetchrow(
+            "SELECT user_id, status FROM drill_sessions WHERE id = $1",
+            session_id,
+        )
+        if not session:
+            raise ValueError("session not found")
+        if str(session["user_id"]) != str(user_id):
+            raise ValueError("session does not belong to user")
+        if str(session["status"]) != "active":
+            raise ValueError("session is not active")
+
+    if retry_of_attempt_id is not None:
+        base_attempt = await pool.fetchrow(
+            """
+            SELECT user_id, problem_id, session_id
+            FROM drill_attempts
+            WHERE id = $1
+            """,
+            retry_of_attempt_id,
+        )
+        if not base_attempt:
+            raise ValueError("retry_of_attempt_id not found")
+        if str(base_attempt["user_id"]) != str(user_id):
+            raise ValueError("retry attempt must belong to the same user")
+        if str(base_attempt["problem_id"]) != str(problem_id):
+            raise ValueError("retry attempt must target the same problem")
+        base_session_id = str(base_attempt["session_id"]) if base_attempt["session_id"] else None
+        if base_session_id != session_id:
+            raise ValueError("retry attempt must stay in the same session")
+
+    row = await pool.fetchrow(
         """
         INSERT INTO drill_attempts (user_id, problem_id, success, moves_played, hint_used, session_id, is_retry, retry_of_attempt_id)
         VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8)
@@ -789,15 +889,27 @@ async def record_drill_attempt(
 
 
 async def delete_drill_session(session_id: str, user_id: str) -> bool:
-    """Delete a drill session owned by `user_id`. Returns True if deleted."""
-    row = await _get_pool().fetchrow(
-        """
-        DELETE FROM drill_sessions
-        WHERE id = $1 AND user_id = $2
-        RETURNING id
-        """,
+    """Delete a drill session.
+
+    If user_id is non-empty, deletion is ownership-scoped.
+    Legacy mode may pass an empty user_id and delete by id only.
+    """
+    pool = _get_pool()
+    if user_id:
+        row = await pool.fetchrow(
+            """
+            DELETE FROM drill_sessions
+            WHERE id = $1 AND user_id = $2
+            RETURNING id
+            """,
+            session_id,
+            user_id,
+        )
+        return row is not None
+
+    row = await pool.fetchrow(
+        "DELETE FROM drill_sessions WHERE id = $1 RETURNING id",
         session_id,
-        user_id,
     )
     return row is not None
 
@@ -960,6 +1072,7 @@ async def user_progress_series(user_id: str, weeks: int = 7) -> dict[str, list[d
         SELECT date_trunc('week', attempted_at)::date AS week, COUNT(*) AS n
         FROM drill_attempts
         WHERE user_id = $1
+          AND NOT COALESCE(is_retry, FALSE)
           AND attempted_at >= NOW() - ($2::int || ' weeks')::interval
         GROUP BY 1 ORDER BY 1
         """,
@@ -1162,7 +1275,7 @@ async def get_drill_stats(user_id: str) -> dict[str, Any]:
             COUNT(*)                             AS total_attempts,
             COUNT(*) FILTER (WHERE success)      AS correct
         FROM drill_attempts
-        WHERE user_id = $1
+        WHERE user_id = $1 AND NOT COALESCE(is_retry, FALSE)
         """,
         user_id,
     )
@@ -1170,12 +1283,18 @@ async def get_drill_stats(user_id: str) -> dict[str, Any]:
 
 
 async def create_drill_session(user_id: str, target_problem_count: int = 5) -> dict[str, Any]:
+    if target_problem_count < 1:
+        raise ValueError("target_problem_count must be >= 1")
+
     pool = _get_pool()
     existing = await pool.fetchrow(
         """
         SELECT s.*,
-               COUNT(a.id)                          AS attempt_count,
-               COUNT(a.id) FILTER (WHERE a.success) AS correct_count
+               COUNT(a.id) FILTER (WHERE NOT COALESCE(a.is_retry, FALSE))
+                                                    AS attempt_count,
+               COUNT(a.id) FILTER (
+                   WHERE a.success AND NOT COALESCE(a.is_retry, FALSE)
+               )                                    AS correct_count
         FROM drill_sessions s
         LEFT JOIN drill_attempts a ON a.session_id = s.id
         WHERE s.user_id = $1 AND s.status = 'active'
@@ -1184,43 +1303,98 @@ async def create_drill_session(user_id: str, target_problem_count: int = 5) -> d
         user_id,
     )
     if existing:
-        return dict(existing)
-    row = await pool.fetchrow(
-        "INSERT INTO drill_sessions (user_id, target_problem_count) VALUES ($1, $2) RETURNING *",
-        user_id, target_problem_count,
-    )
+        raise ValueError("You already have an active drill session. Finish or delete it before starting a new one.")
+
+    try:
+        row = await pool.fetchrow(
+            "INSERT INTO drill_sessions (user_id, target_problem_count) VALUES ($1, $2) RETURNING *",
+            user_id,
+            target_problem_count,
+        )
+    except asyncpg.UniqueViolationError:
+        # Another request created an active session concurrently.
+        row = await pool.fetchrow(
+            """
+            SELECT s.*,
+                   COUNT(a.id) FILTER (WHERE NOT COALESCE(a.is_retry, FALSE))                          AS attempt_count,
+                   COUNT(a.id) FILTER (WHERE a.success AND NOT COALESCE(a.is_retry, FALSE))            AS correct_count
+            FROM drill_sessions s
+            LEFT JOIN drill_attempts a ON a.session_id = s.id
+            WHERE s.user_id = $1 AND s.status = 'active'
+            GROUP BY s.id
+            """,
+            user_id,
+        )
+        if row is None:
+            raise
+
     d = dict(row)
-    d["attempt_count"] = 0
-    d["correct_count"] = 0
+    d.setdefault("attempt_count", 0)
+    d.setdefault("correct_count", 0)
     return d
 
 
-async def finish_drill_session(session_id: str) -> dict[str, Any] | None:
-    row = await _get_pool().fetchrow(
-        """
-        UPDATE drill_sessions
-        SET status = 'finished', finished_at = NOW()
-        WHERE id = $1 AND status = 'active'
-        RETURNING *
-        """,
-        session_id,
-    )
+async def finish_drill_session(session_id: str, user_id: str | None = None) -> dict[str, Any] | None:
+    pool = _get_pool()
+    if user_id:
+        row = await pool.fetchrow(
+            """
+            UPDATE drill_sessions
+            SET status = 'finished', finished_at = NOW()
+            WHERE id = $1 AND status = 'active' AND user_id = $2
+            RETURNING *
+            """,
+            session_id,
+            user_id,
+        )
+    else:
+        row = await pool.fetchrow(
+            """
+            UPDATE drill_sessions
+            SET status = 'finished', finished_at = NOW()
+            WHERE id = $1 AND status = 'active'
+            RETURNING *
+            """,
+            session_id,
+        )
     return dict(row) if row else None
 
 
-async def get_drill_session(session_id: str) -> dict[str, Any] | None:
-    row = await _get_pool().fetchrow(
-        """
-        SELECT s.*,
-               COUNT(a.id)                              AS attempt_count,
-               COUNT(a.id) FILTER (WHERE a.success)     AS correct_count
-        FROM drill_sessions s
-        LEFT JOIN drill_attempts a ON a.session_id = s.id
-        WHERE s.id = $1
-        GROUP BY s.id
-        """,
-        session_id,
-    )
+async def get_drill_session(session_id: str, user_id: str | None = None) -> dict[str, Any] | None:
+    pool = _get_pool()
+    if user_id:
+        row = await pool.fetchrow(
+            """
+            SELECT s.*,
+                   COUNT(a.id) FILTER (WHERE NOT COALESCE(a.is_retry, FALSE))
+                                                            AS attempt_count,
+                   COUNT(a.id) FILTER (
+                       WHERE a.success AND NOT COALESCE(a.is_retry, FALSE)
+                   )                                        AS correct_count
+            FROM drill_sessions s
+            LEFT JOIN drill_attempts a ON a.session_id = s.id
+            WHERE s.id = $1 AND s.user_id = $2
+            GROUP BY s.id
+            """,
+            session_id,
+            user_id,
+        )
+    else:
+        row = await pool.fetchrow(
+            """
+            SELECT s.*,
+                   COUNT(a.id) FILTER (WHERE NOT COALESCE(a.is_retry, FALSE))
+                                                            AS attempt_count,
+                   COUNT(a.id) FILTER (
+                       WHERE a.success AND NOT COALESCE(a.is_retry, FALSE)
+                   )                                        AS correct_count
+            FROM drill_sessions s
+            LEFT JOIN drill_attempts a ON a.session_id = s.id
+            WHERE s.id = $1
+            GROUP BY s.id
+            """,
+            session_id,
+        )
     return dict(row) if row else None
 
 
@@ -1230,8 +1404,11 @@ async def list_drill_sessions(
     rows = await _get_pool().fetch(
         """
         SELECT s.*,
-               COUNT(a.id)                              AS attempt_count,
-               COUNT(a.id) FILTER (WHERE a.success)     AS correct_count
+               COUNT(a.id) FILTER (WHERE NOT COALESCE(a.is_retry, FALSE))
+                                                        AS attempt_count,
+               COUNT(a.id) FILTER (
+                   WHERE a.success AND NOT COALESCE(a.is_retry, FALSE)
+               )                                        AS correct_count
         FROM drill_sessions s
         LEFT JOIN drill_attempts a ON a.session_id = s.id
         WHERE s.user_id = $1
@@ -1262,7 +1439,7 @@ async def get_drill_analytics(user_id: str) -> dict[str, Any]:
                                    AND attempted_at >= NOW() - INTERVAL '14 days'
                                    AND attempted_at <  NOW() - INTERVAL '7 days')          AS last_week_correct
             FROM drill_attempts
-            WHERE user_id = $1
+            WHERE user_id = $1 AND NOT COALESCE(is_retry, FALSE)
         ),
         session_count AS (
             SELECT COUNT(*) AS sessions FROM drill_sessions WHERE user_id = $1
@@ -1287,7 +1464,7 @@ async def get_drill_analytics(user_id: str) -> dict[str, Any]:
             COUNT(a.id) FILTER (WHERE a.success)             AS correct
         FROM drill_attempts a
         JOIN problems p ON p.id = a.problem_id
-        WHERE a.user_id = $1
+        WHERE a.user_id = $1 AND NOT COALESCE(a.is_retry, FALSE)
         GROUP BY 1
         ORDER BY attempts DESC
         LIMIT 20

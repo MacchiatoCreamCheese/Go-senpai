@@ -41,6 +41,8 @@ export interface ProfileAnalyticsData {
   drillsPerWeek: WeeklySeries[] | null;
   weaknessSeverityHistory: WeeklySeries[] | null;
   topStudiedConcepts: { title: string; count: number }[];
+  lastWeekDrillCount: number | null;
+  lastWeekGameCount: number | null;
 }
 
 // ── Drill statistics ──────────────────────────────────────────────────────────

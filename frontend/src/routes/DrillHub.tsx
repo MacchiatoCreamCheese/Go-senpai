@@ -55,30 +55,28 @@ function SectionError({ message }: { message: string }) {
   );
 }
 
-// ── Stat chip ─────────────────────────────────────────────────────────────────
-
-function StatChip({ label, value }: { label: string; value: string | number }) {
+/**
+ * Modern stat card for drill stats (top row)
+ * Uses blue theme colors for visual consistency
+ */
+function StatCardBlue({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="gs-card" style={{
-      padding: "14px 20px",
-      display: "flex",
-      flexDirection: "column",
-      gap: 4,
-      minWidth: 100,
-    }}>
-      <span style={{
-        fontFamily: "var(--font-display)",
-        fontWeight: 700,
-        fontSize: 26,
-        lineHeight: 1,
-        color: "var(--ink)",
-        letterSpacing: "-0.02em",
-      }}>
-        {value}
-      </span>
-      <span style={{ fontSize: 12, color: "var(--ink-mute)", fontWeight: 500 }}>
-        {label}
-      </span>
+    <div className="drillhub-stat-card-blue">
+      <span className="drillhub-stat-value">{value}</span>
+      <span className="drillhub-stat-label">{label}</span>
+    </div>
+  );
+}
+
+/**
+ * Analytics card for lower stats section
+ * Uses warm yellow/beige aesthetic
+ */
+function AnalyticsCardWarm({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="drillhub-analytics-card-warm">
+      <span className="drillhub-analytics-value">{value}</span>
+      <span className="drillhub-analytics-label">{label}</span>
     </div>
   );
 }
@@ -96,53 +94,26 @@ function SessionRow({ session, onRedo }: { session: DrillSession; onRedo: () => 
     <div
       role="button"
       tabIndex={0}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 12,
-        padding: "14px 20px",
-        borderRadius: 12,
-        border: "2px solid var(--border)",
-        background: "var(--bg-2)",
-        cursor: "pointer",
-        transition: "transform 80ms, box-shadow 80ms",
-      }}
+      className="drillhub-session-row"
       onClick={onRedo}
       onKeyDown={e => { if (e.key === "Enter" || e.key === " ") onRedo(); }}
-      onMouseEnter={e => {
-        (e.currentTarget as HTMLElement).style.transform = "translate(-1px,-1px)";
-        (e.currentTarget as HTMLElement).style.boxShadow = "var(--shadow-block-sm)";
-      }}
-      onMouseLeave={e => {
-        (e.currentTarget as HTMLElement).style.transform = "";
-        (e.currentTarget as HTMLElement).style.boxShadow = "";
-      }}
     >
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-          <span style={{ fontSize: 14, fontWeight: 600, color: "var(--ink)" }}>
+      <div className="drillhub-session-row-main">
+        <div className="drillhub-session-row-title">
+          <span className="drillhub-session-row-problems">
             {session.attemptCount} problem{session.attemptCount !== 1 ? "s" : ""}
           </span>
         </div>
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 12, color: "var(--ink-mute)", fontFamily: "var(--font-mono)" }}>
-            {formatRelative(session.startedAt)}
-          </span>
+        <div className="drillhub-session-row-meta">
+          <span className="drillhub-session-row-time">{formatRelative(session.startedAt)}</span>
           {session.finishedAt && (
-            <span style={{ fontSize: 12, color: "var(--ink-mute)", fontFamily: "var(--font-mono)" }}>
+            <span className="drillhub-session-row-time">
               {formatDuration(session.startedAt, session.finishedAt)}
             </span>
           )}
         </div>
       </div>
-      <div style={{
-        fontFamily: "var(--font-display)",
-        fontWeight: 700,
-        fontSize: 20,
-        color: accuracyColor,
-        minWidth: 52,
-        textAlign: "right",
-      }}>
+      <div className="drillhub-session-row-accuracy" style={{ color: accuracyColor }}>
         {pct(session.accuracy)}
       </div>
     </div>
@@ -278,24 +249,15 @@ function DeleteSessionModal({ session, onConfirm, onCancel, isDeleting }: Delete
 function AnalyticsSection({ analytics }: { analytics: DrillAnalytics }) {
   const hasThemes = analytics.themeBreakdown.length > 0;
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-        <div className="gs-card" style={{ padding: "12px 18px", flex: 1, minWidth: 140 }}>
-          <div style={{ fontSize: 12, color: "var(--ink-mute)", marginBottom: 4 }}>This week</div>
-          <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 22 }}>
-            {pct(analytics.accuracyThisWeek)}
-          </div>
-        </div>
-        <div className="gs-card" style={{ padding: "12px 18px", flex: 1, minWidth: 140 }}>
-          <div style={{ fontSize: 12, color: "var(--ink-mute)", marginBottom: 4 }}>Last week</div>
-          <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 22 }}>
-            {pct(analytics.accuracyLastWeek)}
-          </div>
-        </div>
+    <div className="drillhub-analytics-section">
+      {/* Accuracy cards with warm aesthetic */}
+      <div className="drillhub-analytics-cards">
+        <AnalyticsCardWarm label="This week" value={pct(analytics.accuracyThisWeek)} />
+        <AnalyticsCardWarm label="Last week" value={pct(analytics.accuracyLastWeek)} />
       </div>
 
       {hasThemes && (
-        <div>
+        <div className="drillhub-theme-breakdown">
           <div className="gs-section-h" style={{ fontSize: 12, marginBottom: 10 }}>
             by theme
           </div>
@@ -536,41 +498,37 @@ export default function DrillHub() {
       gap: 32,
     }}>
 
-      {/* ── Header ──────────────────────────────────────────────── */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-        <div>
-          <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 32, margin: 0, letterSpacing: "-0.02em" }}>
-            練 Drill
-          </h1>
-          <p style={{ fontSize: 14, color: "var(--ink-mute)", margin: "6px 0 0" }}>
+      {/* ── Hero ─────────────────────────────────────────────────── */}
+      <div className="gs-card drillhub-hero">
+        <div className="drillhub-hero-content">
+          <span className="gs-sticker">練 · DRILL HUB</span>
+          <h1 className="drillhub-hero-title">Train your patterns.</h1>
+          <p className="drillhub-hero-body">
             Build pattern recognition through focused problem-solving.
+            Drills are picked to target your personal weaknesses.
           </p>
-        </div>
-        <button
-          className="gs-btn gs-btn--primary"
-          onClick={() => setShowModal(true)}
-          disabled={sessionsLoading || !!activeSession}
-          style={{ whiteSpace: "nowrap", flexShrink: 0 }}
-        >
-          Start Session
-        </button>
-      </div>
-
-      {activeSession && (
-        <div className="gs-card" style={{ padding: "12px 16px", background: "var(--bg-2)", border: "2px solid var(--border)" }}>
-          <div style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 6 }}>
-            You already have an active session. Finish it or delete it before starting a new one.
+          <div className="drillhub-hero-actions">
+            <button
+              type="button"
+              className="gs-btn gs-btn--primary"
+              onClick={() => setShowModal(true)}
+              disabled={sessionsLoading || !!activeSession}
+            >
+              Start Session
+            </button>
+            {activeSession && (
+              <Link
+                to={`/drill/session/${activeSession.id}`}
+                className="gs-btn"
+                style={{ textDecoration: "none" }}
+              >
+                Resume →
+              </Link>
+            )}
           </div>
-          <button
-            type="button"
-            className="gs-btn"
-            onClick={() => setDeleteSession(activeSession)}
-            style={{ background: "var(--pastel-pink)" }}
-          >
-            Delete active session
-          </button>
         </div>
-      )}
+        <div className="drillhub-hero-kana" aria-hidden="true">練</div>
+      </div>
 
       {showModal && (
         <StartSessionModal
@@ -580,54 +538,60 @@ export default function DrillHub() {
         />
       )}
 
-      {/* ── Stats row ────────────────────────────────────────────── */}
+      {/* ── Stats row (blue theme) ──────────────────────────────── */}
       {analyticsLoading ? (
-        <div style={{ display: "flex", gap: 12 }}>
+        <div className="drillhub-stats-grid">
           {[1, 2, 3].map(i => (
-            <div key={i} className="gs-card prf-skeleton-wrap" style={{ flex: 1, padding: 16, minHeight: 72 }} aria-hidden />
+            <div key={i} className="drillhub-stat-card-blue prf-skeleton-wrap" style={{ minHeight: 120 }} aria-hidden />
           ))}
         </div>
       ) : (
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <StatChip label="total problems" value={totalAttempts > 0 ? totalAttempts : "—"} />
-          <StatChip label="accuracy" value={pct(overallAccuracy)} />
-          <StatChip label="sessions" value={sessionsCount > 0 ? sessionsCount : "—"} />
+        <div className="drillhub-stats-grid">
+          <StatCardBlue label="total problems" value={totalAttempts > 0 ? totalAttempts : "0"} />
+          <StatCardBlue label="accuracy" value={pct(overallAccuracy)} />
+          <StatCardBlue label="sessions" value={sessionsCount > 0 ? sessionsCount : "0"} />
         </div>
       )}
 
-      {/* ── Active session resume banner ─────────────────────────── */}
+      {/* ── Active session banner ────────────────────────────────── */}
       {activeSession && (
-        <div className="gs-card" style={{
-          padding: "14px 20px",
-          background: "var(--pastel-cyan)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 12,
-          flexWrap: "wrap",
-        }}>
-          <div>
-            <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 15 }}>
-              Session in progress
-            </div>
-            <div style={{ fontSize: 13, color: "var(--ink-soft)", marginTop: 2 }}>
+        <div className="drillhub-active-banner">
+          <div className="drillhub-active-banner-info">
+            <div className="drillhub-active-banner-title">Session in progress</div>
+            <div className="drillhub-active-banner-sub">
               {activeSession.attemptCount} problem{activeSession.attemptCount !== 1 ? "s" : ""} so far
               · started {formatRelative(activeSession.startedAt)}
             </div>
           </div>
-          <Link
-            to={`/drill/session/${activeSession.id}`}
-            className="gs-btn gs-btn--primary"
-            style={{ textDecoration: "none", whiteSpace: "nowrap" }}
-          >
-            Resume →
-          </Link>
+          <div className="drillhub-active-banner-actions">
+            <Link
+              to={`/drill/session/${activeSession.id}`}
+              className="gs-btn gs-btn--primary"
+              style={{ textDecoration: "none" }}
+            >
+              Resume →
+            </Link>
+            <button
+              type="button"
+              className="gs-btn"
+              onClick={() => setDeleteSession(activeSession)}
+            >
+              Delete
+            </button>
+          </div>
         </div>
       )}
 
-      {/* ── Recent sessions ──────────────────────────────────────── */}
+      {/* ── Recent sessions (limited to 5) ──────────────────────── */}
       <div>
-        <div className="gs-section-h" style={{ marginBottom: 14 }}>Recent Sessions</div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+          <div className="gs-section-h">Recent Sessions</div>
+          {finishedSessions.length > 5 && (
+            <Link to="/drill/history" className="drillhub-view-all-link">
+              View All →
+            </Link>
+          )}
+        </div>
         {sessionsLoading ? (
           <TabSkeleton />
         ) : sessionsError ? (
@@ -641,8 +605,8 @@ export default function DrillHub() {
             </p>
           </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {finishedSessions.map(s => (
+          <div className="drillhub-sessions-list">
+            {finishedSessions.slice(0, 5).map(s => (
               <SessionRow
                 key={s.id}
                 session={s}

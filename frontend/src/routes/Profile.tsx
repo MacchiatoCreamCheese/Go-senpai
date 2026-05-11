@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
-import { WeaknessBar } from "../components/WeaknessBar";
+import { WeaknessBar, weaknessTier } from "../components/WeaknessBar";
 import { HandleEditor } from "../components/HandleEditor";
 import { useAuth, useIdentity } from "../lib/auth";
 import {
@@ -192,12 +192,41 @@ function ChartBlock({
 
 // ─── Stat block ────────────────────────────────────────────────────────────────
 
-function StatBlock({ label, value, sub }: { label: string; value: string; sub?: string }) {
+/**
+ * Enhanced StatCard with progress visualization for metrics.
+ * Supports optional progress bar for drill accuracy and similar metrics.
+ */
+function StatCard({
+  label,
+  value,
+  sub,
+  variant,
+  progress,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  variant?: string;
+  progress?: number; // 0-1, for progress bar display
+}) {
   return (
-    <div className="prf-stat">
-      <span className="prf-stat-value">{value}</span>
-      <span className="prf-stat-label">{label}</span>
-      {sub && <span className="prf-stat-sub">{sub}</span>}
+    <div className={`prf-stat-card${variant ? ` prf-stat-card--${variant}` : ""}`}>
+      <div className="prf-stat-card-top">
+        <span className="prf-stat-card-value">{value}</span>
+        <span className="prf-stat-card-label">{label}</span>
+      </div>
+
+      {/* Progress bar visualization (for Puzzle Accuracy, etc.) */}
+      {progress !== undefined && (
+        <div className="prf-stat-card-progress-track">
+          <div
+            className="prf-stat-card-progress-bar"
+            style={{ width: `${Math.min(100, Math.max(0, progress * 100))}%` }}
+          />
+        </div>
+      )}
+
+      {sub && <span className="prf-stat-card-sub">{sub}</span>}
     </div>
   );
 }
@@ -221,6 +250,33 @@ function ProgressBadge({ state }: { state: ConceptProgressItem["progressState"] 
   };
   const { label, cls } = map[state];
   return <span className={`prf-progress-badge ${cls}`}>{label}</span>;
+}
+
+// ─── Weakness breakdown (tiered) ──────────────────────────────────────────────
+
+function WeaknessBreakdown({ weaknesses }: { weaknesses: WeaknessItem[] }) {
+  const sorted = weaknesses.slice().sort((a, b) => b.severity - a.severity);
+  const tiers = (["critical", "moderate", "minor"] as const).map(id => ({
+    id,
+    label: id.charAt(0).toUpperCase() + id.slice(1),
+    items: sorted.filter(w => weaknessTier(w.severity) === id),
+  })).filter(t => t.items.length > 0);
+
+  return (
+    <div className="wk-breakdown">
+      {tiers.map(t => (
+        <div key={t.id} className="wk-tier-section">
+          <div className={`wk-tier-label wk-tier-label--${t.id}`}>
+            <span>{t.label}</span>
+            <span className="wk-tier-count">{t.items.length}</span>
+          </div>
+          <div className="wk-cards-grid">
+            {t.items.map(w => <WeaknessBar key={w.theme} weakness={w} />)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 // ─── Overview tab ──────────────────────────────────────────────────────────────
@@ -264,7 +320,12 @@ function OverviewTab({
 
       <div className="prf-ov-grid">
         <section className="prf-ov-section">
-          <h3 className="prf-ov-section-title">Recent Games</h3>
+          <div className="prf-ov-section-head">
+            <h3 className="prf-ov-section-title">Recent Games</h3>
+            {recentGames.length > 0 && (
+              <Link to="/profile/history" className="prf-see-all">See all →</Link>
+            )}
+          </div>
           {recentGames.length === 0 ? (
             <p className="prf-ov-empty">
               No games yet. <Link to="/lobby" className="prf-link">Play one →</Link>
@@ -291,22 +352,36 @@ function OverviewTab({
         </section>
 
         <section className="prf-ov-section">
-          <h3 className="prf-ov-section-title">Focus Areas</h3>
+          <div className="prf-ov-section-head">
+            <h3 className="prf-ov-section-title">Focus Areas</h3>
+            {topWeaknesses.length > 0 && (
+              <Link to="/profile/analytics" className="prf-see-all">Full breakdown →</Link>
+            )}
+          </div>
           {topWeaknesses.length === 0 ? (
             <p className="prf-ov-empty">Play a reviewed game to surface your weak spots.</p>
           ) : (
-            <div className="prf-weakness-stack">
-              {topWeaknesses.map(w => (
-                <WeaknessBar key={w.theme} weakness={w} compact />
-              ))}
-            </div>
+            <>
+              <div className="wk-chip-row">
+                {topWeaknesses.map(w => (
+                  <WeaknessBar key={w.theme} weakness={w} compact />
+                ))}
+              </div>
+              <div className="wk-train-hint">
+                <span>Work on these in</span>
+                <Link to="/drill" className="wk-train-link">Drill Hub →</Link>
+              </div>
+            </>
           )}
         </section>
       </div>
 
       {bookmarkedConcepts.length > 0 && (
-        <section className="prf-ov-section" style={{ marginTop: 8 }}>
-          <h3 className="prf-ov-section-title">Saved Concepts</h3>
+        <section className="prf-ov-section">
+          <div className="prf-ov-section-head">
+            <h3 className="prf-ov-section-title">Saved Concepts</h3>
+            <Link to="/profile/concepts" className="prf-see-all">All concepts →</Link>
+          </div>
           <div className="prf-saved-grid">
             {bookmarkedConcepts.map(c => (
               <Link key={c.conceptId} to={`/concepts/${c.conceptId}`} className="prf-saved-item">
@@ -516,6 +591,43 @@ function ConceptsTab({ concepts }: { concepts: ConceptProgressItem[] }) {
   );
 }
 
+/**
+ * Analytics stat card with optional progress bar.
+ * Used in the AnalyticsTab summary section.
+ */
+function AnalyticsStatCard({
+  label,
+  value,
+  hint,
+  progress,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  progress?: number; // 0-1, for progress bar display
+}) {
+  return (
+    <div className="prf-an-stat-card">
+      <div className="prf-an-stat-card-top">
+        <span className="prf-an-stat-card-value">{value}</span>
+        <span className="prf-an-stat-card-label">{label}</span>
+      </div>
+
+      {/* Progress bar for accuracy metrics */}
+      {progress !== undefined && (
+        <div className="prf-an-stat-card-progress">
+          <div
+            className="prf-an-stat-card-progress-bar"
+            style={{ width: `${Math.min(100, Math.max(0, progress * 100))}%` }}
+          />
+        </div>
+      )}
+
+      {hint && <span className="prf-an-stat-card-hint">{hint}</span>}
+    </div>
+  );
+}
+
 // ─── Analytics tab ─────────────────────────────────────────────────────────────
 
 function AnalyticsTab({
@@ -527,44 +639,33 @@ function AnalyticsTab({
   drillStats: DrillStats | null;
   weaknesses: WeaknessItem[];
 }) {
-  const lastGamesValue = analytics.gamesPerWeek
-    ? analytics.gamesPerWeek[analytics.gamesPerWeek.length - 1]?.value ?? null
-    : null;
-  const lastDrillsValue = analytics.drillsPerWeek
-    ? analytics.drillsPerWeek[analytics.drillsPerWeek.length - 1]?.value ?? null
-    : null;
+  const lastGamesValue = analytics.lastWeekGameCount;
+  const lastDrillsValue = analytics.lastWeekDrillCount;
 
   return (
     <div className="prf-analytics">
 
-      {/* Summary stats — only real values; no hardcoded fallbacks */}
+      {/* Summary stats — modern responsive grid with warm aesthetic */}
       <div className="prf-analytics-summary">
-        <div className="prf-an-stat">
-          <span className="prf-an-stat-value">
-            {drillStats?.accuracy != null ? pct(drillStats.accuracy) : "—"}
-          </span>
-          <span className="prf-an-stat-label">Puzzle accuracy</span>
-          {drillStats && drillStats.totalAttempts === 0 && (
-            <span className="prf-an-stat-hint">No drills yet</span>
-          )}
-        </div>
-        <div className="prf-an-stat">
-          <span className="prf-an-stat-value">
-            {lastGamesValue !== null ? lastGamesValue.toFixed(1) : "—"}
-          </span>
-          <span className="prf-an-stat-label">Games this week</span>
-        </div>
-        <div className="prf-an-stat">
-          <span className="prf-an-stat-value">
-            {lastDrillsValue !== null ? lastDrillsValue.toFixed(0) : "—"}
-          </span>
-          <span className="prf-an-stat-label">Drills this week</span>
-        </div>
+        <AnalyticsStatCard
+          label="Puzzle accuracy"
+          value={drillStats?.accuracy != null ? pct(drillStats.accuracy) : "0%"}
+          progress={drillStats?.accuracy ?? 0}
+          hint={drillStats && drillStats.totalAttempts === 0 ? "No drills yet" : undefined}
+        />
+        <AnalyticsStatCard
+          label="Games this week"
+          value={lastGamesValue !== null ? String(lastGamesValue) : "0"}
+        />
+        <AnalyticsStatCard
+          label="Drills this week"
+          value={lastDrillsValue !== null ? String(lastDrillsValue) : "0"}
+        />
         {drillStats && drillStats.totalAttempts > 0 && (
-          <div className="prf-an-stat">
-            <span className="prf-an-stat-value">{drillStats.totalAttempts}</span>
-            <span className="prf-an-stat-label">Total drills</span>
-          </div>
+          <AnalyticsStatCard
+            label="Total drills"
+            value={drillStats.totalAttempts.toString()}
+          />
         )}
       </div>
 
@@ -615,11 +716,7 @@ function AnalyticsTab({
       {weaknesses.length > 0 && (
         <section className="prf-analytics-section">
           <h3 className="prf-analytics-heading">Weakness Breakdown</h3>
-          <div className="prf-weakness-stack">
-            {weaknesses.slice().sort((a, b) => b.severity - a.severity).map(w => (
-              <WeaknessBar key={w.theme} weakness={w} />
-            ))}
-          </div>
+          <WeaknessBreakdown weaknesses={weaknesses} />
         </section>
       )}
 
@@ -710,71 +807,87 @@ export default function Profile() {
   return (
     <div className="prf-page">
 
-      {/* ── Hero ─────────────────────────────────────────────────── */}
-      <div className="prf-hero">
-        <div className="prf-hero-inner">
-          <div className="prf-hero-top">
-            <div className="prf-avatar" style={{ background: avatarBg }}>
-              <span className="prf-avatar-letter">{avatarLetter}</span>
-            </div>
-            <div className="prf-identity">
-              <div className="prf-identity-row">
-                <h1 className="prf-identity-name">{handle}</h1>
-                <span className="prf-rank-badge">{rank}</span>
+      <div className="prf-shell">
+        <div className="prf-shell-grid">
+          {/* ── Hero card ───────────────────────────────────────── */}
+          <section className="gs-card prf-hero-card">
+            <div className="prf-hero-top">
+              <div className="prf-avatar" style={{ background: avatarBg }}>
+                <span className="prf-avatar-letter">{avatarLetter}</span>
               </div>
-              <div className="prf-identity-meta">
-                {gamesLoading
-                  ? "Loading…"
-                  : `${stats.totalGames} game${stats.totalGames !== 1 ? "s" : ""} played${stats.winRate !== null ? ` · ${pct(stats.winRate)} win rate` : ""}`
-                }
+              <div className="prf-identity">
+                <div className="prf-identity-row">
+                  <h1 className="prf-identity-name">{handle}</h1>
+                  <span className="prf-rank-badge">{rank}</span>
+                </div>
+                <div className="prf-identity-meta">
+                  {gamesLoading
+                    ? "Loading…"
+                    : `${stats.totalGames} game${stats.totalGames !== 1 ? "s" : ""} played${stats.winRate !== null ? ` · ${pct(stats.winRate)} win rate` : ""}`
+                  }
+                </div>
+                {isMe && (profile || legacy) && (
+                  <div className="prf-handle-editor"><HandleEditor /></div>
+                )}
               </div>
-              {isMe && !legacy && profile && (
-                <div className="prf-handle-editor"><HandleEditor /></div>
-              )}
             </div>
-          </div>
 
-          <div className="prf-stats-row">
-            <StatBlock label="Games" value={gamesLoading ? "…" : stats.totalGames.toString()} />
-            <StatBlock
-              label="Win rate"
-              value={gamesLoading ? "…" : (stats.winRate !== null ? pct(stats.winRate) : "—")}
-              sub={!gamesLoading && stats.finishedGames > 0 ? `${stats.finishedGames} finished` : undefined}
-            />
-            <StatBlock
-              label="Concepts"
-              value={conceptsLoading && needConcepts ? "…" : stats.totalConcepts.toString()}
-            />
-            <StatBlock
-              label="Puzzle accuracy"
-              value={drillStatsLoading ? "…" : (drillStats?.accuracy != null ? pct(drillStats.accuracy) : "—")}
-            />
-          </div>
-        </div>
-      </div>
+            <div className="prf-stats-grid">
+              <StatCard
+                label="Games"
+                value={gamesLoading ? "…" : stats.totalGames.toString()}
+                variant="games"
+              />
+              <StatCard
+                label="Win rate"
+                value={gamesLoading ? "…" : (stats.winRate !== null ? pct(stats.winRate) : "0%")}
+                sub={!gamesLoading && stats.finishedGames > 0 ? `${stats.finishedGames} finished` : undefined}
+                variant="winrate"
+              />
+              <StatCard
+                label="Concepts"
+                value={conceptsLoading && needConcepts ? "…" : stats.totalConcepts.toString()}
+                variant="concepts"
+              />
+              <StatCard
+                label="Puzzle accuracy"
+                value={drillStatsLoading ? "…" : (drillStats?.accuracy != null ? pct(drillStats.accuracy) : "0%")}
+                progress={drillStatsLoading ? undefined : (drillStats?.accuracy ?? 0)}
+                variant="drills"
+              />
+            </div>
 
-      {/* ── Tab nav ──────────────────────────────────────────────── */}
-      <nav className="prf-nav" role="tablist">
-        <div className="prf-nav-inner">
-          {TABS.map(t => (
-            <button
-              key={t.id}
-              role="tab"
-              aria-selected={activeTab === t.id}
-              className={`prf-tab${activeTab === t.id ? " is-active" : ""}`}
-              onClick={() => goToTab(t.id)}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </nav>
+            {isMe && (
+              <div className="prf-hero-actions">
+                <Link to="/lobby" className="prf-action-link">Lobby →</Link>
+                <Link to="/drill" className="prf-action-link">Drills →</Link>
+                <Link to="/coach" className="prf-action-link">Coach →</Link>
+              </div>
+            )}
+          </section>
 
-      {/* ── Tab content ──────────────────────────────────────────── */}
-      <div className="prf-body">
-        <div className="prf-body-inner">
+          {/* ── Tabs card ──────────────────────────────────────── */}
+          <section className="gs-card prf-tabs-card">
+            <nav className="prf-nav" role="tablist" aria-label="Profile sections">
+              <div className="prf-nav-inner">
+                {TABS.map(t => (
+                  <button
+                    key={t.id}
+                    role="tab"
+                    aria-selected={activeTab === t.id}
+                    className={`prf-tab${activeTab === t.id ? " is-active" : ""}`}
+                    onClick={() => goToTab(t.id)}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </nav>
 
-          {activeTab === "overview" && (
+            <div className="prf-body">
+              <div className="prf-body-inner">
+
+                {activeTab === "overview" && (
             gamesLoading ? <TabSkeleton /> :
             gamesError   ? <TabError message="Could not load game history." /> :
             weaknessesError ? <TabError message="Could not load weakness data." /> :
@@ -794,25 +907,29 @@ export default function Profile() {
             )
           )}
 
-          {activeTab === "history" && (
+                {activeTab === "history" && (
             gamesLoading ? <TabSkeleton /> :
             gamesError   ? <TabError message="Could not load match history." /> :
             <HistoryTab games={games} />
           )}
 
-          {activeTab === "concepts" && (
+                {activeTab === "concepts" && (
             conceptsLoading ? <TabSkeleton /> :
             conceptsError   ? <TabError message="Could not load concepts." /> :
             <ConceptsTab concepts={concepts} />
           )}
 
-          {activeTab === "analytics" && (
+                {activeTab === "analytics" && (
             analyticsLoading ? <TabSkeleton /> :
             analyticsError   ? <TabError message="Could not load analytics data." /> :
             weaknessesError ? <TabError message="Could not load weakness data." /> :
             analytics        ? <AnalyticsTab analytics={analytics} drillStats={drillStats} weaknesses={weaknesses} /> :
             <TabSkeleton />
           )}
+
+              </div>
+            </div>
+          </section>
 
         </div>
       </div>

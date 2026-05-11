@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useIdentity } from "../lib/auth";
@@ -8,8 +8,10 @@ import {
   useNextDrillProblem,
   useFinishDrillSession,
   useCreateDrillSession,
+  useDrillAnalytics,
   DRILL_KEYS,
 } from "../hooks/useDrillData";
+import { useProfileWeaknesses } from "../hooks/useProfileData";
 import { DrillProblemUI } from "./Drill";
 import { buildSessionSummary } from "../services/drillService";
 import type { SessionSummary } from "../types/drill";
@@ -221,8 +223,40 @@ export default function DrillSessionRoute() {
   const nextProblemQ = useNextDrillProblem(userId, nextProblemEnabled);
   const finishSession = useFinishDrillSession();
   const createSession = useCreateDrillSession();
+  const { data: userWeaknesses = [] } = useProfileWeaknesses(userId ?? null);
+  const { data: analytics } = useDrillAnalytics(userId ?? null);
 
   const alreadyFinishingRef = useRef(false);
+  const localAttemptCountRef = useRef<number | null>(null);
+  const pendingCorrectRef = useRef<boolean | null>(null);  // wasCorrect of the last answered problem
+  const prevProblemIdRef = useRef<string | null>(null);    // to detect problem-ID changes
+  // Tracks which session the display counters were last seeded from (never re-seeds on refetch).
+  const initializedForSessionRef = useRef<string | null>(null);
+
+  // Display counters: ONLY updated when a new problem renders. Never touched by submit or refetch.
+  const [localDisplayAttempts, setLocalDisplayAttempts] = useState(0);
+  const [localDisplayCorrect, setLocalDisplayCorrect] = useState(0);
+
+  // Seed counters once when a session first loads (handles joining a mid-session).
+  // Keyed on session.id so a new session re-seeds; background refetches of the same session are ignored.
+  useEffect(() => {
+    if (!session || initializedForSessionRef.current === session.id) return;
+    initializedForSessionRef.current = session.id;
+    setLocalDisplayAttempts(session.attemptCount);
+    setLocalDisplayCorrect(session.correctCount);
+  }, [session?.id]); // intentionally excludes attemptCount/correctCount
+
+  // Step the bar the moment a new problem ID becomes visible (= previous answer committed to screen).
+  const currentProblemId = nextProblemQ.data?.id;
+  useEffect(() => {
+    if (!currentProblemId) return;
+    if (prevProblemIdRef.current !== null && prevProblemIdRef.current !== currentProblemId) {
+      setLocalDisplayAttempts(prev => prev + 1);
+      if (pendingCorrectRef.current) setLocalDisplayCorrect(prev => prev + 1);
+      pendingCorrectRef.current = null;
+    }
+    prevProblemIdRef.current = currentProblemId;
+  }, [currentProblemId]);
 
   const [showSummary, setShowSummary] = useState(false);
   const [summary, setSummary] = useState<SessionSummary | null>(null);
@@ -294,7 +328,14 @@ export default function DrillSessionRoute() {
 
     if (finishSession.isPending || alreadyFinishingRef.current) return;
 
-    if (isSessionComplete) {
+    localAttemptCountRef.current = Math.max(
+      (localAttemptCountRef.current ?? 0) + 1,
+      session.attemptCount,
+    );
+    pendingCorrectRef.current = wasCorrect ?? false;
+    const shouldFinish = localAttemptCountRef.current >= targetCount;
+
+    if (shouldFinish) {
       alreadyFinishingRef.current = true;
       try {
         const finished = await finishSession.mutateAsync({ sessionId: session.id, userId });
@@ -313,6 +354,9 @@ export default function DrillSessionRoute() {
     if (!userId) return;
     const newSession = await createSession.mutateAsync({ userId, targetProblemCount: targetCount });
     alreadyFinishingRef.current = false;
+    localAttemptCountRef.current = null;
+    setLocalDisplayAttempts(0);
+    setLocalDisplayCorrect(0);
     setShowSummary(false);
     setSummary(null);
     setPracticeMode(false);
@@ -325,8 +369,8 @@ export default function DrillSessionRoute() {
     void handleNewSession();
   }
 
-  const displayCurrent = practiceMode ? practiceAttempts : session.attemptCount;
-  const displayCorrect = practiceMode ? practiceCorrectCount : session.correctCount;
+  const displayCurrent = practiceMode ? practiceAttempts : localDisplayAttempts;
+  const displayCorrect = practiceMode ? practiceCorrectCount : localDisplayCorrect;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
@@ -359,6 +403,8 @@ export default function DrillSessionRoute() {
           sessionId={practiceMode ? null : sessionId}
           onNext={handleNext}
           isPractice={practiceMode}
+          userWeaknesses={userWeaknesses}
+          themeAccuracy={analytics?.themeBreakdown ?? []}
         />
       )}
 

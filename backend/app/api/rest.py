@@ -83,6 +83,25 @@ async def update_my_handle(
     return UserSchema(id=str(row["id"]), handle=row["handle"])
 
 
+@router.patch("/users/{user_id}/handle", response_model=UserSchema)
+async def update_user_handle(
+    user_id: str, req: UpdateHandleRequest, _user=Depends(soft_user)
+) -> UserSchema:
+    """Update handle for any user. Works in both auth and legacy mode.
+    In auth mode the JWT must match user_id. In legacy mode the UUID must
+    exist in the users table (created automatically by ensure_legacy_user)."""
+    handle = req.handle.strip()
+    if len(handle) < 2:
+        raise HTTPException(status_code=422, detail="Handle must be at least 2 characters.")
+    if len(handle) > 32:
+        raise HTTPException(status_code=422, detail="Handle must be 32 characters or fewer.")
+    effective_id = await _resolve_user_id_for_request(user_id, _user)
+    row = await db.update_user_handle(effective_id, handle)
+    if not row:
+        raise HTTPException(status_code=404, detail="user not found")
+    return UserSchema(id=str(row["id"]), handle=row["handle"])
+
+
 @router.get("/users/{user_id}", response_model=UserSchema)
 async def get_user(user_id: str) -> UserSchema:
     row = await db.get_user(user_id)
@@ -191,20 +210,79 @@ async def get_problem_by_id(problem_id: str) -> ProblemSchema:
 
 _DRILL_EMA_ALPHA = 0.15  # softer than game-analysis alpha (0.3) — drill evidence is one move
 
+
+async def _resolve_user_id_for_request(
+    requested_user_id: str | None,
+    auth_user: dict | None,
+) -> str:
+    """Resolve effective user_id.
+
+    - Auth mode: auth_user comes from soft_user (which already upserted the
+      row via get_or_create_user_from_auth), so the id is always valid.
+    - Legacy mode: requested_user_id must be provided AND must already exist
+      in the users table.  A stale localStorage UUID that was never registered
+      would otherwise cause a FK violation on drill_attempts / drill_sessions.
+    """
+    auth_user_id = str(auth_user["id"]) if auth_user else None
+    if auth_user_id and requested_user_id and requested_user_id != auth_user_id:
+        raise HTTPException(status_code=403, detail="user_id does not match authenticated user")
+    if auth_user_id:
+        return auth_user_id
+    if requested_user_id:
+        # Legacy mode — auto-create a minimal user row if the UUID is unknown.
+        # This handles stale localStorage UUIDs from previous deployments or
+        # after a DB reset.  The temp handle can be changed in Profile.
+        await db.ensure_legacy_user(requested_user_id)
+        return requested_user_id
+    raise HTTPException(status_code=400, detail="user_id is required")
+
 @router.post("/drill-attempts", response_model=DrillAttemptSchema, status_code=201)
 async def create_drill_attempt(
     req: DrillAttemptRequest, _user=Depends(soft_user)
 ) -> DrillAttemptSchema:
-    row = await db.record_drill_attempt(
-        req.user_id,
-        req.problem_id,
-        req.success,
-        req.moves_played,
-        req.hint_used,
-        req.session_id,
-        req.is_retry,
-        req.retry_of_attempt_id,
-    )
+    effective_user_id = await _resolve_user_id_for_request(req.user_id, _user)
+    try:
+        row = await db.record_drill_attempt(
+            effective_user_id,
+            req.problem_id,
+            req.success,
+            req.moves_played,
+            req.hint_used,
+            req.session_id,
+            req.is_retry,
+            req.retry_of_attempt_id,
+        )
+    except ValueError as exc:
+        logging.getLogger(__name__).warning(
+            "drill attempt rejected user=%s problem=%s session=%s retry=%s retry_of=%s: %s",
+            effective_user_id,
+            req.problem_id,
+            req.session_id,
+            req.is_retry,
+            req.retry_of_attempt_id,
+            exc,
+        )
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        exc_str = str(exc)
+        logging.getLogger(__name__).exception(
+            "drill attempt insert failed user=%s problem=%s session=%s retry=%s retry_of=%s",
+            effective_user_id,
+            req.problem_id,
+            req.session_id,
+            req.is_retry,
+            req.retry_of_attempt_id,
+        )
+        # Surface FK violations as a clear 400 instead of a raw 500.
+        if "drill_attempts_user_id_fkey" in exc_str or "is not present in table" in exc_str:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"User '{effective_user_id}' is not registered. "
+                    "Please set a handle in the Lobby first so your account exists."
+                ),
+            ) from exc
+        raise HTTPException(status_code=500, detail=f"could not add attempt: {exc}") from exc
     # On success, feed a score=0 EMA update for each weakness theme the drill
     # addresses — this decays severity toward 0, signalling improving skill.
     # On failure we leave severities alone; game analysis already captures that.
@@ -214,9 +292,17 @@ async def create_drill_attempt(
             themes = weakness_themes_for_problem(list(problem.get("themes") or []))
             for theme in themes:
                 try:
-                    await db.upsert_user_weakness(req.user_id, theme, 0.0, _DRILL_EMA_ALPHA)
+                    await db.upsert_user_weakness(effective_user_id, theme, 0.0, _DRILL_EMA_ALPHA)
                 except Exception:
                     pass
+    logging.getLogger(__name__).debug(
+        "drill attempt stored user=%s session=%s problem=%s is_retry=%s counted_for_progress=%s",
+        effective_user_id,
+        req.session_id,
+        req.problem_id,
+        req.is_retry,
+        not req.is_retry,
+    )
     return DrillAttemptSchema(
         id=int(row["id"]),
         user_id=str(row["user_id"]),
@@ -332,7 +418,11 @@ def _fmt_drill_session(row: dict) -> DrillSessionSchema:
 async def create_drill_session(
     req: CreateDrillSessionRequest, _user=Depends(soft_user)
 ) -> DrillSessionSchema:
-    row = await db.create_drill_session(req.user_id, req.target_problem_count)
+    effective_user_id = await _resolve_user_id_for_request(req.user_id, _user)
+    try:
+        row = await db.create_drill_session(effective_user_id, req.target_problem_count)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _fmt_drill_session(row)
 
 
@@ -340,17 +430,19 @@ async def create_drill_session(
 async def finish_drill_session(
     session_id: str, _user=Depends(soft_user)
 ) -> DrillSessionSchema:
-    row = await db.finish_drill_session(session_id)
+    auth_user_id = str(_user["id"]) if _user else None
+    row = await db.finish_drill_session(session_id, auth_user_id)
     if not row:
         raise HTTPException(status_code=404, detail="session not found or already finished")
     # refetch with attempt counts
-    full = await db.get_drill_session(session_id)
+    full = await db.get_drill_session(session_id, auth_user_id)
     return _fmt_drill_session(full or row)
 
 
 @router.get("/drill-sessions/{session_id}", response_model=DrillSessionSchema)
-async def get_drill_session(session_id: str) -> DrillSessionSchema:
-    row = await db.get_drill_session(session_id)
+async def get_drill_session(session_id: str, _user=Depends(soft_user)) -> DrillSessionSchema:
+    auth_user_id = str(_user["id"]) if _user else None
+    row = await db.get_drill_session(session_id, auth_user_id)
     if not row:
         raise HTTPException(status_code=404, detail="session not found")
     return _fmt_drill_session(row)
@@ -358,15 +450,17 @@ async def get_drill_session(session_id: str) -> DrillSessionSchema:
 
 @router.get("/users/{user_id}/drill-sessions", response_model=list[DrillSessionSchema])
 async def list_drill_sessions(
-    user_id: str, limit: int = 20, offset: int = 0
+    user_id: str, limit: int = 20, offset: int = 0, _user=Depends(soft_user)
 ) -> list[DrillSessionSchema]:
-    rows = await db.list_drill_sessions(user_id, limit=limit, offset=offset)
+    effective_user_id = await _resolve_user_id_for_request(user_id, _user)
+    rows = await db.list_drill_sessions(effective_user_id, limit=limit, offset=offset)
     return [_fmt_drill_session(r) for r in rows]
 
 
 @router.delete("/drill-sessions/{session_id}")
 async def delete_drill_session(session_id: str, _user=Depends(soft_user)):
-    ok = await db.delete_drill_session(session_id, _user["id"])
+    auth_user_id = str(_user["id"]) if _user else ""
+    ok = await db.delete_drill_session(session_id, auth_user_id)
     if not ok:
         raise HTTPException(status_code=404, detail="session not found or not owned by user")
     return {"deleted": True}
