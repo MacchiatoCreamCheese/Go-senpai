@@ -118,6 +118,9 @@ export interface UserGameListItem {
   board_size: number;
   result: string | null;
   started_at: string;
+  player_color: "B" | "W" | null;
+  opponent_type: "human" | "ai";
+  opponent_handle: string | null;
 }
 
 export async function getMyGames(userId: string): Promise<UserGameListItem[]> {
@@ -313,6 +316,9 @@ export interface DrillAttemptResp {
   problem_id: string;
   attempted_at: string;
   success: boolean;
+  session_id: string | null;
+  is_retry?: boolean;
+  retry_of_attempt_id?: number | null;
 }
 
 export async function postDrillAttempt(payload: {
@@ -321,6 +327,9 @@ export async function postDrillAttempt(payload: {
   success: boolean;
   moves_played: Array<Record<string, unknown>>;
   hint_used: boolean;
+  session_id?: string | null;
+  is_retry?: boolean;
+  retry_of_attempt_id?: number | null;
 }): Promise<DrillAttemptResp> {
   const resp = await api("/api/drill-attempts", {
     method: "POST",
@@ -362,6 +371,17 @@ export async function getUserProgress(userId: string): Promise<UserProgressRespo
     return { games_per_week: [], drills_per_week: [], top_weakness_severity_history: [] };
   }
   return asJson<UserProgressResponse>(resp);
+}
+
+export interface DrillStatsResponse {
+  total_attempts: number;
+  accuracy: number | null;
+}
+
+export async function getDrillStats(userId: string): Promise<DrillStatsResponse> {
+  const resp = await api(`/api/users/${encodeURIComponent(userId)}/drill-stats`);
+  if (!resp.ok) return { total_attempts: 0, accuracy: null };
+  return asJson<DrillStatsResponse>(resp);
 }
 
 export interface ConceptListItem {
@@ -428,4 +448,70 @@ export async function getPlayerNotes(
   if (!resp.ok) return {};
   const raw: Record<string, string> = await resp.json();
   return Object.fromEntries(Object.entries(raw).map(([k, v]) => [Number(k), v]));
+}
+
+// ─── Drill Sessions ──────────────────────────────────────────
+
+export interface DrillSessionResp {
+  id: string;
+  user_id: string;
+  started_at: string;
+  finished_at: string | null;
+  status: "active" | "finished" | "abandoned";
+  problem_count: number;
+  attempt_count: number;
+  correct_count: number;
+  target_problem_count: number;
+}
+
+export interface DrillAnalyticsResp {
+  total_attempts: number;
+  accuracy: number | null;
+  sessions_count: number;
+  accuracy_this_week: number | null;
+  accuracy_last_week: number | null;
+  theme_breakdown: Array<{ theme: string; attempts: number; correct: number }>;
+}
+
+export async function createDrillSession(userId: string, targetProblemCount = 5): Promise<DrillSessionResp> {
+  const resp = await api("/api/drill-sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: userId, target_problem_count: targetProblemCount }),
+  });
+  return asJson<DrillSessionResp>(resp);
+}
+
+export async function finishDrillSession(sessionId: string): Promise<DrillSessionResp> {
+  const resp = await api(`/api/drill-sessions/${encodeURIComponent(sessionId)}/finish`, {
+    method: "POST",
+  });
+  return asJson<DrillSessionResp>(resp);
+}
+
+export async function deleteDrillSession(sessionId: string): Promise<{ deleted: boolean }> {
+  const resp = await api(`/api/drill-sessions/${encodeURIComponent(sessionId)}`, {
+    method: "DELETE",
+  });
+  return asJson<{ deleted: boolean }>(resp);
+}
+
+export async function getDrillSession(sessionId: string): Promise<DrillSessionResp> {
+  const resp = await api(`/api/drill-sessions/${encodeURIComponent(sessionId)}`);
+  return asJson<DrillSessionResp>(resp);
+}
+
+export async function listDrillSessions(
+  userId: string,
+  limit = 20,
+): Promise<DrillSessionResp[]> {
+  const resp = await api(
+    `/api/users/${encodeURIComponent(userId)}/drill-sessions?limit=${limit}`,
+  );
+  return asJson<DrillSessionResp[]>(resp);
+}
+
+export async function getDrillAnalytics(userId: string): Promise<DrillAnalyticsResp> {
+  const resp = await api(`/api/users/${encodeURIComponent(userId)}/drill-analytics`);
+  return asJson<DrillAnalyticsResp>(resp);
 }

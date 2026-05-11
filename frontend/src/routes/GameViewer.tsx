@@ -124,6 +124,8 @@ export default function GameViewer() {
     let cancelled = false;
     getMoveOwnership(gameId, currentMove).then((data) => {
       if (!cancelled) setOwnershipRaw(data);
+    }).catch(() => {
+      if (!cancelled) setOwnershipRaw(null);
     });
     return () => { cancelled = true; };
   }, [showOwnership, gameId, currentMove]);

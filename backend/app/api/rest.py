@@ -24,10 +24,14 @@ from ..schemas import (
     ActionHistoryItem,
     ConceptListItem,
     ConceptSchema,
+    CreateDrillSessionRequest,
     CreateGameRequest,
     CreateUserRequest,
+    DrillAnalyticsSchema,
     DrillAttemptRequest,
     DrillAttemptSchema,
+    DrillSessionSchema,
+    DrillStatsSchema,
     GameListItem,
     GameSchema,
     JoinGameRequest,
@@ -35,6 +39,7 @@ from ..schemas import (
     NextActionResponse,
     ProblemSchema,
     StateSchema,
+    ThemeBreakdownItem,
     UserConceptItem,
     UserProgressResponse,
     UserSchema,
@@ -196,6 +201,9 @@ async def create_drill_attempt(
         req.success,
         req.moves_played,
         req.hint_used,
+        req.session_id,
+        req.is_retry,
+        req.retry_of_attempt_id,
     )
     # On success, feed a score=0 EMA update for each weakness theme the drill
     # addresses — this decays severity toward 0, signalling improving skill.
@@ -215,6 +223,9 @@ async def create_drill_attempt(
         problem_id=str(row["problem_id"]),
         attempted_at=row["attempted_at"].isoformat(),
         success=bool(row["success"]),
+        session_id=str(row["session_id"]) if row.get("session_id") else None,
+        is_retry=bool(row.get("is_retry") or False),
+        retry_of_attempt_id=int(row["retry_of_attempt_id"]) if row.get("retry_of_attempt_id") else None,
     )
 
 
@@ -284,9 +295,111 @@ async def list_user_games(user_id: str) -> list[GameListItem]:
             board_size=r["board_size"],
             result=r["result"],
             started_at=r["started_at"].isoformat(),
+            player_color=r.get("player_color"),
+            opponent_type=r.get("opponent_type") or "human",
+            opponent_handle=r.get("opponent_handle"),
         )
         for r in rows
     ]
+
+
+@router.get("/users/{user_id}/drill-stats", response_model=DrillStatsSchema)
+async def get_user_drill_stats(user_id: str) -> DrillStatsSchema:
+    row = await db.get_drill_stats(user_id)
+    total = int(row["total_attempts"])
+    correct = int(row["correct"])
+    return DrillStatsSchema(
+        total_attempts=total,
+        accuracy=correct / total if total > 0 else None,
+    )
+
+
+def _fmt_drill_session(row: dict) -> DrillSessionSchema:
+    return DrillSessionSchema(
+        id=str(row["id"]),
+        user_id=str(row["user_id"]),
+        started_at=row["started_at"].isoformat(),
+        finished_at=row["finished_at"].isoformat() if row.get("finished_at") else None,
+        status=str(row["status"]),
+        problem_count=int(row.get("problem_count") or 0),
+        attempt_count=int(row.get("attempt_count") or 0),
+        correct_count=int(row.get("correct_count") or 0),
+        target_problem_count=int(row.get("target_problem_count") or 5),
+    )
+
+
+@router.post("/drill-sessions", response_model=DrillSessionSchema, status_code=201)
+async def create_drill_session(
+    req: CreateDrillSessionRequest, _user=Depends(soft_user)
+) -> DrillSessionSchema:
+    row = await db.create_drill_session(req.user_id, req.target_problem_count)
+    return _fmt_drill_session(row)
+
+
+@router.post("/drill-sessions/{session_id}/finish", response_model=DrillSessionSchema)
+async def finish_drill_session(
+    session_id: str, _user=Depends(soft_user)
+) -> DrillSessionSchema:
+    row = await db.finish_drill_session(session_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="session not found or already finished")
+    # refetch with attempt counts
+    full = await db.get_drill_session(session_id)
+    return _fmt_drill_session(full or row)
+
+
+@router.get("/drill-sessions/{session_id}", response_model=DrillSessionSchema)
+async def get_drill_session(session_id: str) -> DrillSessionSchema:
+    row = await db.get_drill_session(session_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="session not found")
+    return _fmt_drill_session(row)
+
+
+@router.get("/users/{user_id}/drill-sessions", response_model=list[DrillSessionSchema])
+async def list_drill_sessions(
+    user_id: str, limit: int = 20, offset: int = 0
+) -> list[DrillSessionSchema]:
+    rows = await db.list_drill_sessions(user_id, limit=limit, offset=offset)
+    return [_fmt_drill_session(r) for r in rows]
+
+
+@router.delete("/drill-sessions/{session_id}")
+async def delete_drill_session(session_id: str, _user=Depends(soft_user)):
+    ok = await db.delete_drill_session(session_id, _user["id"])
+    if not ok:
+        raise HTTPException(status_code=404, detail="session not found or not owned by user")
+    return {"deleted": True}
+
+
+def _safe_accuracy(correct: int, total: int) -> float | None:
+    return correct / total if total >= 3 else None
+
+
+@router.get("/users/{user_id}/drill-analytics", response_model=DrillAnalyticsSchema)
+async def get_drill_analytics(user_id: str) -> DrillAnalyticsSchema:
+    data = await db.get_drill_analytics(user_id)
+    total = int(data.get("total_attempts") or 0)
+    correct = int(data.get("correct") or 0)
+    tw_att = int(data.get("this_week_attempts") or 0)
+    tw_cor = int(data.get("this_week_correct") or 0)
+    lw_att = int(data.get("last_week_attempts") or 0)
+    lw_cor = int(data.get("last_week_correct") or 0)
+    return DrillAnalyticsSchema(
+        total_attempts=total,
+        accuracy=_safe_accuracy(correct, total),
+        sessions_count=int(data.get("sessions") or 0),
+        accuracy_this_week=_safe_accuracy(tw_cor, tw_att),
+        accuracy_last_week=_safe_accuracy(lw_cor, lw_att),
+        theme_breakdown=[
+            ThemeBreakdownItem(
+                theme=str(t["theme"]),
+                attempts=int(t["attempts"]),
+                correct=int(t["correct"]),
+            )
+            for t in (data.get("theme_rows") or [])
+        ],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -490,7 +603,7 @@ async def play_move(game_id: str, req: MoveRequest, _user=Depends(soft_user)) ->
 
         state = StateSchema.from_game(record.game)
 
-    if game_just_ended and row.get("training_mode"):
+    if game_just_ended and row and row.get("training_mode"):
         asyncio.create_task(_update_weaknesses_from_training_game(game_id, row))
 
     await broadcast_state(record, state)

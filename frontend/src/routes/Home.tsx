@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 
@@ -8,13 +8,14 @@ import {
   getUserConcepts,
   getUserProgress,
   getWeaknesses,
+  updateMyHandle,
   type NextActionResponse,
   type UserGameListItem,
   type WeaknessItem,
 } from "../api";
 import { AuthLoading } from "../components/AuthLoading";
 import { useToast } from "../components/NotificationToast";
-import { HANDLE_KEY, useAuth, useIdentity } from "../lib/auth";
+import { SETUP_DONE_KEY, useAuth, useIdentity } from "../lib/auth";
 import { GoBoardSVG } from "../GoBoardSVG";
 
 const PASTEL_CYCLE = [
@@ -29,13 +30,17 @@ const PASTEL_CYCLE = [
 const DAYS = ["M", "T", "W", "T", "F", "S", "S"];
 
 export default function Home() {
-  const { profile, user, ready } = useAuth();
+  const { profile, user, ready, refreshProfile } = useAuth();
   const { userId, displayName: handle } = useIdentity();
   const toast = useToast();
 
-  const [nameConfirmed, setNameConfirmed] = useState(
-    () => !!localStorage.getItem(HANDLE_KEY)
-  );
+  const [nameConfirmed, setNameConfirmed] = useState(false);
+
+  useEffect(() => {
+    if (userId) {
+      setNameConfirmed(!!localStorage.getItem(`${SETUP_DONE_KEY}_${userId}`));
+    }
+  }, [userId]);
 
   const games = useQuery({
     queryKey: ["my-games", userId],
@@ -102,8 +107,14 @@ export default function Home() {
     return (
       <NameSetupScreen
         email={profile?.email ?? user?.email ?? null}
-        onConfirm={(name) => {
-          if (name.trim()) localStorage.setItem(HANDLE_KEY, name.trim());
+        defaultHandle={profile?.handle ?? ""}
+        onConfirm={async (chosenName) => {
+          const current = profile?.handle ?? "";
+          if (chosenName.trim() && chosenName.trim() !== current) {
+            await updateMyHandle(chosenName.trim());
+            await refreshProfile();
+          }
+          if (userId) localStorage.setItem(`${SETUP_DONE_KEY}_${userId}`, "1");
           setNameConfirmed(true);
         }}
       />
@@ -532,8 +543,16 @@ function WelcomeStub() {
 
 // ─── Name-setup screen (logged in, first time) ─────────────────
 
-function NameSetupScreen({ email, onConfirm }: { email: string | null; onConfirm: (name: string) => void }) {
-  const [name, setName] = useState("");
+function NameSetupScreen({
+  email,
+  defaultHandle,
+  onConfirm,
+}: {
+  email: string | null;
+  defaultHandle: string;
+  onConfirm: (name: string) => void;
+}) {
+  const [name, setName] = useState(defaultHandle);
 
   return (
     <div style={{
@@ -578,21 +597,37 @@ function NameSetupScreen({ email, onConfirm }: { email: string | null; onConfirm
               id="display-name"
               className="input"
               type="text"
-              placeholder="Your name or nickname"
+              placeholder={defaultHandle || "Your name or nickname"}
               value={name}
               onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") onConfirm(name); }}
+              onKeyDown={(e) => { if (e.key === "Enter") onConfirm(name || defaultHandle); }}
               autoFocus
             />
+            {defaultHandle && (
+              <p style={{ fontSize: 12, color: "var(--ink-mute)", margin: 0 }}>
+                Your auto-generated name: <strong>{defaultHandle}</strong>
+              </p>
+            )}
           </div>
 
-          <button
-            className="gs-btn gs-btn--primary"
-            style={{ width: "100%", justifyContent: "center" }}
-            onClick={() => onConfirm(name)}
-          >
-            Get Started →
-          </button>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <button
+              className="gs-btn gs-btn--primary"
+              style={{ width: "100%", justifyContent: "center" }}
+              onClick={() => onConfirm(name || defaultHandle)}
+            >
+              Get Started →
+            </button>
+            {defaultHandle && (
+              <button
+                className="gs-btn"
+                style={{ width: "100%", justifyContent: "center", background: "transparent", fontSize: 13 }}
+                onClick={() => onConfirm(defaultHandle)}
+              >
+                Skip, keep "{defaultHandle}"
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Feature highlights */}

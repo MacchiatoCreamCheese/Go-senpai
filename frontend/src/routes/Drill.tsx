@@ -1,14 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 
-import { getNextProblem, getProblem, postDrillAttempt, type ProblemT } from "../api";
+import type { ProblemT } from "../api";
 import { GoBoard } from "../GoBoard";
 import { useToast } from "../components/NotificationToast";
 import { boardAtMove, formatCoord, parseCoord, type Cell } from "../lib/replay";
 import { parseProblemSgf, setupToBoard } from "../lib/sgf";
 import { useIdentity } from "../lib/auth";
 import type { MoveT } from "../types";
+import {
+  useNextDrillProblem,
+  useDrillProblem,
+  useSubmitDrillAttempt,
+  DRILL_KEYS,
+} from "../hooks/useDrillData";
 
 interface SolutionStep {
   color: "B" | "W";
@@ -34,20 +40,11 @@ export default function Drill() {
   const { userId } = useIdentity();
   const queryClient = useQueryClient();
 
-  const next = useQuery({
-    queryKey: ["next-problem", userId],
-    queryFn: () => (userId ? getNextProblem(userId) : Promise.resolve(null)),
-    enabled: !!userId && !problemId,
-  });
+  const nextQ = useNextDrillProblem(problemId ? null : userId);
+  const directQ = useDrillProblem(problemId ?? null);
 
-  const direct = useQuery({
-    queryKey: ["problem", problemId],
-    queryFn: () => getProblem(problemId!),
-    enabled: !!problemId,
-  });
-
-  const isLoading = problemId ? direct.isLoading : next.isLoading;
-  const problem: ProblemT | null = (problemId ? direct.data : next.data) ?? null;
+  const isLoading = problemId ? directQ.isLoading : nextQ.isLoading;
+  const problem: ProblemT | null = (problemId ? directQ.data : nextQ.data) ?? null;
 
   if (!userId) {
     return (
@@ -94,24 +91,26 @@ export default function Drill() {
   }
 
   return (
-    <DrillSession
+    <DrillProblemUI
       problem={problem}
       userId={userId}
       onNext={() => {
-        queryClient.invalidateQueries({ queryKey: ["next-problem", userId] });
+        queryClient.invalidateQueries({ queryKey: DRILL_KEYS.nextProblem(userId) });
         navigate("/drill", { replace: true });
       }}
     />
   );
 }
 
-interface DrillSessionProps {
+export interface DrillProblemUIProps {
   problem: ProblemT;
   userId: string;
-  onNext: () => void;
+  onNext: (wasCorrect?: boolean) => void;
+  sessionId?: string | null;
+  isPractice?: boolean;
 }
 
-function DrillSession({ problem, userId, onNext }: DrillSessionProps) {
+export function DrillProblemUI({ problem, userId, onNext, sessionId, isPractice }: DrillProblemUIProps) {
   const toast = useToast();
 
   const setup = useMemo(() => parseProblemSgf(problem.sgf), [problem.sgf]);
@@ -125,12 +124,16 @@ function DrillSession({ problem, userId, onNext }: DrillSessionProps) {
   const [resolved, setResolved] = useState<"pending" | "solved" | "failed" | "revealed">("pending");
   const [hintUsed, setHintUsed] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  const [lastAttemptId, setLastAttemptId] = useState<number | null>(null);
+  const [hasAttemptedOnce, setHasAttemptedOnce] = useState(false);
 
   useEffect(() => {
     setMovesPlayed([]);
     setResolved("pending");
     setHintUsed(false);
     setModalOpen(false);
+    setLastAttemptId(null);
+    setHasAttemptedOnce(false);
   }, [problem.id]);
 
   const currentBoard = useMemo(() => {
@@ -146,9 +149,12 @@ function DrillSession({ problem, userId, onNext }: DrillSessionProps) {
     return { cells: working, last: r.last };
   }, [initialBoard, setup.size, movesPlayed]);
 
-  const submit = useMutation({
-    mutationFn: (success: boolean) =>
-      postDrillAttempt({
+  const submitAttempt = useSubmitDrillAttempt();
+
+  async function doSubmit(success: boolean) {
+    if (isPractice) return;
+    try {
+      const row = await submitAttempt.mutateAsync({
         user_id: userId,
         problem_id: problem.id,
         success,
@@ -157,9 +163,23 @@ function DrillSession({ problem, userId, onNext }: DrillSessionProps) {
           coord: m.point ? formatCoord(m.point.row, m.point.col, setup.size) : m.kind,
         })),
         hint_used: hintUsed,
-      }),
-    onError: (err) => toast.push({ kind: "error", title: "Couldn't log attempt", body: String(err) }),
-  });
+        session_id: sessionId ?? null,
+        is_retry: hasAttemptedOnce,
+        retry_of_attempt_id: hasAttemptedOnce ? lastAttemptId : null,
+      });
+      setLastAttemptId(row.id);
+      setHasAttemptedOnce(true);
+    } catch (err) {
+      toast.push({ kind: "error", title: "Couldn't log attempt", body: String(err) });
+    }
+  }
+
+  function retryProblem() {
+    setMovesPlayed([]);
+    setResolved("pending");
+    setHintUsed(false);
+    setModalOpen(false);
+  }
 
   function handlePlay(point: { row: number; col: number }) {
     if (resolved !== "pending") return;
@@ -181,14 +201,14 @@ function DrillSession({ problem, userId, onNext }: DrillSessionProps) {
       if (nextMoves.length === solution.length) {
         setResolved("solved");
         setModalOpen(true);
-        submit.mutate(true);
+        void doSubmit(true);
       }
     } else {
       const m: MoveT = { color: expected.color, kind: "play", point };
       setMovesPlayed((prev) => [...prev, m]);
       setResolved("failed");
       setModalOpen(true);
-      submit.mutate(false);
+      void doSubmit(false);
     }
   }
 
@@ -204,7 +224,7 @@ function DrillSession({ problem, userId, onNext }: DrillSessionProps) {
   }
 
   function showSolution() {
-    if (resolved === "pending") submit.mutate(false);
+    if (resolved === "pending") void doSubmit(false);
     setResolved("revealed");
     setModalOpen(false);
     const filled: MoveT[] = solution.map((s) => {
@@ -244,7 +264,7 @@ function DrillSession({ problem, userId, onNext }: DrillSessionProps) {
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <span className="gs-tag" style={{ fontSize: 10, wordBreak: "break-all" }}>/drill/{problem.id.slice(0, 8)}…</span>
             <button className="gs-btn" style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => {
-              navigator.clipboard.writeText(window.location.href).catch(() => {});
+              navigator.clipboard.writeText(`${window.location.origin}/drill/${problem.id}`).catch(() => {});
               toast.push({ kind: "info", title: "Copied", body: "Link copied to clipboard." });
             }}>
               Copy
@@ -354,7 +374,7 @@ function DrillSession({ problem, userId, onNext }: DrillSessionProps) {
             <button
               type="button"
               className="gs-btn gs-btn--primary"
-              onClick={onNext}
+              onClick={() => onNext(resolved === "solved")}
               style={{ width: "100%" }}
             >
               Next problem →
@@ -421,22 +441,19 @@ function DrillSession({ problem, userId, onNext }: DrillSessionProps) {
                 : "Dismiss to study the position, then reveal the solution or move on."}
             </p>
             <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
-              <button type="button" className="gs-btn gs-btn--primary" onClick={onNext}>
-                Next problem →
-              </button>
+              {resolved === "failed" && (
+                <button type="button" className="gs-btn gs-btn--primary" onClick={retryProblem}>
+                  Try Again
+                </button>
+              )}
               {resolved === "failed" && (
                 <button type="button" className="gs-btn" onClick={() => { setModalOpen(false); showSolution(); }}>
                   Reveal solution
                 </button>
               )}
-              <button type="button" className="gs-btn" onClick={() => setModalOpen(false)}>
-                Study the board
+              <button type="button" className="gs-btn" onClick={() => onNext(resolved === "solved")}>
+                Next problem →
               </button>
-              {problem.themes[0] && (
-                <Link to={`/concepts/${problem.themes[0]}`} className="gs-btn" style={{ textDecoration: "none" }}>
-                  Study concept
-                </Link>
-              )}
             </div>
           </div>
         </div>

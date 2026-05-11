@@ -1,22 +1,30 @@
 import { useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
-import { getMyGames, getUserConcepts, getUserProgress, getWeaknesses } from "../api";
 import { WeaknessBar } from "../components/WeaknessBar";
 import { HandleEditor } from "../components/HandleEditor";
 import { useAuth, useIdentity } from "../lib/auth";
 import {
-  enrichMatches,
-  toConceptProgress,
-  buildAnalytics,
-  deriveProfileStats,
-  getBookmarkedConceptIds,
-} from "../services/profileService";
+  useProfileGames,
+  useProfileWeaknesses,
+  useProfileConcepts,
+  useProfileAnalytics,
+  useProfileDrillStats,
+  useProfileStats,
+} from "../hooks/useProfileData";
+import { useBookmarks } from "../hooks/useBookmarks";
 import { avatarColor, deriveMockRank } from "../data/mockProfile";
-import type { EnrichedMatch, ConceptProgressItem, WeeklySeries, HistoryFilter } from "../types/profile";
+import type {
+  EnrichedMatch,
+  ConceptProgressItem,
+  WeeklySeries,
+  HistoryFilter,
+  DrillStats,
+  ProfileAnalyticsData,
+} from "../types/profile";
+import type { WeaknessItem } from "../api";
 
-// ─── Tiny helpers ──────────────────────────────────────────────────────────────
+// ─── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmt(date: string) {
   return new Date(date).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
@@ -26,12 +34,48 @@ function fmtShort(date: string) {
   return new Date(date).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function fmtWk(week: string) {
+function fmtAxisLabel(week: string) {
+  const parsed = new Date(`${week}T00:00:00`);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toLocaleDateString(undefined, { month: "short", day: "2-digit" });
+  }
   return week.replace(/^\d{4}-W/, "W");
 }
 
 function pct(v: number) {
   return `${Math.round(v * 100)}%`;
+}
+
+// ─── Shared micro-components ──────────────────────────────────────────────────
+
+function TabSkeleton() {
+  return (
+    <div className="prf-skeleton-wrap" aria-busy="true" aria-label="Loading…">
+      {[80, 60, 90, 50, 75].map((w, i) => (
+        <div key={i} className="prf-skeleton-line" style={{ width: `${w}%` }} />
+      ))}
+    </div>
+  );
+}
+
+function TabError({ message }: { message: string }) {
+  return (
+    <div className="prf-error">
+      <div className="prf-error-glyph">⚠</div>
+      <div className="prf-error-msg">{message}</div>
+      <p className="prf-error-hint">Try refreshing the page.</p>
+    </div>
+  );
+}
+
+function NoDataPlaceholder({ label }: { label: string }) {
+  return (
+    <div className="prf-no-data">
+      <span className="prf-no-data-glyph">◌</span>
+      <span className="prf-no-data-label">{label}</span>
+      <span className="prf-no-data-sub">A little more activity will fill this in.</span>
+    </div>
+  );
 }
 
 // ─── Area chart ────────────────────────────────────────────────────────────────
@@ -48,30 +92,19 @@ function AreaChart({
   fillColor: string;
 }) {
   const W = 400, H = 72;
-  const PAD = { l: 4, r: 4, t: 8, b: 4 };
+  const PAD = { l: 14, r: 14, t: 8, b: 6 };
   const iW = W - PAD.l - PAD.r;
   const iH = H - PAD.t - PAD.b;
 
-  if (data.length < 2) {
-    return (
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} style={{ display: "block" }}>
-        <line x1={PAD.l} x2={W - PAD.r} y1={H / 2} y2={H / 2}
-          stroke="var(--line)" strokeDasharray="3 4" strokeWidth="1.2" />
-      </svg>
-    );
-  }
-
   const max = Math.max(1, ...data.map(d => d.value));
-  const min = 0;
-  const range = max - min;
   const x = (i: number) => PAD.l + (i / (data.length - 1)) * iW;
-  const y = (v: number) => PAD.t + iH - ((v - min) / range) * iH;
+  const y = (v: number) => PAD.t + iH - (v / max) * iH;
 
   const line = data.map((d, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(1)} ${y(d.value).toFixed(1)}`).join(" ");
   const area = `${line} L ${x(data.length - 1).toFixed(1)} ${(PAD.t + iH).toFixed(1)} L ${PAD.l} ${(PAD.t + iH).toFixed(1)} Z`;
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} style={{ display: "block", overflow: "visible" }}>
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none" style={{ display: "block", overflow: "hidden" }}>
       <defs>
         <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={fillColor} stopOpacity="0.55" />
@@ -97,15 +130,28 @@ function ChartBlock({
   unit = "",
 }: {
   label: string;
-  data: WeeklySeries[];
+  data: WeeklySeries[] | null;
   strokeColor: string;
   fillColor: string;
   unit?: string;
 }) {
-  const latest = data.length > 0 ? data[data.length - 1].value : 0;
-  const prev = data.length > 1 ? data[data.length - 2].value : latest;
-  const delta = latest - prev;
   const fillId = `grad-${label.replace(/\s+/g, "-").toLowerCase()}`;
+
+  if (!data || data.length < 2) {
+    return (
+      <div className="prf-chart-block">
+        <div className="prf-chart-header">
+          <span className="prf-chart-label">{label}</span>
+        </div>
+        <NoDataPlaceholder label="Not enough data yet" />
+      </div>
+    );
+  }
+
+  const latest = data[data.length - 1].value;
+  const prev = data[data.length - 2].value;
+  const delta = latest - prev;
+  const showDelta = data.length >= 3 && Math.abs(delta) > 0;
   const weekLabels = data.slice(-5);
 
   return (
@@ -114,7 +160,7 @@ function ChartBlock({
         <span className="prf-chart-label">{label}</span>
         <span className="prf-chart-latest">
           {latest % 1 === 0 ? latest : latest.toFixed(1)}{unit}
-          {delta !== 0 && (
+          {showDelta && (
             <span className={`prf-chart-delta${delta > 0 ? " up" : " dn"}`}>
               {delta > 0 ? "▲" : "▼"} {Math.abs(delta).toFixed(1)}
             </span>
@@ -126,8 +172,17 @@ function ChartBlock({
       </div>
       <div className="prf-chart-axis">
         {weekLabels.map((d, i) => (
-          <span key={d.week} style={{ left: `${(i / Math.max(weekLabels.length - 1, 1)) * 100}%` }}>
-            {fmtWk(d.week)}
+          <span
+            key={d.week}
+            style={
+              i === 0
+                ? { left: "0%", transform: "translateX(0)" }
+                : i === weekLabels.length - 1
+                  ? { left: "100%", transform: "translateX(-100%)" }
+                  : { left: `${(i / Math.max(weekLabels.length - 1, 1)) * 100}%`, transform: "translateX(-50%)" }
+            }
+          >
+            {fmtAxisLabel(d.week)}
           </span>
         ))}
       </div>
@@ -174,14 +229,15 @@ function OverviewTab({
   games,
   concepts,
   weaknesses,
+  bookmarks,
 }: {
   games: EnrichedMatch[];
   concepts: ConceptProgressItem[];
-  weaknesses: ReturnType<typeof getWeaknesses> extends Promise<infer T> ? T : never;
+  weaknesses: WeaknessItem[];
+  bookmarks: Set<string>;
 }) {
-  const bookmarks = useMemo(() => getBookmarkedConceptIds(), []);
   const recentGames = games.slice(0, 4);
-  const topWeaknesses = (weaknesses ?? []).slice().sort((a, b) => b.severity - a.severity).slice(0, 3);
+  const topWeaknesses = weaknesses.slice().sort((a, b) => b.severity - a.severity).slice(0, 3);
   const bookmarkedConcepts = concepts.filter(c => bookmarks.has(c.conceptId));
   const lastStudied = concepts.length > 0
     ? [...concepts].sort((a, b) =>
@@ -192,7 +248,6 @@ function OverviewTab({
   return (
     <div className="prf-overview">
 
-      {/* Continue learning card */}
       {lastStudied && (
         <div className="prf-continue-card">
           <div className="prf-continue-label">Continue learning</div>
@@ -208,8 +263,6 @@ function OverviewTab({
       )}
 
       <div className="prf-ov-grid">
-
-        {/* Recent games */}
         <section className="prf-ov-section">
           <h3 className="prf-ov-section-title">Recent Games</h3>
           {recentGames.length === 0 ? (
@@ -221,8 +274,13 @@ function OverviewTab({
               {recentGames.map(g => (
                 <li key={g.id}>
                   <Link to={`/games/${g.id}`} className="prf-activity-item">
-                    <span className={`prf-color-dot ${g.playerColor === "B" ? "black" : "white"}`} />
-                    <span className="prf-activity-opp">{g.opponentHandle}</span>
+                    {g.playerColor && (
+                      <span className={`prf-color-dot ${g.playerColor === "B" ? "black" : "white"}`} />
+                    )}
+                    <span className="prf-activity-opp">
+                      {g.opponentType === "ai" && <span className="prf-ai-badge">先</span>}
+                      {g.opponentHandle ?? "Opponent"}
+                    </span>
                     <ResultChip match={g} />
                     <span className="prf-activity-meta">{g.boardSize}×{g.boardSize} · {fmtShort(g.startedAt)}</span>
                   </Link>
@@ -230,10 +288,8 @@ function OverviewTab({
               ))}
             </ul>
           )}
-          <Link to="" className="prf-see-all" data-tab="history">See all games →</Link>
         </section>
 
-        {/* Focus areas */}
         <section className="prf-ov-section">
           <h3 className="prf-ov-section-title">Focus Areas</h3>
           {topWeaknesses.length === 0 ? (
@@ -248,7 +304,6 @@ function OverviewTab({
         </section>
       </div>
 
-      {/* Saved concepts */}
       {bookmarkedConcepts.length > 0 && (
         <section className="prf-ov-section" style={{ marginTop: 8 }}>
           <h3 className="prf-ov-section-title">Saved Concepts</h3>
@@ -273,11 +328,11 @@ function HistoryTab({ games }: { games: EnrichedMatch[] }) {
   const [sortAsc, setSortAsc] = useState(false);
 
   const FILTERS: { id: HistoryFilter; label: string }[] = [
-    { id: "all",   label: "All" },
-    { id: "wins",  label: "Wins" },
-    { id: "losses",label: "Losses" },
-    { id: "ai",    label: "vs AI" },
-    { id: "human", label: "vs Human" },
+    { id: "all",    label: "All" },
+    { id: "wins",   label: "Wins" },
+    { id: "losses", label: "Losses" },
+    { id: "ai",     label: "vs AI" },
+    { id: "human",  label: "vs Human" },
   ];
 
   const visible = useMemo(() => {
@@ -334,13 +389,17 @@ function HistoryTab({ games }: { games: EnrichedMatch[] }) {
           {visible.map(g => (
             <li key={g.id}>
               <div className="prf-history-row">
-                <span className={`prf-color-dot ${g.playerColor === "B" ? "black" : "white"}`} title={`Played as ${g.playerColor === "B" ? "Black" : "White"}`} />
+                {g.playerColor && (
+                  <span
+                    className={`prf-color-dot ${g.playerColor === "B" ? "black" : "white"}`}
+                    title={`Played as ${g.playerColor === "B" ? "Black" : "White"}`}
+                  />
+                )}
                 <span className="prf-history-board">{g.boardSize}×{g.boardSize}</span>
                 <span className="prf-history-opp">
                   {g.opponentType === "ai" && <span className="prf-ai-badge">先</span>}
-                  {g.opponentHandle}
+                  {g.opponentHandle ?? "Opponent"}
                 </span>
-                {g.opening && <span className="prf-history-opening">{g.opening}</span>}
                 <ResultChip match={g} />
                 <span className="prf-history-date">{fmt(g.startedAt)}</span>
                 <Link to={`/games/${g.id}/review`} className="prf-review-btn">Review →</Link>
@@ -392,39 +451,27 @@ function ConceptsTab({ concepts }: { concepts: ConceptProgressItem[] }) {
 
   return (
     <div className="prf-concepts">
-      {/* Summary row */}
       <div className="prf-cncpt-summary">
-        <button
-          className={`prf-cncpt-stat${stateFilter === "all" ? " is-active" : ""}`}
-          onClick={() => setStateFilter("all")}
-        >
-          <span className="prf-cncpt-stat-n">{concepts.length}</span>
-          <span className="prf-cncpt-stat-l">Total</span>
-        </button>
-        <button
-          className={`prf-cncpt-stat${stateFilter === "viewed" ? " is-active" : ""}`}
-          onClick={() => setStateFilter("viewed")}
-        >
-          <span className="prf-cncpt-stat-n">{counts.viewed}</span>
-          <span className="prf-cncpt-stat-l">Viewed</span>
-        </button>
-        <button
-          className={`prf-cncpt-stat${stateFilter === "practicing" ? " is-active" : ""}`}
-          onClick={() => setStateFilter("practicing")}
-        >
-          <span className="prf-cncpt-stat-n" style={{ color: "var(--tier-ok)" }}>{counts.practicing}</span>
-          <span className="prf-cncpt-stat-l">Practicing</span>
-        </button>
-        <button
-          className={`prf-cncpt-stat${stateFilter === "mastered" ? " is-active" : ""}`}
-          onClick={() => setStateFilter("mastered")}
-        >
-          <span className="prf-cncpt-stat-n" style={{ color: "var(--tier-good)" }}>{counts.mastered}</span>
-          <span className="prf-cncpt-stat-l">Mastered</span>
-        </button>
+        {(["all", "viewed", "practicing", "mastered"] as const).map(s => (
+          <button
+            key={s}
+            className={`prf-cncpt-stat${stateFilter === s ? " is-active" : ""}`}
+            onClick={() => setStateFilter(s)}
+          >
+            <span className="prf-cncpt-stat-n" style={
+              s === "practicing" ? { color: "var(--tier-ok)" }
+              : s === "mastered" ? { color: "var(--tier-good)" }
+              : {}
+            }>
+              {s === "all" ? concepts.length : counts[s]}
+            </span>
+            <span className="prf-cncpt-stat-l">
+              {s === "all" ? "Total" : s.charAt(0).toUpperCase() + s.slice(1)}
+            </span>
+          </button>
+        ))}
       </div>
 
-      {/* Search toolbar */}
       <div className="prf-cncpt-toolbar">
         <div className="prf-cncpt-search-wrap">
           <svg className="prf-cncpt-search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none"
@@ -473,41 +520,55 @@ function ConceptsTab({ concepts }: { concepts: ConceptProgressItem[] }) {
 
 function AnalyticsTab({
   analytics,
+  drillStats,
   weaknesses,
 }: {
-  analytics: ReturnType<typeof buildAnalytics>;
-  weaknesses: Awaited<ReturnType<typeof getWeaknesses>>;
+  analytics: ProfileAnalyticsData;
+  drillStats: DrillStats | null;
+  weaknesses: WeaknessItem[];
 }) {
-  const maxConceptCount = Math.max(1, ...analytics.topStudiedConcepts.map(c => c.count));
+  const lastGamesValue = analytics.gamesPerWeek
+    ? analytics.gamesPerWeek[analytics.gamesPerWeek.length - 1]?.value ?? null
+    : null;
+  const lastDrillsValue = analytics.drillsPerWeek
+    ? analytics.drillsPerWeek[analytics.drillsPerWeek.length - 1]?.value ?? null
+    : null;
 
   return (
     <div className="prf-analytics">
 
-      {/* Summary stats */}
+      {/* Summary stats — only real values; no hardcoded fallbacks */}
       <div className="prf-analytics-summary">
         <div className="prf-an-stat">
-          <span className="prf-an-stat-value">{pct(analytics.puzzleAccuracy)}</span>
+          <span className="prf-an-stat-value">
+            {drillStats?.accuracy != null ? pct(drillStats.accuracy) : "—"}
+          </span>
           <span className="prf-an-stat-label">Puzzle accuracy</span>
-        </div>
-        <div className="prf-an-stat">
-          <span className="prf-an-stat-value">{analytics.avgStudyMinutesPerWeek}m</span>
-          <span className="prf-an-stat-label">Avg study / week</span>
+          {drillStats && drillStats.totalAttempts === 0 && (
+            <span className="prf-an-stat-hint">No drills yet</span>
+          )}
         </div>
         <div className="prf-an-stat">
           <span className="prf-an-stat-value">
-            {(analytics.gamesPerWeek[analytics.gamesPerWeek.length - 1]?.value ?? 0).toFixed(1)}
+            {lastGamesValue !== null ? lastGamesValue.toFixed(1) : "—"}
           </span>
           <span className="prf-an-stat-label">Games this week</span>
         </div>
         <div className="prf-an-stat">
           <span className="prf-an-stat-value">
-            {(analytics.drillsPerWeek[analytics.drillsPerWeek.length - 1]?.value ?? 0).toFixed(0)}
+            {lastDrillsValue !== null ? lastDrillsValue.toFixed(0) : "—"}
           </span>
           <span className="prf-an-stat-label">Drills this week</span>
         </div>
+        {drillStats && drillStats.totalAttempts > 0 && (
+          <div className="prf-an-stat">
+            <span className="prf-an-stat-value">{drillStats.totalAttempts}</span>
+            <span className="prf-an-stat-label">Total drills</span>
+          </div>
+        )}
       </div>
 
-      {/* Charts */}
+      {/* Charts — null series renders "Not enough data" placeholder */}
       <div className="prf-charts-grid">
         <ChartBlock
           label="Games per week"
@@ -526,30 +587,29 @@ function AnalyticsTab({
           data={analytics.weaknessSeverityHistory}
           strokeColor="#7C9E6E"
           fillColor="var(--pastel-green)"
-          unit=""
         />
       </div>
 
       {/* Top studied concepts */}
-      {analytics.topStudiedConcepts.length > 0 && (
-        <section className="prf-analytics-section">
-          <h3 className="prf-analytics-heading">Most Studied Concepts</h3>
-          <div className="prf-top-concepts">
-            {analytics.topStudiedConcepts.map(c => (
-              <div key={c.title} className="prf-top-concept-row">
-                <span className="prf-top-concept-title">{c.title}</span>
-                <div className="prf-top-concept-bar-wrap">
-                  <div
-                    className="prf-top-concept-bar"
-                    style={{ width: `${(c.count / maxConceptCount) * 100}%` }}
-                  />
+      {analytics.topStudiedConcepts.length > 0 && (() => {
+        const maxCount = Math.max(1, ...analytics.topStudiedConcepts.map(c => c.count));
+        return (
+          <section className="prf-analytics-section">
+            <h3 className="prf-analytics-heading">Most Studied Concepts</h3>
+            <div className="prf-top-concepts">
+              {analytics.topStudiedConcepts.map(c => (
+                <div key={c.title} className="prf-top-concept-row">
+                  <span className="prf-top-concept-title">{c.title}</span>
+                  <div className="prf-top-concept-bar-wrap">
+                    <div className="prf-top-concept-bar" style={{ width: `${(c.count / maxCount) * 100}%` }} />
+                  </div>
+                  <span className="prf-top-concept-count">{c.count}×</span>
                 </div>
-                <span className="prf-top-concept-count">{c.count}×</span>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+              ))}
+            </div>
+          </section>
+        );
+      })()}
 
       {/* Weakness breakdown */}
       {weaknesses.length > 0 && (
@@ -561,6 +621,16 @@ function AnalyticsTab({
             ))}
           </div>
         </section>
+      )}
+
+      {/* Empty analytics state */}
+      {!analytics.gamesPerWeek && !analytics.drillsPerWeek && !analytics.weaknessSeverityHistory
+        && analytics.topStudiedConcepts.length === 0 && weaknesses.length === 0 && (
+        <div className="prf-empty prf-empty--analytics" style={{ marginTop: 32 }}>
+          <div className="prf-empty-glyph">析</div>
+          <div className="prf-empty-title">No analytics data yet</div>
+          <p className="prf-empty-sub">Play games and complete drills to see your progress here.</p>
+        </div>
       )}
     </div>
   );
@@ -577,54 +647,50 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "analytics", label: "Analytics" },
 ];
 
+function tabFromPathname(pathname: string): TabId {
+  if (pathname.endsWith("/history"))   return "history";
+  if (pathname.endsWith("/concepts"))  return "concepts";
+  if (pathname.endsWith("/analytics")) return "analytics";
+  return "overview";
+}
+
 export default function Profile() {
   const { userId: paramId } = useParams<{ userId: string }>();
   const { profile, legacy } = useAuth();
   const { userId: meId, displayName: meHandle } = useIdentity();
+  const location = useLocation();
+  const navigate = useNavigate();
+
   const userId = paramId ?? meId;
   const isMe = !paramId || paramId === meId;
   const handle = (isMe ? meHandle : null) ?? userId?.slice(0, 8) ?? "Player";
 
-  const [tab, setTab] = useState<TabId>("overview");
+  const urlTab = useMemo(() => tabFromPathname(location.pathname), [location.pathname]);
+  const [localTab, setLocalTab] = useState<TabId>("overview");
+  const activeTab = isMe ? urlTab : localTab;
+
+  function goToTab(t: TabId) {
+    if (isMe) {
+      navigate(t === "overview" ? "/profile" : `/profile/${t}`);
+    } else {
+      setLocalTab(t);
+    }
+  }
 
   // ── Data ────────────────────────────────────────────────────────────────────
 
-  const { data: rawGames = [], isLoading: gamesLoading } = useQuery({
-    queryKey: ["my-games", userId],
-    queryFn: () => (userId ? getMyGames(userId) : Promise.resolve([])),
-    enabled: !!userId,
-  });
+  const needConcepts = activeTab === "concepts" || activeTab === "overview" || activeTab === "analytics";
 
-  const { data: weaknesses = [] } = useQuery({
-    queryKey: ["weaknesses", userId],
-    queryFn: () => (userId ? getWeaknesses(userId) : Promise.resolve([])),
-    enabled: !!userId,
-  });
+  const { data: games = [],   isLoading: gamesLoading,    error: gamesError    } = useProfileGames(userId);
+  const { data: weaknesses = [], error: weaknessesError } = useProfileWeaknesses(userId);
+  const { data: concepts = [], isLoading: conceptsLoading, error: conceptsError } = useProfileConcepts(userId, { enabled: needConcepts });
+  const { data: analytics,     isLoading: analyticsLoading, error: analyticsError } = useProfileAnalytics(userId, { enabled: activeTab === "analytics" });
+  const { data: drillStats,    isLoading: drillStatsLoading } = useProfileDrillStats(userId);
 
-  const { data: rawConcepts = [], isLoading: conceptsLoading } = useQuery({
-    queryKey: ["user-concepts", userId],
-    queryFn: () => (userId ? getUserConcepts(userId) : Promise.resolve([])),
-    enabled: !!userId && (tab === "concepts" || tab === "overview" || tab === "analytics"),
-  });
+  const stats = useProfileStats(games, concepts);
+  const { ids: bookmarkIds } = useBookmarks();
 
-  const { data: rawProgress = { games_per_week: [], drills_per_week: [], top_weakness_severity_history: [] } } =
-    useQuery({
-      queryKey: ["user-progress", userId],
-      queryFn: () =>
-        userId
-          ? getUserProgress(userId)
-          : Promise.resolve({ games_per_week: [], drills_per_week: [], top_weakness_severity_history: [] }),
-      enabled: !!userId && tab === "analytics",
-    });
-
-  // ── Derived data ─────────────────────────────────────────────────────────────
-
-  const games      = useMemo(() => enrichMatches(rawGames), [rawGames]);
-  const concepts   = useMemo(() => toConceptProgress(rawConcepts), [rawConcepts]);
-  const analytics  = useMemo(() => buildAnalytics(rawProgress, rawGames, rawConcepts), [rawProgress, rawGames, rawConcepts]);
-  const stats      = useMemo(() => deriveProfileStats(rawGames, rawConcepts), [rawGames, rawConcepts]);
-
-  // ── Early exits ──────────────────────────────────────────────────────────────
+  // ── Guards ───────────────────────────────────────────────────────────────────
 
   if (!userId) {
     return (
@@ -636,8 +702,6 @@ export default function Profile() {
       </div>
     );
   }
-
-  // ── Avatar ───────────────────────────────────────────────────────────────────
 
   const avatarBg = avatarColor(handle);
   const avatarLetter = handle[0].toUpperCase();
@@ -659,29 +723,31 @@ export default function Profile() {
                 <span className="prf-rank-badge">{rank}</span>
               </div>
               <div className="prf-identity-meta">
-                {stats.totalGames} game{stats.totalGames !== 1 ? "s" : ""} played
-                {stats.winRate !== null && ` · ${pct(stats.winRate)} win rate`}
+                {gamesLoading
+                  ? "Loading…"
+                  : `${stats.totalGames} game${stats.totalGames !== 1 ? "s" : ""} played${stats.winRate !== null ? ` · ${pct(stats.winRate)} win rate` : ""}`
+                }
               </div>
               {isMe && !legacy && profile && (
-                <div className="prf-handle-editor">
-                  <HandleEditor />
-                </div>
+                <div className="prf-handle-editor"><HandleEditor /></div>
               )}
             </div>
           </div>
 
-          {/* Stats row */}
           <div className="prf-stats-row">
-            <StatBlock label="Games" value={stats.totalGames.toString()} />
+            <StatBlock label="Games" value={gamesLoading ? "…" : stats.totalGames.toString()} />
             <StatBlock
               label="Win rate"
-              value={stats.winRate !== null ? pct(stats.winRate) : "—"}
-              sub={stats.finishedGames > 0 ? `${stats.finishedGames} finished` : undefined}
+              value={gamesLoading ? "…" : (stats.winRate !== null ? pct(stats.winRate) : "—")}
+              sub={!gamesLoading && stats.finishedGames > 0 ? `${stats.finishedGames} finished` : undefined}
             />
-            <StatBlock label="Concepts" value={stats.totalConcepts.toString()} />
+            <StatBlock
+              label="Concepts"
+              value={conceptsLoading && needConcepts ? "…" : stats.totalConcepts.toString()}
+            />
             <StatBlock
               label="Puzzle accuracy"
-              value={pct(analytics.puzzleAccuracy)}
+              value={drillStatsLoading ? "…" : (drillStats?.accuracy != null ? pct(drillStats.accuracy) : "—")}
             />
           </div>
         </div>
@@ -694,9 +760,9 @@ export default function Profile() {
             <button
               key={t.id}
               role="tab"
-              aria-selected={tab === t.id}
-              className={`prf-tab${tab === t.id ? " is-active" : ""}`}
-              onClick={() => setTab(t.id)}
+              aria-selected={activeTab === t.id}
+              className={`prf-tab${activeTab === t.id ? " is-active" : ""}`}
+              onClick={() => goToTab(t.id)}
             >
               {t.label}
             </button>
@@ -708,32 +774,44 @@ export default function Profile() {
       <div className="prf-body">
         <div className="prf-body-inner">
 
-          {tab === "overview" && (
+          {activeTab === "overview" && (
+            gamesLoading ? <TabSkeleton /> :
+            gamesError   ? <TabError message="Could not load game history." /> :
+            weaknessesError ? <TabError message="Could not load weakness data." /> :
+            !games.length && !weaknesses.length && !concepts.length ? (
+              <div className="prf-empty">
+                <div className="prf-empty-glyph">己</div>
+                <div className="prf-empty-title">Profile is waiting</div>
+                <p className="prf-empty-sub">Play a game and ask Sensei for a lesson to start building your profile.</p>
+              </div>
+            ) : (
             <OverviewTab
               games={games}
               concepts={concepts}
               weaknesses={weaknesses}
+              bookmarks={bookmarkIds}
             />
-          )}
-
-          {tab === "history" && (
-            gamesLoading ? (
-              <div className="prf-loading">Loading games…</div>
-            ) : (
-              <HistoryTab games={games} />
             )
           )}
 
-          {tab === "concepts" && (
-            conceptsLoading ? (
-              <div className="prf-loading">Loading concepts…</div>
-            ) : (
-              <ConceptsTab concepts={concepts} />
-            )
+          {activeTab === "history" && (
+            gamesLoading ? <TabSkeleton /> :
+            gamesError   ? <TabError message="Could not load match history." /> :
+            <HistoryTab games={games} />
           )}
 
-          {tab === "analytics" && (
-            <AnalyticsTab analytics={analytics} weaknesses={weaknesses} />
+          {activeTab === "concepts" && (
+            conceptsLoading ? <TabSkeleton /> :
+            conceptsError   ? <TabError message="Could not load concepts." /> :
+            <ConceptsTab concepts={concepts} />
+          )}
+
+          {activeTab === "analytics" && (
+            analyticsLoading ? <TabSkeleton /> :
+            analyticsError   ? <TabError message="Could not load analytics data." /> :
+            weaknessesError ? <TabError message="Could not load weakness data." /> :
+            analytics        ? <AnalyticsTab analytics={analytics} drillStats={drillStats} weaknesses={weaknesses} /> :
+            <TabSkeleton />
           )}
 
         </div>

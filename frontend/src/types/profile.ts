@@ -9,13 +9,13 @@ export interface EnrichedMatch {
   boardSize: number;
   result: string | null;
   startedAt: string;
-  // enriched fields
   opponentType: "ai" | "human";
-  opponentHandle: string;
-  playerColor: "B" | "W";
-  opening: string | null;
+  opponentHandle: string | null;
+  playerColor: "B" | "W" | null;
   isWin: boolean | null;
   isFinished: boolean;
+  endReason: "resign" | "time" | "points" | "unknown" | null;
+  // opening intentionally absent — not tracked in backend
 }
 
 // ── Concept progress ──────────────────────────────────────────────────────────
@@ -37,12 +37,17 @@ export interface WeeklySeries {
 }
 
 export interface ProfileAnalyticsData {
-  gamesPerWeek: WeeklySeries[];
-  drillsPerWeek: WeeklySeries[];
-  weaknessSeverityHistory: WeeklySeries[];
-  puzzleAccuracy: number;
-  avgStudyMinutesPerWeek: number;
+  gamesPerWeek: WeeklySeries[] | null;
+  drillsPerWeek: WeeklySeries[] | null;
+  weaknessSeverityHistory: WeeklySeries[] | null;
   topStudiedConcepts: { title: string; count: number }[];
+}
+
+// ── Drill statistics ──────────────────────────────────────────────────────────
+
+export interface DrillStats {
+  totalAttempts: number;
+  accuracy: number | null;
 }
 
 // ── Derived stats (used by hero) ──────────────────────────────────────────────
