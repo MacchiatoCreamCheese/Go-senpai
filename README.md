@@ -46,8 +46,8 @@ The game of Go has a famously long learning curve. A strong human teacher can po
 ```mermaid
 flowchart LR
     player(( Player ))
-    katago[[ KataGo engine ]]
-    llm[[ LLM provider ]]
+    katago[[ KataGo engine\nboard truth ]]
+    llm[[ LLM provider\nClaude · Gemini ]]
     supabase[[ Supabase Auth ]]
 
     subgraph Go-senpai
@@ -57,6 +57,7 @@ flowchart LR
         end
 
         subgraph play_group [Playing]
+            uc_play([ Play game ])
             uc2([ Play vs human ])
             uc3([ Play vs AI ])
             uc3t([ Training mode:\nlive tier feedback ])
@@ -73,10 +74,12 @@ flowchart LR
             uc8m([ Read per-move notes ])
         end
 
-        subgraph coaching_group [Coaching]
-            uc9([ Ask Sensei chat ])
+        subgraph coaching_group [Coaching — Orchestrator]
             uc10([ Request next action ])
             uc7([ Run assigned drill ])
+            uc_teach([ Receive concept lesson ])
+            uc_revisit([ Revisit untested concept ])
+            uc9([ Ask Sensei chat ])
             uc11([ Browse concept library ])
         end
 
@@ -87,25 +90,40 @@ flowchart LR
 
     end
 
+    %% Actor associations
     player --- uc1
-    player --- uc2
-    player --- uc3
-    uc3 --- uc3t
-    uc3 --- uc3u
+    player --- uc_play
     player --- uc4
     player --- uc4n
     player --- uc5
-    uc5 --- uc5o
     player --- uc6
     player --- uc8
-    uc8 --- uc8m
     player --- uc9
     player --- uc10
     player --- uc7
+    player --- uc_teach
+    player --- uc_revisit
     player --- uc11
     player --- uc12
     player --- uc13
 
+    %% Generalization: Play vs human / Play vs AI are specializations of Play game
+    uc2 -->|inherits| uc_play
+    uc3 -->|inherits| uc_play
+
+    %% <<include>>: mandatory sub-behaviors (including UC → included UC)
+    uc8 -. "<<include>>" .-> uc5
+    uc10 -. "<<include>>" .-> uc6
+    uc_teach -. "<<include>>" .-> uc11
+
+    %% <<extend>>: optional / conditional extensions (extending UC → base UC)
+    uc3t -. "<<extend>>" .-> uc3
+    uc3u -. "<<extend>>" .-> uc3
+    uc5o -. "<<extend>>" .-> uc5
+    uc4n -. "<<extend>>" .-> uc8
+    uc8m -. "<<extend>>" .-> uc8
+
+    %% External actor links
     uc1 --- supabase
     uc3 --- katago
     uc3t --- katago
@@ -115,16 +133,20 @@ flowchart LR
     uc8 --- llm
     uc8m --- llm
     uc9 --- llm
-    uc10 --- llm
+    uc_teach --- llm
 
-    uc5 -.feeds weaknesses.-> uc6
-    uc6 -.informs.-> uc10
-    uc10 -.assigns.-> uc7
-    uc10 -.assigns.-> uc8
-    uc10 -.assigns.-> uc11
+    %% Coaching data flow
+    uc5 -.extract features.-> uc6
+    uc6 -.rank weaknesses.-> uc10
+    uc10 -.assigns drill.-> uc7
+    uc10 -.assigns review.-> uc8
+    uc10 -.assigns concept.-> uc_teach
+    uc10 -.assigns revisit.-> uc_revisit
 ```
 
-The player is the only human actor. KataGo provides grounded numerical evaluation for any use case touching the board (AI opponent, training feedback, post-game analysis, coaching chat context). The LLM is used only for prose generation (game review, per-move notes, coaching chat, next-action orchestration) — never for board reading. The dashed arrows show the coaching data flow: analysis feeds the weakness model, which informs the orchestrator, which assigns the next action.
+The player is the only human actor. **KataGo** provides grounded numerical evaluation for every use case that touches the board (AI opponent, training feedback, post-game analysis, coaching chat context). The **LLM** is used only for prose generation (game review, per-move notes, concept lessons, coaching chat) — it never reads the board directly. The **Orchestrator** (deterministic rule table, no LLM) sits between analysis and action.
+
+Three UML relationship types are used: **generalization** (solid `inherits` arrows) shows that *Play vs Human* and *Play vs AI* are specializations of the abstract *Play game* use case. **`<<include>>`** (dashed) marks mandatory sub-behaviors: *Read LLM game review* always requires *Request game analysis*; *Request next action* always reads the *weakness report*; *Receive concept lesson* always surfaces an entry from the concept library. **`<<extend>>`** (dashed) marks optional or conditional behaviors: training-mode tier feedback and undo are optional extensions of *Play vs AI*; the ownership map is an optional extension of analysis; per-move notes and move annotation are optional extensions of the review flow.
 
 ---
 
@@ -168,11 +190,28 @@ classDiagram
     class WeaknessDetector {
         +detect(game) list~Weakness~
     }
+    class WeaknessTheme {
+        <<enumeration>>
+        blunder_opening
+        blunder_middlegame
+        blunder_endgame
+        ignored_top_move
+        low_consistency_opening
+        low_consistency_endgame
+    }
     class DrillSelector {
         +select(weakness) Drill
     }
     class Orchestrator {
         +choose(weaknesses, history) Action
+    }
+    class ConceptRetriever {
+        +retrieve(weakness_labels) list~GoConcept~
+    }
+    class LLMClient {
+        +provider: str
+        +model: str
+        +generate(prompt) StreamingResponse
     }
     class ReviewService {
         +generate(game) Review
@@ -273,17 +312,22 @@ classDiagram
 
     Orchestrator ..> WeaknessDetector
     Orchestrator ..> DrillSelector
-    Orchestrator ..> GoConcept
+    Orchestrator ..> ConceptRetriever
     Orchestrator ..> ActionHistory
     WeaknessDetector ..> MoveFeature
+    WeaknessDetector ..> WeaknessTheme
+    UserWeakness --> WeaknessTheme
     KataGoClient ..> PositionAnalysis
+    ConceptRetriever ..> GoConcept
     ReviewService ..> MoveFeature
-    ReviewService ..> GoConcept
+    ReviewService ..> ConceptRetriever
+    ReviewService ..> LLMClient
     CoachService ..> KataGoClient
-    CoachService ..> GoConcept
+    CoachService ..> ConceptRetriever
+    CoachService ..> LLMClient
 ```
 
-The diagram separates three concerns: the pure **engine** classes (`Board`, `Group`, `Rules`, `Game`, `SGF`, `Scoring`) live under `backend/app/engine/`; the **service** classes (`KataGoClient`, `WeaknessDetector`, `Orchestrator`, `DrillSelector`, `ReviewService`) live under `backend/app/services/`; the **persistence** entities (`User`, `GameRecord`, `Move`, `MoveFeature`, `PositionAnalysis`, `GoConcept`, `Review`) are defined in `backend/db/init.sql`.
+The diagram separates three concerns: the pure **engine** classes (`Board`, `Group`, `Rules`, `Game`, `SGF`, `Scoring`) live under `backend/app/engine/`; the **service** classes (`KataGoClient`, `WeaknessDetector`, `Orchestrator`, `DrillSelector`, `ConceptRetriever`, `LLMClient`, `ReviewService`, `CoachService`) live under `backend/app/services/`; the **persistence** entities (`User`, `GameRecord`, `Move`, `MoveFeature`, `PositionAnalysis`, `GoConcept`, `Review`) are defined in `backend/db/init.sql`. `LLMClient` is the provider abstraction in `services/review/llm.py` that switches between Anthropic and Gemini at runtime. `ConceptRetriever` in `services/review/retriever.py` performs pgvector cosine-similarity search over the `go_concepts` table to ground the LLM prompt in relevant lesson content. `WeaknessTheme` is the closed enum of the six classifiers — every detection path and every DB row references exactly one of these labels.
 
 ---
 
@@ -291,41 +335,140 @@ The diagram separates three concerns: the pure **engine** classes (`Board`, `Gro
 
 ```mermaid
 flowchart TB
-    subgraph Client
-        FE[React + Vite + Shudan<br/>frontend/src]
+    subgraph Client [Browser]
+        FE[React 18 + Vite + Shudan\nfrontend/src]
     end
 
-    subgraph Server [FastAPI backend]
-        API[api/<br/>rest, ws, analysis, review, coach]
-        SVC[services/<br/>katago, weakness, orchestrator, drills, review, coach]
-        ENG[engine/<br/>board, rules, sgf, scoring]
+    subgraph Server [FastAPI backend · :8000]
+        subgraph API_Layer [API Layer · api/]
+            REST[rest · ws · analysis\nreview · coach · auth]
+        end
+
+        subgraph Engine_Layer [Engine — pure, no I/O · engine/]
+            ENG[board · rules · game\nsgf · scoring · coords]
+        end
+
+        subgraph AI_Services [AI Services · services/]
+            KGS[KataGoClient\nsubprocess manager]
+            WD[WeaknessDetector\n6-theme EMA classifiers]
+            ORC[Orchestrator\ndeterministic rule table]
+            CR[ConceptRetriever\npgvector cos-sim]
+            DR[DrillSelector\ntheme-matched tsumego]
+            REV_SVC[ReviewService\nLLM prompt builder]
+            COACH_SVC[CoachService\nSSE session manager]
+        end
     end
 
-    subgraph Data
-        PG[(PostgreSQL 16<br/>+ pgvector)]
+    subgraph Data [Data — Supabase]
+        PG[(PostgreSQL 16\ngames · moves · users\nweaknesses · drills)]
+        VEC[(pgvector\ngo_concepts\n384-dim embeddings)]
     end
 
-    subgraph External
-        KG[[KataGo process<br/>on host]]
-        LLM[[Anthropic or Gemini]]
+    subgraph External [External]
+        KG[[KataGo process\nGPU on host]]
+        LLM[[Anthropic Claude\nor Google Gemini]]
     end
 
-    FE -- REST --> API
-    FE <-. WebSocket .-> API
-    FE -- SSE --> API
-    API --> SVC
-    API --> ENG
-    SVC --> ENG
-    SVC --> PG
-    SVC -- JSON over stdio --> KG
-    SVC -- HTTPS --> LLM
-    API --> PG
+    FE -- REST --> REST
+    FE <-.->|WebSocket| REST
+    FE -. SSE .-> REST
+
+    REST --> Engine_Layer
+    REST --> AI_Services
+    Engine_Layer --> PG
+    AI_Services --> PG
+    CR -- cosine similarity --> VEC
+    KGS -- JSON over stdio --> KG
+    REV_SVC -- HTTPS --> LLM
+    COACH_SVC -- HTTPS --> LLM
 ```
 
 Two request flows matter most:
 
-- **Live play.** The browser opens a WebSocket to `api/ws`, every move is validated by the `engine/` layer, persisted as a `Move` row, and broadcast to the opponent. If the opponent is AI, `services/katago/` generates the reply.
-- **Post-game analysis and coaching.** `POST /api/games/{id}/analyze` sends every position to the KataGo process, stores raw responses in `position_analyses`, derives per-move metrics into `move_features`, and hands the result to `services/orchestrator/`. The orchestrator reads the user's recent action history to avoid repeating suggestions, then calls `services/weakness/` to classify the player's mistakes, `services/drills/` to pick follow-up practice, and optionally `services/review/` to ask the LLM for a natural-language summary grounded in those features and the `go_concepts` library (retrieved via pgvector similarity search). Results are surfaced in the game viewer's analysis and review tabs.
+- **Live play.** The browser opens a WebSocket to `api/ws`, every move is validated by the `engine/` layer, persisted as a `Move` row, and broadcast to the opponent. If the opponent is AI, `services/katago/` generates the reply. No LLM involved — this path must stay under 2 s.
+- **Post-game analysis and coaching.** `POST /api/games/{id}/analyze` sends every position to the KataGo process, stores raw responses in `position_analyses` (keyed by Zobrist hash), derives per-move metrics into `move_features`, and hands the result to `services/orchestrator/`. The orchestrator reads `action_history` to avoid repeating suggestions, runs the six weakness classifiers in `services/weakness/`, picks a tsumego via `services/drills/`, retrieves the closest concept from `go_concepts` via pgvector in `services/review/retriever.py`, and optionally calls `services/review/` which constructs a grounded prompt — weakness labels + retrieved concepts, never the raw board — and asks the LLM for a markdown review streamed back as SSE. Results are surfaced in the game viewer's analysis and review tabs.
+
+---
+
+## AI pipeline
+
+The coaching loop is the core of what makes Go-senpai "agentic." Two flows drive it: the post-game analysis pipeline and the interactive coaching chat. The key design constraint runs through both: **KataGo reads the board; the LLM writes the words; the orchestrator makes the pedagogical decisions — deterministically, with no LLM involved.**
+
+### Post-game coaching pipeline
+
+```mermaid
+flowchart TD
+    A([Player finishes game]) --> B[POST /api/games/id/analyze]
+
+    subgraph step1 [Step 1 · KataGo analysis — services/katago/]
+        B --> C{Each board position}
+        C --> D[KataGoClient\nJSON over stdio]
+        D --> E[(position_analyses\nZobrist hash cache)]
+        E --> F[features.py\npoints_lost · policy_rank\ntop_move · phase · is_blunder]
+        F --> G[(move_features table)]
+    end
+
+    subgraph step2 [Step 2 · Weakness detection — services/weakness/]
+        G --> H[WeaknessDetector\n6 classifiers · EMA α=0.3\nblunders · ignored top-move · consistency]
+        H --> I[(user_weaknesses\nseverity updated)]
+    end
+
+    subgraph step3 [Step 3 · Orchestrator — services/orchestrator/ · no LLM]
+        I --> J{Rule table\npriority order}
+        J -->|unreviewed game exists| K[ReviewService]
+        J -->|untested concept ≥ 24 h old| L([revisit_concept])
+        J -->|weakness ≥ 0.2 · unseen concept| M[ConceptRetriever]
+        J -->|default| N[DrillSelector\ntheme-matched tsumego]
+    end
+
+    subgraph step4 [Step 4 · LLM review — services/review/ · grounded prose only]
+        M --> O[build_prompt\nweakness labels + retrieved concepts\nNEVER raw board]
+        K --> P[ConceptRetriever\npgvector cos-sim · 384-dim]
+        P --> O
+        O --> Q[LLM API\nClaude or Gemini]
+        Q --> R[SSE stream → browser]
+        R --> S[(reviews table)]
+    end
+
+    N --> T[(problems table\ntheme-filtered)]
+```
+
+**The grounding contract** is enforced at Step 4: `build_prompt` in `services/review/prompt.py` receives only the structured weakness labels and the retrieved concept texts — never the raw board string. This prevents LLM hallucination on stone positions while still producing natural-language explanations grounded in real engine numbers.
+
+**pgvector retrieval** in `services/review/retriever.py` embeds the weakness theme label with `sentence-transformers/all-MiniLM-L6-v2` (384 dimensions) and runs an `ivfflat` cosine-similarity query over the `go_concepts` table to surface the conceptually closest lesson — not a keyword match.
+
+**EMA weakness update** (α = 0.3 for games, α = 0.15 for drills) in `services/weakness/updater.py` prevents a single bad game from overweighting a theme while still allowing rapid recovery when a player improves.
+
+**Orchestrator recency penalty** in `services/orchestrator/planner.py` reads `action_history` to skip any action suggested in the last 15 minutes, preventing the same drill or concept from being served twice in a row.
+
+### Ask Sensei — coaching chat pipeline
+
+```mermaid
+flowchart LR
+    A([User message\nChatDrawer]) --> B[POST /api/coach\nmode: missing · fight · plan · followup]
+
+    B --> C[CoachService\nfetch context from DB]
+    C --> D[board position · weaknesses\nconcepts taught · action history]
+    C --> E[KataGoClient\ncurrent position eval]
+
+    D --> F[coach_prompts.py\nmode-specific system prompt]
+    E --> F
+
+    F --> G[LLM API\nClaude or Gemini]
+    G --> H[SSE token stream]
+    H --> I([ChatDrawer\nrenders incrementally])
+```
+
+The chat runs in one of four modes selected by the user in the UI:
+
+| Mode | System prompt focus |
+|---|---|
+| `missing` | What concept is absent from this position? |
+| `fight` | Help me read this local fight |
+| `plan` | What is my overall plan for this game? |
+| `followup` | Continue from the previous coach turn |
+
+Each mode selects a different prompt template from `coach_prompts.py`. In every mode, the KataGo evaluation of the current position is injected as a structured JSON block — the LLM reads the *numbers*, never the raw board.
 
 ---
 
