@@ -122,12 +122,19 @@ export default function Games() {
                   </div>
 
                   <div className="games-row-info">
-                    <span className="games-row-opp">
+                    <span className="games-row-opp" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span
+                        className={`gs-pill ${g.opponent_type === "ai" ? "gs-pill--cyan" : "gs-pill--lav"}`}
+                        style={{ fontSize: 10, padding: "2px 8px" }}
+                      >
+                        {g.opponent_type === "ai" ? "vs AI" : `vs ${g.opponent_handle ?? "Human"}`}
+                      </span>
+                    </span>
+                    <span className="games-row-meta">
                       {new Date(g.started_at).toLocaleDateString(undefined, {
                         month: "short", day: "numeric", year: "numeric",
                       })}
                     </span>
-                    <span className="games-row-meta">{g.id.slice(0, 8)}…</span>
                   </div>
 
                   <span className={"gs-pill" + (isFinished ? "" : " gs-pill--cyan")}>

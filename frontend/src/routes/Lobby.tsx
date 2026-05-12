@@ -11,9 +11,9 @@ import intermediateImg from "../bot_image/intermediate.jpg";
 import advancedImg from "../bot_image/advanced.jpg";
 
 const BOTS = [
-  { id: "beginner",     label: "Beginner",     rank: 18, desc: "Great for new players",  img: beginnerImg },
-  { id: "intermediate", label: "Intermediate", rank: 8,  desc: "A balanced challenge",   img: intermediateImg },
   { id: "advanced",     label: "Advanced",     rank: -2, desc: "Test your limits",        img: advancedImg },
+  { id: "intermediate", label: "Intermediate", rank: 8,  desc: "A balanced challenge",   img: intermediateImg },
+  { id: "beginner",     label: "Beginner",     rank: 18, desc: "Great for new players",  img: beginnerImg },
 ] as const;
 
 type BotTier = typeof BOTS[number]["id"];
@@ -393,15 +393,16 @@ export default function Lobby() {
                           <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 14 }}>
                             In progress
                           </div>
-                          <div style={{
-                            fontFamily: "var(--font-mono)",
-                            fontSize: 10,
-                            color: "var(--ink-mute)",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}>
-                            {g.id}
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
+                            <span
+                              className={`gs-pill ${g.opponent_type === "ai" ? "gs-pill--cyan" : "gs-pill--lav"}`}
+                              style={{ fontSize: 10, padding: "2px 7px" }}
+                            >
+                              {g.opponent_type === "ai" ? "vs AI" : `vs ${g.opponent_handle ?? "Human"}`}
+                            </span>
+                            <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--ink-mute)" }}>
+                              {new Date(g.started_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                            </span>
                           </div>
                         </div>
                       </div>

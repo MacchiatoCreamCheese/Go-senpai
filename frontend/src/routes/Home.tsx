@@ -295,7 +295,7 @@ function StatBlock({ stats }: { stats: { played: number; finished: number; drill
 
 function FlameIcon() {
   return (
-    <svg width="60" height="72" viewBox="0 0 60 72" fill="none" aria-hidden>
+    <svg width="44" height="52" viewBox="0 0 60 72" fill="none" aria-hidden>
       <defs>
         <linearGradient id="sg-flame" x1="30" y1="65" x2="30" y2="0" gradientUnits="userSpaceOnUse">
           <stop offset="0%"   stopColor="#E85D04" />
@@ -340,38 +340,38 @@ function StreakBlock({ userId }: { userId: string }) {
 
   return (
     <div className="gs-card" style={{
-      padding: "24px 20px",
+      padding: "16px",
       background: "var(--pastel-peach)",
       display: "flex",
       flexDirection: "column",
       alignItems: "center",
-      gap: 16,
+      gap: 10,
       textAlign: "center",
     }}>
       <FlameIcon />
 
-      <div className="gs-display-700" style={{ fontSize: 28, lineHeight: 1 }}>
+      <div className="gs-display-700" style={{ fontSize: 22, lineHeight: 1 }}>
         {count} Day Streak
       </div>
 
-      <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+      <div style={{ display: "flex", gap: 6, justifyContent: "center" }}>
         {boxDays.map((d, i) => (
-          <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>
+          <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
             <span style={{
-              fontFamily: "var(--font-mono)", fontSize: 10,
+              fontFamily: "var(--font-mono)", fontSize: 9,
               color: "var(--ink-soft)", fontWeight: 600, letterSpacing: "0.04em",
             }}>
               {d}
             </span>
             <div style={{
-              width: 36, height: 36,
-              borderRadius: 8,
+              width: 28, height: 28,
+              borderRadius: 6,
               border: "2.5px solid var(--ink)",
-              background: checked[i] ? "var(--ink)" : "transparent",
-              boxShadow: checked[i] ? "var(--shadow-block-sm)" : "none",
+              background: checked[i] ? "var(--pastel-green)" : "transparent",
+              boxShadow: "none",
               display: "grid", placeItems: "center",
-              color: "white",
-              fontSize: 16,
+              color: "var(--ink)",
+              fontSize: 13,
               fontFamily: "var(--font-display)",
               fontWeight: 700,
             }}>
@@ -382,8 +382,8 @@ function StreakBlock({ userId }: { userId: string }) {
       </div>
 
       <p style={{
-        fontSize: 12, color: "var(--ink-soft)",
-        lineHeight: 1.5, maxWidth: 240, margin: 0,
+        fontSize: 11, color: "var(--ink-soft)",
+        lineHeight: 1.4, maxWidth: 220, margin: 0,
         fontFamily: "var(--font-body)",
       }}>
         {hasStreak
@@ -452,8 +452,16 @@ function RecentGames({ games, isLoading }: { games: UserGameListItem[]; isLoadin
                   <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 15 }}>
                     {isActive ? "In progress" : g.result ?? "—"}
                   </div>
-                  <div style={{ fontSize: 11, color: "var(--ink-mute)", fontFamily: "var(--font-mono)" }}>
-                    {new Date(g.started_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                  <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 3, flexWrap: "wrap" }}>
+                    <span
+                      className={`gs-pill ${g.opponent_type === "ai" ? "gs-pill--cyan" : "gs-pill--lav"}`}
+                      style={{ fontSize: 10, padding: "2px 7px" }}
+                    >
+                      {g.opponent_type === "ai" ? "vs AI" : `vs ${g.opponent_handle ?? "Human"}`}
+                    </span>
+                    <span style={{ fontSize: 10, color: "var(--ink-mute)", fontFamily: "var(--font-mono)" }}>
+                      {new Date(g.started_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                    </span>
                   </div>
                 </div>
                 <span className={`gs-pill ${isActive ? "gs-pill--pink" : g.result?.startsWith("B+") || g.result?.startsWith("W+") ? "gs-pill--mint" : "gs-pill--red"}`}>
