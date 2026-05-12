@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { WeaknessBar, weaknessTier } from "../components/WeaknessBar";
@@ -73,7 +73,7 @@ function NoDataPlaceholder({ label }: { label: string }) {
     <div className="prf-no-data">
       <span className="prf-no-data-glyph">◌</span>
       <span className="prf-no-data-label">{label}</span>
-      <span className="prf-no-data-sub">A little more activity will fill this in.</span>
+      <span className="prf-no-data-sub">Play a game or do a drill to start your trend.</span>
     </div>
   );
 }
@@ -96,6 +96,15 @@ function AreaChart({
   const iW = W - PAD.l - PAD.r;
   const iH = H - PAD.t - PAD.b;
 
+  if (data.length === 1) {
+    const cx = W / 2, cy = H / 2;
+    return (
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none" style={{ display: "block", overflow: "hidden" }}>
+        <circle cx={cx} cy={cy} r="4" fill={strokeColor} stroke="var(--bg-2)" strokeWidth="2" />
+      </svg>
+    );
+  }
+
   const max = Math.max(1, ...data.map(d => d.value));
   const x = (i: number) => PAD.l + (i / (data.length - 1)) * iW;
   const y = (v: number) => PAD.t + iH - (v / max) * iH;
@@ -107,16 +116,16 @@ function AreaChart({
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none" style={{ display: "block", overflow: "hidden" }}>
       <defs>
         <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={fillColor} stopOpacity="0.55" />
-          <stop offset="100%" stopColor={fillColor} stopOpacity="0.04" />
+          <stop offset="0%" stopColor={fillColor} stopOpacity="0.65" />
+          <stop offset="100%" stopColor={fillColor} stopOpacity="0.08" />
         </linearGradient>
       </defs>
       <path d={area} fill={`url(#${fillId})`} />
-      <path d={line} fill="none" stroke={strokeColor} strokeWidth="1.8"
+      <path d={line} fill="none" stroke={strokeColor} strokeWidth="2.5"
         strokeLinecap="round" strokeLinejoin="round" />
       <circle
-        cx={x(data.length - 1)} cy={y(data[data.length - 1].value)} r="3"
-        fill={strokeColor} stroke="var(--bg-2)" strokeWidth="1.5"
+        cx={x(data.length - 1)} cy={y(data[data.length - 1].value)} r="4"
+        fill={strokeColor} stroke="var(--bg-2)" strokeWidth="2"
       />
     </svg>
   );
@@ -137,7 +146,7 @@ function ChartBlock({
 }) {
   const fillId = `grad-${label.replace(/\s+/g, "-").toLowerCase()}`;
 
-  if (!data || data.length < 2) {
+  if (!data || data.length < 1) {
     return (
       <div className="prf-chart-block">
         <div className="prf-chart-header">
@@ -149,8 +158,8 @@ function ChartBlock({
   }
 
   const latest = data[data.length - 1].value;
-  const prev = data[data.length - 2].value;
-  const delta = latest - prev;
+  const prev   = data.length >= 2 ? data[data.length - 2].value : null;
+  const delta  = prev !== null ? latest - prev : 0;
   const showDelta = data.length >= 3 && Math.abs(delta) > 0;
   const weekLabels = data.slice(-5);
 
@@ -591,44 +600,68 @@ function ConceptsTab({ concepts }: { concepts: ConceptProgressItem[] }) {
   );
 }
 
-/**
- * Analytics stat card with optional progress bar.
- * Used in the AnalyticsTab summary section.
- */
 function AnalyticsStatCard({
+  badge,
+  icon,
   label,
   value,
   hint,
   progress,
+  bg,
 }: {
+  badge: string;
+  icon: React.ReactNode;
   label: string;
   value: string;
   hint?: string;
-  progress?: number; // 0-1, for progress bar display
+  progress?: number;
+  bg: string;
 }) {
   return (
-    <div className="prf-an-stat-card">
+    <div className="prf-an-stat-card" style={{ background: bg }}>
       <div className="prf-an-stat-card-top">
+        <span className="prf-an-stat-card-badge">{badge}</span>
+        <span className="prf-an-stat-card-icon" aria-hidden="true">{icon}</span>
+      </div>
+      <div className="prf-an-stat-card-body">
         <span className="prf-an-stat-card-value">{value}</span>
         <span className="prf-an-stat-card-label">{label}</span>
       </div>
-
-      {/* Progress bar for accuracy metrics */}
       {progress !== undefined && (
-        <div className="prf-an-stat-card-progress">
+        <div className="prf-an-stat-card-track">
           <div
-            className="prf-an-stat-card-progress-bar"
+            className="prf-an-stat-card-fill"
             style={{ width: `${Math.min(100, Math.max(0, progress * 100))}%` }}
           />
         </div>
       )}
-
       {hint && <span className="prf-an-stat-card-hint">{hint}</span>}
     </div>
   );
 }
 
 // ─── Analytics tab ─────────────────────────────────────────────────────────────
+
+class AnalyticsErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { error: Error | null }
+> {
+  state = { error: null };
+  static getDerivedStateFromError(e: Error) { return { error: e }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="prf-analytics-error">
+          <span className="prf-analytics-error-msg">Analytics couldn't load right now.</span>
+          <button className="prf-analytics-error-retry" onClick={() => this.setState({ error: null })}>
+            Retry
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function AnalyticsTab({
   analytics,
@@ -645,28 +678,38 @@ function AnalyticsTab({
   return (
     <div className="prf-analytics">
 
-      {/* Summary stats — modern responsive grid with warm aesthetic */}
+      {/* Summary stats */}
       <div className="prf-analytics-summary">
         <AnalyticsStatCard
+          badge="ACCURACY"
+          icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>}
           label="Puzzle accuracy"
           value={drillStats?.accuracy != null ? pct(drillStats.accuracy) : "0%"}
           progress={drillStats?.accuracy ?? 0}
           hint={drillStats && drillStats.totalAttempts === 0 ? "No drills yet" : undefined}
+          bg="var(--pastel-pink)"
         />
         <AnalyticsStatCard
-          label="Games this week"
+          badge="GAMES"
+          icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>}
+          label="This week"
           value={lastGamesValue !== null ? String(lastGamesValue) : "0"}
+          bg="var(--pastel-green)"
         />
         <AnalyticsStatCard
-          label="Drills this week"
+          badge="DRILLS"
+          icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>}
+          label="This week"
           value={lastDrillsValue !== null ? String(lastDrillsValue) : "0"}
+          bg="var(--pastel-blue)"
         />
-        {drillStats && drillStats.totalAttempts > 0 && (
-          <AnalyticsStatCard
-            label="Total drills"
-            value={drillStats.totalAttempts.toString()}
-          />
-        )}
+        <AnalyticsStatCard
+          badge="TOTAL"
+          icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>}
+          label="All drills"
+          value={drillStats && drillStats.totalAttempts > 0 ? drillStats.totalAttempts.toString() : "0"}
+          bg="var(--pastel-yellow)"
+        />
       </div>
 
       {/* Charts — null series renders "Not enough data" placeholder */}
@@ -923,7 +966,7 @@ export default function Profile() {
             analyticsLoading ? <TabSkeleton /> :
             analyticsError   ? <TabError message="Could not load analytics data." /> :
             weaknessesError ? <TabError message="Could not load weakness data." /> :
-            analytics        ? <AnalyticsTab analytics={analytics} drillStats={drillStats} weaknesses={weaknesses} /> :
+            analytics        ? <AnalyticsErrorBoundary><AnalyticsTab analytics={analytics} drillStats={drillStats} weaknesses={weaknesses} /></AnalyticsErrorBoundary> :
             <TabSkeleton />
           )}
 
