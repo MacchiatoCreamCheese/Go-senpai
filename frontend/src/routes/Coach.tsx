@@ -12,14 +12,11 @@ import {
   type ActionHistoryItem,
   type NextActionResponse,
 } from "../api";
+import { ActiveDrillModal } from "../components/ActiveDrillModal";
 import { useToast } from "../components/NotificationToast";
 import { useIdentity } from "../lib/auth";
-import {
-  useDrillSessions,
-  useCreateDrillSession,
-  useDeleteDrillSession,
-} from "../hooks/useDrillData";
-import type { DrillSession } from "../types/drill";
+import { useCreateDrillSession } from "../hooks/useDrillData";
+import { useActiveDrillGuard } from "../hooks/useActiveDrillGuard";
 
 const KIND_LABEL: Record<string, string> = {
   review_game: "Review game",
@@ -77,92 +74,6 @@ function renderMarkdown(raw: string): string {
     .replace(/`(.+?)`/g, "<code>$1</code>")
     .replace(/(^|\W)'(.+?)'(?!\w)/gs, "$1<strong>$2</strong>")
     .replace(/\s*[-—–]\s*see (the recommendation card above\.?)/gi, " <em><strong>See $1</em><strong>");
-}
-
-// ─── Active session conflict modal ────────────────────────────────────────────
-
-function ActiveDrillSessionModal({
-  session,
-  isDeleting,
-  isCreating,
-  onDeleteAndNew,
-  onResume,
-  onClose,
-}: {
-  session: DrillSession;
-  isDeleting: boolean;
-  isCreating: boolean;
-  onDeleteAndNew: () => void;
-  onResume: () => void;
-  onClose: () => void;
-}) {
-  const busy = isDeleting || isCreating;
-  return (
-    <div
-      style={{
-        position: "fixed", inset: 0, zIndex: 50,
-        background: "rgba(26,23,20,0.55)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        padding: 20,
-      }}
-      onClick={e => { if (e.target === e.currentTarget && !busy) onClose(); }}
-      role="dialog"
-      aria-modal="true"
-    >
-      <div
-        className="gs-card"
-        style={{
-          padding: "32px 36px",
-          background: "var(--bg)",
-          boxShadow: "var(--shadow-block)",
-          maxWidth: 400, width: "100%",
-          textAlign: "center",
-        }}
-      >
-        <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 44, lineHeight: 1, marginBottom: 14 }}>
-          練
-        </div>
-        <h2 style={{ fontSize: 20, marginBottom: 8, fontFamily: "var(--font-display)", letterSpacing: "-0.02em" }}>
-          Active session in progress
-        </h2>
-        <p style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 6 }}>
-          {session.attemptCount} problem{session.attemptCount !== 1 ? "s" : ""} attempted so far.
-        </p>
-        <p style={{ fontSize: 13, color: "var(--ink-mute)", marginBottom: 28 }}>
-          What would you like to do?
-        </p>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <button
-            type="button"
-            className="gs-btn gs-btn--primary"
-            disabled={busy}
-            onClick={onDeleteAndNew}
-            style={{ width: "100%" }}
-          >
-            {isDeleting ? "Deleting…" : isCreating ? "Starting…" : "Delete & start new drill"}
-          </button>
-          <button
-            type="button"
-            className="gs-btn"
-            disabled={busy}
-            onClick={onResume}
-            style={{ width: "100%", background: "var(--pastel-cyan)" }}
-          >
-            Resume existing session →
-          </button>
-          <button
-            type="button"
-            className="gs-btn"
-            disabled={busy}
-            onClick={onClose}
-            style={{ width: "100%" }}
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 export default function Coach() {
@@ -300,45 +211,19 @@ export default function Coach() {
   const action: NextActionResponse | null = planner.data ?? null;
 
   // ── Quick drill ────────────────────────────────────────────────────────────
-  const [showDrillModal, setShowDrillModal] = useState(false);
-  const { data: sessions } = useDrillSessions(userId);
-  const activeSession = sessions?.find(s => s.status === "active") ?? null;
   const createSession = useCreateDrillSession();
-  const removeSession = useDeleteDrillSession();
+  const drillGuard = useActiveDrillGuard();
 
-  async function handleQuickDrill() {
-    if (activeSession) {
-      setShowDrillModal(true);
-      return;
-    }
-    await startNewDrill();
-  }
-
-  async function startNewDrill() {
-    if (!userId) return;
-    try {
-      const session = await createSession.mutateAsync({ userId, targetProblemCount: 1 });
-      setShowDrillModal(false);
-      navigate(`/drill/session/${session.id}`, { state: { from: '/coach' } });
-    } catch (err) {
-      toast.push({ kind: "error", title: "Could not start drill", body: String(err) });
-    }
-  }
-
-  async function handleDeleteAndNew() {
-    if (!activeSession || !userId) return;
-    try {
-      await removeSession.mutateAsync({ sessionId: activeSession.id, userId });
-      await startNewDrill();
-    } catch (err) {
-      toast.push({ kind: "error", title: "Could not start drill", body: String(err) });
-    }
-  }
-
-  function handleResumeSession() {
-    if (!activeSession) return;
-    setShowDrillModal(false);
-    navigate(`/drill/session/${activeSession.id}`, { state: { from: '/coach' } });
+  function handleQuickDrill() {
+    drillGuard.guard(async () => {
+      if (!userId) return;
+      try {
+        const session = await createSession.mutateAsync({ userId, targetProblemCount: 1 });
+        navigate(`/drill/session/${session.id}`, { state: { from: '/coach' } });
+      } catch (err) {
+        toast.push({ kind: "error", title: "Could not start drill", body: String(err) });
+      }
+    }, '/coach');
   }
 
   async function handleSend() {
@@ -413,39 +298,47 @@ export default function Coach() {
 
   return (
     <div className="coach-page">
-      {showDrillModal && activeSession && (
-        <ActiveDrillSessionModal
-          session={activeSession}
-          isDeleting={removeSession.isPending}
+      {drillGuard.showModal && drillGuard.activeSession && (
+        <ActiveDrillModal
+          session={drillGuard.activeSession}
+          isDeleting={drillGuard.isDeleting}
           isCreating={createSession.isPending}
-          onDeleteAndNew={handleDeleteAndNew}
-          onResume={handleResumeSession}
-          onClose={() => setShowDrillModal(false)}
+          onDeleteAndNew={drillGuard.handleDeleteAndNew}
+          onResume={drillGuard.handleResume}
+          onClose={drillGuard.handleClose}
         />
       )}
 
       {/* ── Left: action + history ────────────────────── */}
       <div className="coach-left">
-        <NextActionPanel action={action} isPending={planner.isPending} onAsk={() => planner.mutate()} navigate={navigate} />
+        <NextActionPanel
+          action={action}
+          isPending={planner.isPending}
+          onAsk={() => planner.mutate()}
+          onDrillStart={(id) => drillGuard.guard(
+            () => navigate(`/drill/${id}`, { state: { from: '/coach' } }),
+            '/coach',
+          )}
+        />
 
         {/* Quick drill shortcut */}
         <div className="action-card" style={{ background: "var(--pastel-cyan)", marginTop: 0 }}>
           <div className="action-card-mark">DRILL</div>
           <div className="action-card-title" style={{ marginBottom: 6 }}>
-            {activeSession ? "Session in progress" : "Quick drill"}
+            {drillGuard.activeSession ? "Session in progress" : "Quick drill"}
           </div>
           <div className="action-card-body" style={{ marginBottom: 14 }}>
-            {activeSession
-              ? `${activeSession.attemptCount} problem${activeSession.attemptCount !== 1 ? "s" : ""} attempted — resume or start fresh.`
+            {drillGuard.activeSession
+              ? `${drillGuard.activeSession.attemptCount} problem${drillGuard.activeSession.attemptCount !== 1 ? "s" : ""} attempted — resume or start fresh.`
               : "Jump straight into one focused problem targeted to your weaknesses."}
           </div>
           <button
             type="button"
             className="gs-btn gs-btn--primary"
             onClick={handleQuickDrill}
-            disabled={createSession.isPending || removeSession.isPending}
+            disabled={createSession.isPending || drillGuard.isDeleting}
           >
-            {createSession.isPending ? "Starting…" : activeSession ? "Manage session →" : "Start 1-problem drill →"}
+            {createSession.isPending ? "Starting…" : drillGuard.activeSession ? "Manage session →" : "Start 1-problem drill →"}
           </button>
         </div>
 
@@ -557,13 +450,14 @@ function NextActionPanel({
   action,
   isPending,
   onAsk,
-  navigate,
+  onDrillStart,
 }: {
   action: NextActionResponse | null;
   isPending: boolean;
   onAsk: () => void;
-  navigate: (to: string, options?: { state?: unknown }) => void;
+  onDrillStart: (problemId: string) => void;
 }) {
+  const navigate = useNavigate();
   const kindLabel = action ? (KIND_LABEL[action.kind] ?? action.kind) : null;
   const bg = action ? (KIND_COLOR[action.kind] ?? "var(--pastel-yellow)") : "var(--pastel-yellow)";
 
@@ -601,7 +495,7 @@ function NextActionPanel({
             )}
             {action.problem?.id && (
               <button className="gs-btn gs-btn--cyan"
-                onClick={() => navigate(`/drill/${action.problem!.id}`, { state: { from: '/coach' } })}>
+                onClick={() => onDrillStart(action.problem!.id)}>
                 Start drill →
               </button>
             )}

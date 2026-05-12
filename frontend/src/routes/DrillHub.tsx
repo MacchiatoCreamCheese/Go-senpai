@@ -8,6 +8,7 @@ import {
   useCreateDrillSession,
   useDeleteDrillSession,
 } from "../hooks/useDrillData";
+import { useActiveDrillGuard } from "../hooks/useActiveDrillGuard";
 import type { DrillSession, DrillAnalytics } from "../types/drill";
 
 function pct(v: number | null): string {
@@ -453,6 +454,7 @@ export default function DrillHub() {
   const { data: analytics, isLoading: analyticsLoading, error: analyticsError } = useDrillAnalytics(userId);
   const createSession = useCreateDrillSession();
   const removeSession = useDeleteDrillSession();
+  const drillGuard = useActiveDrillGuard();
 
   if (!userId) {
     return (
@@ -525,8 +527,8 @@ export default function DrillHub() {
             <button
               type="button"
               className="gs-btn gs-btn--primary"
-              onClick={() => setShowModal(true)}
-              disabled={sessionsLoading || !!activeSession}
+              onClick={() => drillGuard.guard(() => setShowModal(true))}
+              disabled={sessionsLoading}
             >
               Start Session
             </button>
