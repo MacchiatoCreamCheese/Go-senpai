@@ -70,10 +70,9 @@ export function buildAnalytics(
   progress: UserProgressResponse,
   concepts: UserConceptItem[],
 ): ProfileAnalyticsData {
-  // Require ≥ 2 data points to show a trend chart; a single point is not meaningful.
-  const gamesPerWeek             = progress.games_per_week.length > 1             ? progress.games_per_week             : null;
-  const drillsPerWeek            = progress.drills_per_week.length > 1            ? progress.drills_per_week            : null;
-  const weaknessSeverityHistory  = progress.top_weakness_severity_history.length > 1 ? progress.top_weakness_severity_history : null;
+  const gamesPerWeek            = progress.games_per_week.length >= 1             ? progress.games_per_week             : null;
+  const drillsPerWeek           = progress.drills_per_week.length >= 1            ? progress.drills_per_week            : null;
+  const weaknessSeverityHistory = progress.top_weakness_severity_history.length >= 1 ? progress.top_weakness_severity_history : null;
 
   const topStudiedConcepts = [...concepts]
     .sort((a, b) => b.times_taught - a.times_taught)

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import date, timedelta
 from typing import Any
+
+_log = logging.getLogger(__name__)
 
 import asyncpg
 
@@ -947,6 +950,7 @@ async def _mark_demonstrated_for_problem(user_id: str, problem_id: str) -> None:
             concept_id = WEAKNESS_TO_CONCEPT_ID.get(weakness_theme)
             if concept_id:
                 concept_ids.add(concept_id)
+    _log.debug("drill concept mapping: problem=%s themes=%s → concepts=%s", problem_id, themes, concept_ids)
     if concept_ids:
         await mark_concepts_demonstrated(user_id, list(concept_ids))
 
@@ -1014,13 +1018,16 @@ async def mark_concepts_demonstrated(
 ) -> None:
     if not concept_ids:
         return
+    # Upsert so a user who drills before using Coach still gets a row created.
+    # Plain UPDATE would silently match 0 rows when no prior row exists.
     await _get_pool().execute(
         """
-        UPDATE user_concepts_seen
-           SET user_demonstrated = TRUE,
-               demonstrated_at = NOW()
-         WHERE user_id = $1
-           AND concept_id = ANY($2::text[])
+        INSERT INTO user_concepts_seen
+               (user_id, concept_id, times_taught, user_demonstrated, demonstrated_at)
+        SELECT $1, unnest($2::text[]), 0, TRUE, NOW()
+        ON CONFLICT (user_id, concept_id) DO UPDATE SET
+            user_demonstrated = TRUE,
+            demonstrated_at   = NOW()
         """,
         user_id,
         concept_ids,

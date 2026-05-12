@@ -38,7 +38,7 @@ export function useDrillSessions(userId: string | null, limit = 20): {
   error: Error | null;
 } {
   const q = useQuery({
-    queryKey: DRILL_KEYS.sessions(userId ?? ""),
+    queryKey: [...DRILL_KEYS.sessions(userId ?? ""), limit],
     queryFn: () => drillRepository.listDrillSessions(userId!, limit),
     select: (rows) => rows.map(enrichSession),
     enabled: !!userId,

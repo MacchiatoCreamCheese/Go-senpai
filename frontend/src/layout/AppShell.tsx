@@ -141,12 +141,6 @@ export function AppShell() {
                   >
                     Profile
                   </button>
-                  <button
-                    className="user-menu-item"
-                    onClick={() => { setMenuOpen(false); navigate("/settings"); }}
-                  >
-                    Settings
-                  </button>
                   <div className="user-menu-rule" />
                   <button
                     className="user-menu-item user-menu-item-muted"

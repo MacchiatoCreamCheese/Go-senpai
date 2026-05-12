@@ -578,9 +578,10 @@ export async function getDrillSession(sessionId: string): Promise<DrillSessionRe
 export async function listDrillSessions(
   userId: string,
   limit = 20,
+  offset = 0,
 ): Promise<DrillSessionResp[]> {
   const resp = await api(
-    `/api/users/${encodeURIComponent(userId)}/drill-sessions?limit=${limit}`,
+    `/api/users/${encodeURIComponent(userId)}/drill-sessions?limit=${limit}&offset=${offset}`,
   );
   return asJson<DrillSessionResp[]>(resp);
 }
