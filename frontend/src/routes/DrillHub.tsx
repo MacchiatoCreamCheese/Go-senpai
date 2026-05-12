@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useIdentity } from "../lib/auth";
 import { useToast } from "../components/NotificationToast";
-import { ActiveDrillModal } from "../components/ActiveDrillModal";
 import {
   useDrillSessions,
   useDrillAnalytics,
