@@ -13,9 +13,9 @@ import intermediateImg from "../bot_image/intermediate.jpg";
 import advancedImg from "../bot_image/advanced.jpg";
 
 const BOTS = [
-  { id: "advanced",     label: "Advanced",     rank: -2, desc: "Test your limits",        img: advancedImg },
-  { id: "intermediate", label: "Intermediate", rank: 8,  desc: "A balanced challenge",   img: intermediateImg },
-  { id: "beginner",     label: "Beginner",     rank: 18, desc: "Great for new players",  img: beginnerImg },
+  { id: "advanced",     label: "Advanced",     rank: -2, desc: "Ara ara~ Think you can beat me?",        img: advancedImg },
+  { id: "intermediate", label: "Intermediate", rank: 8,  desc: "B-baka! I won't go easy on you!",   img: intermediateImg },
+  { id: "beginner",     label: "Beginner",     rank: 18, desc: "A match? O-okay... let's play...",  img: beginnerImg },
 ] as const;
 
 type BotTier = typeof BOTS[number]["id"];
