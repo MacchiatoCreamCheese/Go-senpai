@@ -262,6 +262,19 @@ function LevelFilterChips({
   );
 }
 
+function SavedFilterChip({ active, onToggle }: { active: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      className={`lib-level-chip lib-level-chip--saved${active ? " is-active" : ""}`}
+      onClick={onToggle}
+      aria-pressed={active}
+    >
+      ★ Saved
+    </button>
+  );
+}
+
 // ─── Hero banner ──────────────────────────────────────────────────────────────
 
 function ConceptsHero({ total, bookmarkedCount }: { total: number; bookmarkedCount: number }) {
@@ -528,18 +541,31 @@ function LoadingSkeleton() {
 
 // ─── Empty state ──────────────────────────────────────────────────────────────
 
-function EmptyState({ hasFilter, onClear }: { hasFilter: boolean; onClear: () => void }) {
+function EmptyState({
+  hasFilter,
+  showNoSavedYet,
+  onClear,
+}: {
+  hasFilter: boolean;
+  showNoSavedYet: boolean;
+  onClear: () => void;
+}) {
+  const title = showNoSavedYet
+    ? "No saved concepts yet"
+    : hasFilter
+      ? "No matching concepts"
+      : "No concepts yet";
+  const sub = showNoSavedYet
+    ? "Save concepts with the star on a card or the concept detail page."
+    : hasFilter
+      ? "Try a different search term or clear the active filters."
+      : "Run the concept loader to seed the corpus first.";
+
   return (
     <div className="lib-empty">
       <div className="lib-empty-glyph">智</div>
-      <div className="lib-empty-title">
-        {hasFilter ? "No matching concepts" : "No concepts yet"}
-      </div>
-      <p className="lib-empty-sub">
-        {hasFilter
-          ? "Try a different search term or clear the active filters."
-          : "Run the concept loader to seed the corpus first."}
-      </p>
+      <div className="lib-empty-title">{title}</div>
+      <p className="lib-empty-sub">{sub}</p>
       {hasFilter && (
         <button type="button" className="gs-btn" style={{ marginTop: 8 }} onClick={onClear}>
           Clear filters
@@ -559,6 +585,8 @@ export default function Concepts() {
   const search = searchParams.get("search") ?? "";
   const activeTags = new Set(searchParams.getAll("tag"));
   const activeLevels = new Set(searchParams.getAll("level"));
+  const savedParam = searchParams.get("saved");
+  const savedOnly = savedParam === "1" || savedParam === "true";
   const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
 
   // Bookmarks stay in localStorage (personal, not shareable)
@@ -594,14 +622,17 @@ export default function Concepts() {
       list = list.filter(c => activeLevels.has(getDifficulty(c.tags)));
     const q = search.trim();
     if (q) list = list.filter(c => matchesConcept(c, q));
+    if (savedOnly) list = list.filter(c => bookmarks.has(c.id));
     return list;
-  }, [concepts, activeTags, activeLevels, search]);
+  }, [concepts, activeTags, activeLevels, search, savedOnly, bookmarks]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
   const safePage = Math.min(page, totalPages);
   const visible = filtered.slice((safePage - 1) * ITEMS_PER_PAGE, safePage * ITEMS_PER_PAGE);
-  const hasFilter = activeTags.size > 0 || activeLevels.size > 0 || !!search.trim();
-  const activeFilterCount = activeTags.size + activeLevels.size + (search.trim() ? 1 : 0);
+  const hasFilter =
+    activeTags.size > 0 || activeLevels.size > 0 || !!search.trim() || savedOnly;
+  const activeFilterCount =
+    activeTags.size + activeLevels.size + (search.trim() ? 1 : 0) + (savedOnly ? 1 : 0);
 
   // Scroll to top when page changes
   useEffect(() => {
@@ -641,6 +672,21 @@ export default function Concepts() {
     const next = new Set(activeLevels);
     next.has(level) ? next.delete(level) : next.add(level);
     setParam("level", [...next]);
+  }
+
+  function toggleSavedFilter() {
+    const next = new URLSearchParams(searchParams);
+    if (savedOnly) next.delete("saved");
+    else next.set("saved", "1");
+    next.set("page", "1");
+    setSearchParams(next, { replace: true });
+  }
+
+  function clearSavedFilter() {
+    const next = new URLSearchParams(searchParams);
+    next.delete("saved");
+    next.set("page", "1");
+    setSearchParams(next, { replace: true });
   }
 
   function clearFilters() {
@@ -687,6 +733,8 @@ export default function Concepts() {
 
             <LevelFilterChips activeLevels={activeLevels} onToggle={toggleLevel} />
 
+            <SavedFilterChip active={savedOnly} onToggle={toggleSavedFilter} />
+
             <TagFilterDropdown
               tagCounts={tagCounts}
               activeTags={activeTags}
@@ -720,6 +768,11 @@ export default function Concepts() {
                 ✕ &ldquo;{search.trim()}&rdquo;
               </button>
             )}
+            {savedOnly && (
+              <button type="button" className="lib-active-chip" onClick={clearSavedFilter}>
+                ✕ Saved
+              </button>
+            )}
             <span className="lib-result-count">
               {filtered.length} concept{filtered.length !== 1 ? "s" : ""}
             </span>
@@ -749,7 +802,11 @@ export default function Concepts() {
         {!isLoading && (
           <div className="lib-section-head">
             <span className="gs-tag">
-              {hasFilter ? "RESULTS · 結果" : "ALL CONCEPTS · 全概念"}
+              {savedOnly
+                ? "SAVED · 保存"
+                : hasFilter
+                  ? "RESULTS · 結果"
+                  : "ALL CONCEPTS · 全概念"}
             </span>
             <span className="lib-result-count">
               {filtered.length} concept{filtered.length !== 1 ? "s" : ""}
@@ -760,7 +817,11 @@ export default function Concepts() {
         {isLoading ? (
           <LoadingSkeleton />
         ) : visible.length === 0 ? (
-          <EmptyState hasFilter={hasFilter} onClear={clearFilters} />
+          <EmptyState
+            hasFilter={hasFilter}
+            showNoSavedYet={savedOnly && bookmarks.size === 0}
+            onClear={clearFilters}
+          />
         ) : (
           <>
             <div className="lib-grid">
