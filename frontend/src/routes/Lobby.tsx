@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createGame, createUser, fetchGame, getMyGames, joinGame } from "../api";
 import type { ColorCode } from "../types";
 import { HANDLE_KEY as USER_HANDLE_KEY, USER_ID_KEY, useAuth } from "../lib/auth";
+import { useToast } from "../components/NotificationToast";
 
 import beginnerImg from "../bot_image/beginner.jpg";
 import intermediateImg from "../bot_image/intermediate.jpg";
@@ -20,6 +21,7 @@ type BotTier = typeof BOTS[number]["id"];
 
 export default function Lobby() {
   const navigate = useNavigate();
+  const toast = useToast();
   const { user, legacy } = useAuth();
   const [joinInput, setJoinInput] = useState("");
   const [handle, setHandle] = useState(() => localStorage.getItem(USER_HANDLE_KEY) ?? "");
@@ -30,6 +32,8 @@ export default function Lobby() {
   const [aiRank, setAiRank] = useState<number>(8);
   const [botTier, setBotTier] = useState<BotTier | null>("intermediate");
   const [trainingMode, setTrainingMode] = useState(true);
+  /** Human vs human: show share-ID modal before navigating to the board */
+  const [pendingShareGameId, setPendingShareGameId] = useState<string | null>(null);
 
   const supabaseUserId = !legacy && user ? user.id : null;
   const userId = supabaseUserId ?? localStorage.getItem(USER_ID_KEY);
@@ -86,7 +90,11 @@ export default function Lobby() {
         aiRank: opponent === "ai" ? aiRank : undefined,
         trainingMode: opponent === "ai" ? trainingMode : undefined,
       });
-      go(game.id);
+      if (opponent === "human") {
+        setPendingShareGameId(game.id);
+      } else {
+        go(game.id);
+      }
     } catch (e) {
       setError(String(e));
     } finally {
@@ -96,6 +104,22 @@ export default function Lobby() {
 
   function rankLabel(r: number): string {
     return r > 0 ? `${r}k` : `${1 - r}d`;
+  }
+
+  function copyShareGameId(id: string) {
+    navigator.clipboard.writeText(id).catch(() => {});
+    toast.push({ kind: "info", title: "Copied", body: "Game ID copied to clipboard." });
+  }
+
+  function copyInvitePlayLink(id: string) {
+    const url = `${window.location.origin}/play/${id}`;
+    navigator.clipboard.writeText(url).catch(() => {});
+    toast.push({ kind: "info", title: "Copied", body: "Invite link copied to clipboard." });
+  }
+
+  function continueToBoardAfterShare(id: string) {
+    setPendingShareGameId(null);
+    go(id);
   }
 
   const hasActiveGames = activeGames.length > 0;
@@ -472,6 +496,76 @@ export default function Lobby() {
           </div>
         </div>
       </div>
+
+      {/* Human vs human: copy game ID before entering board */}
+      {pendingShareGameId && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 50,
+            background: "rgba(26,23,20,0.6)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="lobby-share-dialog-title"
+        >
+          <div
+            className="gs-card gs-card--ink"
+            style={{
+              padding: "28px 32px",
+              background: "var(--bg-2)",
+              boxShadow: "var(--shadow-block)",
+              maxWidth: 460,
+              width: "100%",
+              position: "relative",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div id="lobby-share-dialog-title" className="gs-section-h" style={{ marginBottom: 10 }}>
+              SHARE GAME ID
+            </div>
+            <p style={{ fontSize: 13, color: "var(--ink-soft)", margin: "0 0 14px", lineHeight: 1.45 }}>
+              Send this to your opponent so they can paste it under{" "}
+              <strong style={{ color: "var(--ink)" }}>Join an existing game</strong> on this page, or open the invite link.
+            </p>
+            <span
+              className="tag"
+              style={{ display: "block", width: "100%", boxSizing: "border-box", marginBottom: 16 }}
+            >
+              {pendingShareGameId}
+            </span>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 16 }}>
+              <button
+                type="button"
+                className="gs-btn"
+                onClick={() => copyShareGameId(pendingShareGameId)}
+              >
+                Copy ID
+              </button>
+              <button
+                type="button"
+                className="gs-btn"
+                onClick={() => copyInvitePlayLink(pendingShareGameId)}
+              >
+                Copy invite link
+              </button>
+            </div>
+            <button
+              type="button"
+              className="gs-btn gs-btn--primary"
+              style={{ width: "100%", justifyContent: "center", boxSizing: "border-box" }}
+              onClick={() => continueToBoardAfterShare(pendingShareGameId)}
+            >
+              Continue to board →
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -48,7 +48,7 @@ body {
 /* ── primitives ─────────────────────────────── */
 .gs-card {
   background: var(--bg-2);
-  border: var(--border-thick) solid var(--border);
+  border: var(--border-thick) solid var(--ink-soft);
   border-radius: 18px;
 }
 .gs-card--tight { border-radius: 14px; border-width: var(--border-thin); }

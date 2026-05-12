@@ -3196,6 +3196,13 @@ a { color: inherit; }
   box-shadow: 2px 2px 0 var(--ink);
   transform: translate(-1px, -1px);
 }
+.lib-level-chip--saved.is-active {
+  background: var(--pastel-yellow);
+  border-color: var(--ink);
+  color: var(--ink);
+  box-shadow: 2px 2px 0 var(--ink);
+  transform: translate(-1px, -1px);
+}
 
 /* ── Tag filter button & popover ─────────────────────────── */
 

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { ActiveDrillModal } from "../components/ActiveDrillModal";
+import { useActiveDrillGuard } from "../hooks/useActiveDrillGuard";
 import { useMutation, useQuery } from "@tanstack/react-query";
 
 import {
@@ -161,6 +163,7 @@ function SenseiHero({
   activeGame: UserGameListItem | null;
 }) {
   const navigate = useNavigate();
+  const drillGuard = useActiveDrillGuard();
 
   const kindLabel = action
     ? { review_game: "Review a game", serve_drill: "Time for a drill", teach_concept: "New concept", revisit_concept: "Revisit concept", idle: "All caught up!" }[action.kind] ?? "Next step"
@@ -222,7 +225,7 @@ function SenseiHero({
               )}
               {action.problem?.id && (
                 <button className="gs-btn gs-btn--cyan"
-                  onClick={() => navigate(`/drill/${action.problem!.id}`)}>
+                  onClick={() => drillGuard.guard(() => navigate(`/drill/${action.problem!.id}`))}>
                   Start drill →
                 </button>
               )}
@@ -262,6 +265,17 @@ function SenseiHero({
           ]} />
         </div>
       </div>
+
+      {drillGuard.showModal && drillGuard.activeSession && (
+        <ActiveDrillModal
+          session={drillGuard.activeSession}
+          isDeleting={drillGuard.isDeleting}
+          isCreating={false}
+          onDeleteAndNew={drillGuard.handleDeleteAndNew}
+          onResume={drillGuard.handleResume}
+          onClose={drillGuard.handleClose}
+        />
+      )}
     </div>
   );
 }
