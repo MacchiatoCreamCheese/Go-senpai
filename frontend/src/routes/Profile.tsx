@@ -930,6 +930,9 @@ export default function Profile() {
               <div className="prf-identity">
                 <div className="prf-identity-row">
                   <h1 className="prf-identity-name">{handle}</h1>
+                  {isMe && (profile || legacy) && (
+                    <HandleEditor modal={true} />
+                  )}
                   <span className="prf-rank-badge">{rank}</span>
                 </div>
                 <div className="prf-identity-meta">
@@ -938,9 +941,6 @@ export default function Profile() {
                     : `${stats.totalGames} game${stats.totalGames !== 1 ? "s" : ""} played${stats.winRate !== null ? ` · ${pct(stats.winRate)} win rate` : ""}`
                   }
                 </div>
-                {isMe && (profile || legacy) && (
-                  <div className="prf-handle-editor"><HandleEditor /></div>
-                )}
               </div>
             </div>
 
