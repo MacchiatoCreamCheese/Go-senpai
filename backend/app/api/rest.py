@@ -43,6 +43,7 @@ from ..schemas import (
     UserConceptItem,
     UserProgressResponse,
     UserSchema,
+    StreakResponse,
     WeaknessSchema,
     color_from_code,
 )
@@ -143,6 +144,12 @@ async def list_user_concepts(user_id: str) -> list[UserConceptItem]:
 async def get_user_progress(user_id: str) -> UserProgressResponse:
     series = await db.user_progress_series(user_id)
     return UserProgressResponse(**series)
+
+
+@router.get("/users/{user_id}/streak", response_model=StreakResponse)
+async def get_user_streak(user_id: str) -> StreakResponse:
+    data = await db.user_streak_data(user_id)
+    return StreakResponse(**data)
 
 
 def _make_summary(body_md: str | None) -> str:

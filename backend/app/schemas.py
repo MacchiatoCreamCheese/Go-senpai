@@ -218,6 +218,14 @@ class UserProgressResponse(BaseModel):
     top_weakness_severity_history: list[ProgressPoint] = Field(default_factory=list)
 
 
+class StreakResponse(BaseModel):
+    current_streak: int
+    longest_streak: int
+    last_active_date: Optional[str]
+    last_7_days: list[str]
+    last_7_active: list[bool]
+
+
 class NextActionResponse(BaseModel):
     kind: Literal["review_game", "teach_concept", "revisit_concept", "serve_drill", "idle"]
     game_id: Optional[str] = None
