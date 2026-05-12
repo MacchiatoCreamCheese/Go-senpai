@@ -19,7 +19,7 @@ from ..services.katago import ai_player
 from ..services.weakness import apply_evidence, extract_evidence
 from ..services.katago.engine import get_engine
 from ..services.katago.features import classify_tier, confidence_weight
-from ..services.katago.live_analysis import analyze_single_move, position_hash_pair
+from ..services.katago.live_analysis import analyze_single_move, db_moves_to_katago_tuples, position_hash_pair
 from ..schemas import (
     ActionHistoryItem,
     ConceptListItem,
@@ -632,12 +632,24 @@ async def swap_colors(game_id: str) -> GameSchema:
     return _game_schema(record, seats["black_user_id"], seats["white_user_id"])
 
 
+async def _weakness_after_live(
+    game_id: str, game_row: dict, live_task: asyncio.Task | None
+) -> None:
+    """Wait for in-flight live analysis (writes move_features) before weakness EMA."""
+    if live_task is not None:
+        try:
+            await live_task
+        except Exception:
+            pass
+    await _update_weaknesses_from_training_game(game_id, game_row)
+
+
 async def _update_weaknesses_from_training_game(game_id: str, game_row: dict) -> None:
     """Run weakness evidence extraction for a just-finished training game.
 
-    Training games accumulate move_features via live analysis during play but
-    the weakness updater only runs on explicit /analyze calls. This closes the
-    loop automatically on game end. Fire-and-forget — never raises to caller.
+    Training games accumulate move_features via live analysis during play; on
+    game end we run the weakness updater once those rows exist. Fire-and-forget
+    — never raises to caller.
     """
     try:
         features = await db.get_move_features(game_id)
@@ -787,7 +799,7 @@ async def play_ai_move(game_id: str, _user=Depends(soft_user)) -> StateSchema:
         state = StateSchema.from_game(record.game)
 
     if ai_game_just_ended and row.get("training_mode"):
-        asyncio.create_task(_update_weaknesses_from_training_game(game_id, row))
+        asyncio.create_task(_weakness_after_live(game_id, row, analyze_task))
 
     await broadcast_state(record, state)
     # analyze_task runs in background; move_tier arrives via WS after this returns
@@ -848,17 +860,27 @@ async def _live_analyze_and_push(
     engine = get_engine()
     if engine is None:
         return
-    log = logging.getLogger(__name__)
     try:
+        rules = str(game_row.get("ruleset") or "chinese")
         feats = await analyze_single_move(
             engine=engine,
             board_size=game_row["board_size"],
             komi=float(game_row["komi"]),
-            rules=game_row.get("ruleset", "chinese"),
+            rules=rules,
             db_moves=db_moves,
         )
         if feats is None:
             return
+
+        km = db_moves_to_katago_tuples(db_moves)
+        if km:
+            ph_before, ph_after = position_hash_pair(
+                int(game_row["board_size"]),
+                float(game_row["komi"]),
+                rules,
+                km,
+            )
+            await db.upsert_move_feature(game_id, feats, ph_before, ph_after)
 
         cpl = feats.confident_points_lost
         tier = classify_tier(cpl, game_row["board_size"])

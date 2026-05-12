@@ -273,6 +273,7 @@ export interface WeaknessItem {
   severity: number;
   evidence_count: number;
   last_seen_at: string | null;
+  latest_insight: string | null;
 }
 
 export async function getWeaknesses(userId: string): Promise<WeaknessItem[]> {

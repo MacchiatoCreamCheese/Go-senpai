@@ -31,7 +31,7 @@ async def apply_evidence(
         return False
 
     for ev in evidence:
-        await db.upsert_user_weakness(user_id, ev.theme, ev.score, EMA_ALPHA)
+        await db.upsert_user_weakness(user_id, ev.theme, ev.score, EMA_ALPHA, ev.insight)
     log.info(
         "weakness update user=%s game=%s themes=%d",
         user_id,

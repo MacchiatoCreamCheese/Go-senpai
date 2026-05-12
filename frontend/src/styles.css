@@ -1535,6 +1535,18 @@ a { color: inherit; }
   color: var(--ink-soft);
 }
 
+.wk-card-insight {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(26, 23, 20, 0.05);
+  border: 1px solid var(--border);
+  font-family: var(--font-display);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-soft);
+}
+
 /* Tier-grouped breakdown */
 .wk-breakdown { display: flex; flex-direction: column; gap: 22px; }
 

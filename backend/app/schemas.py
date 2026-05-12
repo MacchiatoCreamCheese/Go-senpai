@@ -119,6 +119,7 @@ class WeaknessSchema(BaseModel):
     severity: float
     evidence_count: int
     last_seen_at: Optional[str] = None
+    latest_insight: Optional[str] = None
 
 
 class ProblemSchema(BaseModel):

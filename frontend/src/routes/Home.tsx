@@ -14,18 +14,10 @@ import {
   type WeaknessItem,
 } from "../api";
 import { AuthLoading } from "../components/AuthLoading";
+import { WeaknessBar } from "../components/WeaknessBar";
 import { useToast } from "../components/NotificationToast";
 import { SETUP_DONE_KEY, useAuth, useIdentity } from "../lib/auth";
 import { GoBoardSVG } from "../GoBoardSVG";
-
-const PASTEL_CYCLE = [
-  "var(--border)",
-  "var(--pastel-peach)",
-  "var(--pastel-yellow)",
-  "var(--pastel-green)",
-  "var(--pastel-cyan)",
-  "var(--pastel-lavender)",
-];
 
 const DAYS = ["M", "T", "W", "T", "F", "S", "S"];
 
@@ -141,16 +133,16 @@ export default function Home() {
           <StreakBlock />
         </div>
 
+        {/* Quick play row — full width */}
+        <div style={{ gridColumn: "1 / -1" }}>
+          <QuickPlayRow hasActiveGame={activeGames.length > 0} activeGameId={activeGames[0]?.id ?? null} />
+        </div>
+
         {/* Recent games */}
         <RecentGames games={recent} isLoading={games.isLoading} />
 
         {/* Weakness panel */}
         <WeaknessPanel weaknesses={topWeaknesses} isLoading={weaknesses.isLoading} />
-
-        {/* Quick play row — full width */}
-        <div style={{ gridColumn: "1 / -1" }}>
-          <QuickPlayRow hasActiveGame={activeGames.length > 0} activeGameId={activeGames[0]?.id ?? null} />
-        </div>
       </div>
     </div>
   );
@@ -428,24 +420,13 @@ function WeaknessPanel({ weaknesses, isLoading }: { weaknesses: WeaknessItem[]; 
         <div style={{ color: "var(--ink-mute)", fontFamily: "var(--font-display)", fontSize: 14 }}>Loading…</div>
       ) : weaknesses.length === 0 ? (
         <div style={{ color: "var(--ink-mute)", fontFamily: "var(--font-display)", fontSize: 14 }}>
-          No weaknesses tracked yet. Complete a reviewed game to see them here.
+          No weaknesses tracked yet. Finish training games (with KataGo running) or run full game
+          analysis — insights appear from your move stats, not from the LLM review.
         </div>
       ) : (
         <div style={{ display: "grid", gap: 10 }}>
-          {weaknesses.map((w, i) => (
-            <div key={w.theme}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <span style={{ fontSize: 13, fontFamily: "var(--font-display)", fontWeight: 500 }}>
-                  {w.theme}
-                </span>
-                <span style={{ fontSize: 11, fontFamily: "var(--font-mono)" }}>
-                  {w.severity.toFixed(2)}
-                </span>
-              </div>
-              <div className="gs-bar">
-                <span style={{ width: `${Math.min(w.severity * 100, 100)}%`, background: PASTEL_CYCLE[i % PASTEL_CYCLE.length] }} />
-              </div>
-            </div>
+          {weaknesses.map((w) => (
+            <WeaknessBar key={w.theme} weakness={w} />
           ))}
         </div>
       )}

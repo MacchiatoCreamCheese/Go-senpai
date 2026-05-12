@@ -16,6 +16,16 @@ def _to_katago_coord(coord: str) -> str:
     return coord if coord in ("pass", "resign") else coord.upper()
 
 
+def db_moves_to_katago_tuples(db_moves: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    """Same move list shape as KataGo analysis requests (truncate before resign)."""
+    katago_moves: list[tuple[str, str]] = []
+    for m in db_moves:
+        if m["coord"] == "resign":
+            break
+        katago_moves.append((str(m["color"]), _to_katago_coord(str(m["coord"]))))
+    return katago_moves
+
+
 async def analyze_single_move(
     *,
     engine: KataGoEngine,
@@ -36,12 +46,7 @@ async def analyze_single_move(
     if played_coord in ("pass", "resign"):
         return None
 
-    # Build KataGo move list (truncate at resign, skip the analyzed move itself)
-    katago_moves: list[tuple[str, str]] = []
-    for m in db_moves:
-        if m["coord"] == "resign":
-            break
-        katago_moves.append((m["color"], _to_katago_coord(m["coord"])))
+    katago_moves = db_moves_to_katago_tuples(db_moves)
 
     # We want to analyze the position BEFORE the last move (turn index = len-2
     # if 0-indexed, but KataGo's analyzeTurns is 0-based count of moves played
