@@ -5086,7 +5086,6 @@ a { color: inherit; }
   color: var(--ink-mute);
   text-align: right;
 }
-<<<<<<< HEAD
 
 /* ─── Review page layout & rail (fixed slot, scroll inside) ─ */
 .review-page {
@@ -5113,8 +5112,6 @@ a { color: inherit; }
   overflow: hidden;
 }
 
-=======
->>>>>>> 550b8e6a079516f4dcc67d51753183f9d64de60d
 /* ─── Review page rail & analysis move list ──────────────── */
 .review-rail {
   display: flex;
