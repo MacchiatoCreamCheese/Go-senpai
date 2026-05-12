@@ -1545,3 +1545,63 @@ async def get_drill_analytics(user_id: str) -> dict[str, Any]:
     )
     base["theme_rows"] = [dict(r) for r in theme_rows]
     return base
+
+
+async def user_streak_data(user_id: str) -> dict[str, Any]:
+    """Return streak info computed from games and drill attempts."""
+    pool = _get_pool()
+    rows = await pool.fetch(
+        """
+        WITH activity AS (
+            SELECT date_trunc('day', started_at)::date AS day
+            FROM games
+            WHERE (black_user_id = $1 OR white_user_id = $1)
+              AND started_at >= NOW() - INTERVAL '90 days'
+            UNION
+            SELECT date_trunc('day', attempted_at)::date AS day
+            FROM drill_attempts
+            WHERE user_id = $1
+              AND NOT COALESCE(is_retry, FALSE)
+              AND attempted_at >= NOW() - INTERVAL '90 days'
+        )
+        SELECT DISTINCT day FROM activity ORDER BY day DESC
+        """,
+        user_id,
+    )
+
+    active_days: set[date] = {r["day"] for r in rows}
+    today = date.today()
+
+    # current streak: consecutive days ending today; if today has no activity, start from yesterday
+    streak = 0
+    check = today
+    while check in active_days:
+        streak += 1
+        check -= timedelta(days=1)
+    if streak == 0:
+        check = today - timedelta(days=1)
+        while check in active_days:
+            streak += 1
+            check -= timedelta(days=1)
+
+    # longest streak in the 90-day window
+    sorted_days = sorted(active_days)
+    best = cur = 0
+    for i, d in enumerate(sorted_days):
+        if i == 0 or (d - sorted_days[i - 1]).days == 1:
+            cur += 1
+        else:
+            cur = 1
+        best = max(best, cur)
+
+    # last 7 calendar days for the grid (oldest → newest)
+    last7 = [(today - timedelta(days=i)).isoformat() for i in range(6, -1, -1)]
+    active_last7 = [date.fromisoformat(s) in active_days for s in last7]
+
+    return {
+        "current_streak": streak,
+        "longest_streak": best,
+        "last_active_date": max(active_days).isoformat() if active_days else None,
+        "last_7_days": last7,
+        "last_7_active": active_last7,
+    }

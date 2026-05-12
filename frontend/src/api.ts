@@ -431,6 +431,22 @@ export async function getUserProgress(userId: string): Promise<UserProgressRespo
   return asJson<UserProgressResponse>(resp);
 }
 
+export interface StreakResponse {
+  current_streak: number;
+  longest_streak: number;
+  last_active_date: string | null;
+  last_7_days: string[];
+  last_7_active: boolean[];
+}
+
+export async function getStreak(userId: string): Promise<StreakResponse> {
+  const resp = await api(`/api/users/${encodeURIComponent(userId)}/streak`);
+  if (!resp.ok) {
+    return { current_streak: 0, longest_streak: 0, last_active_date: null, last_7_days: [], last_7_active: [] };
+  }
+  return asJson<StreakResponse>(resp);
+}
+
 export interface DrillStatsResponse {
   total_attempts: number;
   accuracy: number | null;

@@ -1,10 +1,11 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 
 import {
   getMyGames,
   getNextAction,
+  getStreak,
   getUserConcepts,
   getUserProgress,
   getWeaknesses,
@@ -13,12 +14,12 @@ import {
   type WeaknessItem,
 } from "../api";
 import { AuthLoading } from "../components/AuthLoading";
+import { StreakCelebration } from "../components/StreakCelebration";
 import { WeaknessBar } from "../components/WeaknessBar";
 import { useToast } from "../components/NotificationToast";
 import { useAuth, useIdentity } from "../lib/auth";
 import { GoBoardSVG } from "../GoBoardSVG";
 
-const DAYS = ["M", "T", "W", "T", "F", "S", "S"];
 
 export default function Home() {
   const { user, ready } = useAuth();
@@ -61,6 +62,23 @@ export default function Home() {
       toast.push({ kind: "error", title: "Couldn't ask Sensei", body: String(err) }),
   });
 
+  const [showStreakToast, setShowStreakToast] = useState(false);
+  const streakQuery = useQuery({
+    queryKey: ["streak", userId],
+    queryFn: () => getStreak(userId!),
+    enabled: !!userId,
+  });
+
+  useEffect(() => {
+    const count = streakQuery.data?.current_streak ?? 0;
+    if (!userId || count === 0) return;
+    const todayKey = `streak_celebrated_${userId}_${new Date().toISOString().slice(0, 10)}`;
+    if (!localStorage.getItem(todayKey)) {
+      localStorage.setItem(todayKey, "1");
+      setShowStreakToast(true);
+    }
+  }, [streakQuery.data, userId]);
+
   const action: NextActionResponse | null = nextAction.data ?? null;
 
   const recent = (games.data ?? []).slice(0, 5);
@@ -90,6 +108,12 @@ export default function Home() {
 
   return (
     <div className="home-page">
+      {showStreakToast && (
+        <StreakCelebration
+          count={streakQuery.data?.current_streak ?? 0}
+          onClose={() => setShowStreakToast(false)}
+        />
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 20, maxWidth: 1240, width: "100%", margin: "0 auto" }}>
         {/* HERO — Sensei card */}
         <SenseiHero
@@ -103,7 +127,7 @@ export default function Home() {
         {/* Stats + streak column */}
         <div style={{ display: "grid", gap: 16 }}>
           <StatBlock stats={stats} />
-          <StreakBlock />
+          <StreakBlock userId={userId ?? ""} />
         </div>
 
         {/* Quick play row — full width */}
@@ -269,34 +293,103 @@ function StatBlock({ stats }: { stats: { played: number; finished: number; drill
 
 // ─── Streak block ──────────────────────────────────────────────
 
-function StreakBlock() {
-  const today = new Date().getDay();
-  const filled = DAYS.map((_, i) => i < ((today + 6) % 7));
+function FlameIcon() {
+  return (
+    <svg width="60" height="72" viewBox="0 0 60 72" fill="none" aria-hidden>
+      <defs>
+        <linearGradient id="sg-flame" x1="30" y1="65" x2="30" y2="0" gradientUnits="userSpaceOnUse">
+          <stop offset="0%"   stopColor="#E85D04" />
+          <stop offset="55%"  stopColor="#F48C06" />
+          <stop offset="100%" stopColor="#FAD643" />
+        </linearGradient>
+      </defs>
+      <path
+        d="M30 2C30 2 46 18 46 34C46 44 39.5 52 30 52C20.5 52 14 44 14 34C14 25 21 17 21 17C21 17 19 29 26 34C26 34 23 23 30 2Z"
+        fill="url(#sg-flame)"
+      />
+      <path
+        d="M30 18C30 18 38 26 38 36C38 41 34.4 45 30 45C25.6 45 22 41 22 36C22 31 25 27 25 27C25 27 24 33 28 36C28 36 26 29 30 18Z"
+        fill="#FAD643"
+        opacity="0.75"
+      />
+      <circle cx="30" cy="62" r="9"    fill="var(--ink)" />
+      <circle cx="26.5" cy="59" r="2.5" fill="white" opacity="0.35" />
+    </svg>
+  );
+}
+
+function StreakBlock({ userId }: { userId: string }) {
+  const { data } = useQuery({
+    queryKey: ["streak", userId],
+    queryFn: () => getStreak(userId),
+    enabled: !!userId,
+  });
+
+  const count = data?.current_streak ?? 0;
+  const hasStreak = count > 0;
+
+  const today = new Date();
+  const streakStart = new Date(today);
+  streakStart.setDate(today.getDate() - Math.max(count - 1, 0));
+  const boxDays = Array.from({ length: 5 }, (_, i) => {
+    const d = new Date(streakStart);
+    d.setDate(streakStart.getDate() + i);
+    return d.toLocaleDateString("en", { weekday: "short" }).charAt(0).toUpperCase();
+  });
+  const checked = boxDays.map((_, i) => i < Math.min(count, 5));
 
   return (
-    <div className="gs-card" style={{ padding: "18px 20px", background: "var(--bg-2)" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div className="gs-tag">DRILL STREAK</div>
-        <span className="gs-display-700" style={{ fontSize: 20 }}>Keep it up!</span>
+    <div className="gs-card" style={{
+      padding: "24px 20px",
+      background: "var(--pastel-peach)",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      gap: 16,
+      textAlign: "center",
+    }}>
+      <FlameIcon />
+
+      <div className="gs-display-700" style={{ fontSize: 28, lineHeight: 1 }}>
+        {count} Day Streak
       </div>
-      <div style={{ display: "flex", gap: 6, marginTop: 14, justifyContent: "space-between" }}>
-        {DAYS.map((d, i) => (
-          <div key={i} style={{
-            flex: 1,
-            height: 46,
-            borderRadius: 10,
-            border: "2px solid var(--ink)",
-            background: filled[i] ? "var(--pastel-green)" : "var(--bg)",
-            display: "grid",
-            placeItems: "center",
-            fontFamily: "var(--font-display)",
-            fontWeight: 600,
-          }}>
-            <span style={{ fontSize: 11, opacity: 0.8 }}>{d}</span>
-            <span style={{ fontSize: 10 }}>{filled[i] ? "✓" : "·"}</span>
+
+      <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+        {boxDays.map((d, i) => (
+          <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>
+            <span style={{
+              fontFamily: "var(--font-mono)", fontSize: 10,
+              color: "var(--ink-soft)", fontWeight: 600, letterSpacing: "0.04em",
+            }}>
+              {d}
+            </span>
+            <div style={{
+              width: 36, height: 36,
+              borderRadius: 8,
+              border: "2.5px solid var(--ink)",
+              background: checked[i] ? "var(--ink)" : "transparent",
+              boxShadow: checked[i] ? "var(--shadow-block-sm)" : "none",
+              display: "grid", placeItems: "center",
+              color: "white",
+              fontSize: 16,
+              fontFamily: "var(--font-display)",
+              fontWeight: 700,
+            }}>
+              {checked[i] ? "✓" : ""}
+            </div>
           </div>
         ))}
       </div>
+
+      <p style={{
+        fontSize: 12, color: "var(--ink-soft)",
+        lineHeight: 1.5, maxWidth: 240, margin: 0,
+        fontFamily: "var(--font-body)",
+      }}>
+        {hasStreak
+          ? "You're on a roll! Come back tomorrow to keep your streak going."
+          : "Play or learn Go to start your next streak!"}
+      </p>
     </div>
   );
 }
