@@ -214,6 +214,7 @@ export default function DrillSessionRoute() {
   const isSessionComplete = !!session && session.attemptCount >= targetCount;
 
   // Practice mode: replays problems without recording stats
+  const returnTo = (location.state as Record<string, unknown> | null)?.from as string | undefined ?? "/drill";
   const [practiceMode, setPracticeMode] = useState<boolean>(() => !!(location.state as Record<string, unknown> | null)?.practiceMode);
   const [practiceAttempts, setPracticeAttempts] = useState(0);
   const [practiceCorrectCount, setPracticeCorrectCount] = useState(0);
@@ -411,7 +412,7 @@ export default function DrillSessionRoute() {
       {showSummary && summary && (
         <SessionSummaryModal
           summary={summary}
-          onDone={() => navigate("/drill")}
+          onDone={() => navigate(returnTo)}
           onNewSession={handleNewSession}
           onTryAgain={handleTryAgain}
           isCreating={createSession.isPending}

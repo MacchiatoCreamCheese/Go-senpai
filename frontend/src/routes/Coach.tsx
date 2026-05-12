@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -6,9 +6,9 @@ import {
   appendCoachTurn,
   createCoachSession,
   getActionHistory,
-  getCoachTurns,
   getMyGames,
   getNextAction,
+  sendCoachMessage,
   type ActionHistoryItem,
   type NextActionResponse,
 } from "../api";
@@ -47,6 +47,36 @@ interface LocalMessage {
   id: number;
   role: "user" | "sensei";
   text: string;
+  ts?: number;
+}
+
+// Guard against old messages stored as JSON (e.g. { "assistant_output_md": "..." })
+function extractText(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("{")) return raw;
+  try {
+    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    const text = parsed.assistant_output_md ?? parsed.reply ?? parsed.content ?? parsed.text;
+    if (typeof text === "string") return text;
+  } catch { /* not JSON */ }
+  return raw;
+}
+
+// Convert basic markdown to safe HTML for bubble rendering.
+// HTML-escapes first so no injection is possible, then applies formatting.
+function renderMarkdown(raw: string): string {
+  const text = extractText(raw);
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\*\*(.+?)\*\*/gs, "<strong>$1</strong>")
+    .replace(/__(.+?)__/gs, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/gs, "<em>$1</em>")
+    .replace(/_(.+?)_/gs, "<em>$1</em>")
+    .replace(/`(.+?)`/g, "<code>$1</code>")
+    .replace(/(^|\W)'(.+?)'(?!\w)/gs, "$1<strong>$2</strong>")
+    .replace(/\s*[-—–]\s*see (the recommendation card above\.?)/gi, " <em><strong>See $1</em><strong>");
 }
 
 // ─── Active session conflict modal ────────────────────────────────────────────
@@ -143,7 +173,10 @@ export default function Coach() {
   const [chatInput, setChatInput] = useState("");
   const [localMessages, setLocalMessages] = useState<LocalMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [loadedRemote, setLoadedRemote] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const pendingChipRef = useRef<string | null>(null);
+  const persistenceReady = useRef(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const storageKey = `coach_chat_${userId ?? "anon"}`;
   const sessionKey = `coach_session_${userId ?? "anon"}`;
@@ -177,6 +210,14 @@ export default function Coach() {
   }, [storageKey, sessionKey, userId]);
 
   useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [localMessages, isSending]);
+
+  useEffect(() => {
+    // Skip the first write while messages are still empty — prevents clearing
+    // localStorage before the load effect has restored the stored history.
+    if (!persistenceReady.current && localMessages.length === 0) return;
+    persistenceReady.current = true;
     try {
       localStorage.setItem(storageKey, JSON.stringify(localMessages));
     } catch {
@@ -209,36 +250,6 @@ export default function Coach() {
     };
   }, [sessionId, sessionKey, userId]);
 
-  useEffect(() => {
-    if (!sessionId || loadedRemote) return;
-    const resolvedSessionId = sessionId;
-    let alive = true;
-    async function loadRemote() {
-      try {
-        const turns = await getCoachTurns(resolvedSessionId);
-        if (!alive) return;
-        if (turns.length) {
-          const mapped: LocalMessage[] = turns.map((t, idx) => {
-            const text = t.role === "user" ? (t.user_input ?? "") : (t.assistant_output_md ?? "");
-            return {
-              id: Date.now() + idx,
-              role: t.role === "assistant" ? "sensei" : "user",
-              text,
-            };
-          });
-          setLocalMessages(mapped);
-        }
-      } catch {
-        // ignore remote load errors
-      } finally {
-        if (alive) setLoadedRemote(true);
-      }
-    }
-    loadRemote();
-    return () => {
-      alive = false;
-    };
-  }, [loadedRemote, sessionId]);
 
   const history = useQuery({
     queryKey: ["action-history", userId],
@@ -259,7 +270,7 @@ export default function Coach() {
         : `I've selected a **${label}** based on your recent activity and weakness profile.`;
       setLocalMessages((prev) => [
         ...prev,
-        { id: Date.now(), role: "sensei", text },
+        { id: Date.now(), role: "sensei", text, ts: Date.now() },
       ]);
       if (sessionId) {
         appendCoachTurn(sessionId, {
@@ -267,6 +278,19 @@ export default function Coach() {
           mode: "planner",
           assistant_output_md: text,
         }).catch(() => undefined);
+      }
+
+      // flush a chip that was clicked before the planner had run
+      // (the user bubble was already added in handleChip — only add the sensei reply)
+      if (pendingChipRef.current) {
+        pendingChipRef.current = null;
+        const chipReply = data.reason
+          ? `${data.reason} — see the recommendation card above.`
+          : "Check the action card at the top for your recommendation.";
+        setLocalMessages((prev) => [
+          ...prev,
+          { id: Date.now() + 2, role: "sensei", text: chipReply, ts: Date.now() + 2 },
+        ]);
       }
     },
     onError: (err) =>
@@ -295,7 +319,7 @@ export default function Coach() {
     try {
       const session = await createSession.mutateAsync({ userId, targetProblemCount: 1 });
       setShowDrillModal(false);
-      navigate(`/drill/session/${session.id}`);
+      navigate(`/drill/session/${session.id}`, { state: { from: '/coach' } });
     } catch (err) {
       toast.push({ kind: "error", title: "Could not start drill", body: String(err) });
     }
@@ -314,59 +338,58 @@ export default function Coach() {
   function handleResumeSession() {
     if (!activeSession) return;
     setShowDrillModal(false);
-    navigate(`/drill/session/${activeSession.id}`);
+    navigate(`/drill/session/${activeSession.id}`, { state: { from: '/coach' } });
   }
 
-  function handleSend() {
+  async function handleSend() {
     const text = chatInput.trim();
-    if (!text) return;
-    setLocalMessages((prev) => [
-      ...prev,
-      { id: Date.now(), role: "user", text },
-      { id: Date.now() + 1, role: "sensei", text: "I'm still learning to answer free-form questions here. For now, press 'Ask Sensei' to get your next action recommendation." },
-    ]);
-    if (sessionId) {
-      appendCoachTurn(sessionId, {
-        role: "user",
-        mode: "chat",
-        user_input: text,
-      }).catch(() => undefined);
-      appendCoachTurn(sessionId, {
-        role: "assistant",
-        mode: "chat",
-        assistant_output_md:
-          "I'm still learning to answer free-form questions here. For now, press 'Ask Sensei' to get your next action recommendation.",
-      }).catch(() => undefined);
-    }
+    if (!text || isSending) return;
     setChatInput("");
+    const now = Date.now();
+    setLocalMessages((prev) => [...prev, { id: now, role: "user", text, ts: now }]);
+
+    if (!sessionId) {
+      setLocalMessages((prev) => [
+        ...prev,
+        { id: Date.now() + 1, role: "sensei", text: "Starting a session — please try again in a moment.", ts: Date.now() + 1 },
+      ]);
+      return;
+    }
+
+    setIsSending(true);
+    try {
+      const reply = await sendCoachMessage(sessionId, userId!, text);
+      setLocalMessages((prev) => [...prev, { id: Date.now(), role: "sensei", text: reply, ts: Date.now() }]);
+    } catch {
+      setLocalMessages((prev) => [
+        ...prev,
+        { id: Date.now() + 1, role: "sensei", text: "Sorry, I couldn't respond right now. Please try again.", ts: Date.now() + 1 },
+      ]);
+    } finally {
+      setIsSending(false);
+    }
   }
 
   function handleChip(label: string) {
-    setLocalMessages((prev) => [
-      ...prev,
-      { id: Date.now(), role: "user", text: label },
-      {
-        id: Date.now() + 1,
-        role: "sensei",
-        text: action?.reason
-          ? action.reason
-          : "Press 'Ask Sensei' first — I'll pick your next step and explain my reasoning.",
-      },
-    ]);
+    // Always show the user bubble immediately
+    const now = Date.now();
+    setLocalMessages((prev) => [...prev, { id: now, role: "user", text: label, ts: now }]);
+
+    if (!action) {
+      // Planner hasn't run yet — trigger it; onSuccess will add the sensei reply
+      pendingChipRef.current = label;
+      planner.mutate();
+      return;
+    }
+
+    // Planner already ran — reply now
+    const chipReply = action.reason
+      ? `${action.reason} — see the recommendation card above.`
+      : "Check the action card at the top for your recommendation.";
+    setLocalMessages((prev) => [...prev, { id: Date.now() + 1, role: "sensei", text: chipReply, ts: Date.now() + 1 }]);
     if (sessionId) {
-      appendCoachTurn(sessionId, {
-        role: "user",
-        mode: "chip",
-        user_input: label,
-      }).catch(() => undefined);
-      appendCoachTurn(sessionId, {
-        role: "assistant",
-        mode: "chip",
-        assistant_output_md:
-          action?.reason
-            ? action.reason
-            : "Press 'Ask Sensei' first — I'll pick your next step and explain my reasoning.",
-      }).catch(() => undefined);
+      appendCoachTurn(sessionId, { role: "user", mode: "chip", user_input: label }).catch(() => undefined);
+      appendCoachTurn(sessionId, { role: "assistant", mode: "chip", assistant_output_md: chipReply }).catch(() => undefined);
     }
   }
 
@@ -437,9 +460,16 @@ export default function Coach() {
             <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16 }}>Ask Sensei</div>
             <div style={{ fontSize: 12, color: "var(--ink-mute)" }}>Your AI coach</div>
           </div>
-          <span className={`gs-pill ${planner.isPending ? "gs-pill--yellow" : "gs-pill--mint"}`} style={{ marginLeft: "auto" }}>
-            {planner.isPending ? "thinking…" : "ready"}
-          </span>
+          <button
+            className="gs-btn"
+            style={{ marginLeft: "auto", padding: "5px 10px", fontSize: 12 }}
+            onClick={() => {
+              setLocalMessages([]);
+              try { localStorage.removeItem(storageKey); } catch {}
+            }}
+          >
+            Clear
+          </button>
         </div>
 
         <div className="coach-chat-messages">
@@ -447,10 +477,10 @@ export default function Coach() {
             <div style={{ textAlign: "center", color: "var(--ink-mute)", padding: "40px 20px" }}>
               <div style={{ fontSize: 48, marginBottom: 12 }}>先</div>
               <div style={{ fontFamily: "var(--font-display)", fontSize: 15, fontWeight: 600 }}>
-                Press "Ask Sensei" to get started
+                Sensei is ready
               </div>
               <div style={{ fontSize: 13, marginTop: 6 }}>
-                I'll pick the most useful next step for your Go journey.
+                Ask anything, or tap a quick question below.
               </div>
             </div>
           )}
@@ -459,14 +489,26 @@ export default function Coach() {
               key={msg.id}
               className={`coach-chat-bubble ${msg.role === "sensei" ? "is-left" : "is-right"}`}
             >
-              {msg.text}
+              {msg.role === "sensei" && <span className="coach-bubble-avatar">先</span>}
+              <div className="coach-bubble-body">
+                <span className="coach-bubble-text" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.text) }} />
+                {msg.ts && (
+                  <span className="coach-bubble-ts">
+                    {new Date(msg.ts).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                )}
+              </div>
             </div>
           ))}
-          {planner.isPending && (
-            <div className="coach-chat-bubble is-left is-typing">
-              Thinking…
+          {(planner.isPending || isSending) && (
+            <div className="coach-chat-bubble is-left">
+              <span className="coach-bubble-avatar">先</span>
+              <div className="coach-typing-dots">
+                <span /><span /><span />
+              </div>
             </div>
           )}
+          <div ref={messagesEndRef} />
         </div>
 
         <div className="coach-quick-chips">
@@ -483,15 +525,25 @@ export default function Coach() {
         </div>
 
         <div className="coach-chat-footer">
-          <input
+          <textarea
             className="coach-chat-input"
             placeholder="Ask Sensei anything…"
             value={chatInput}
-            onChange={(e) => setChatInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSend()}
+            rows={1}
+            onChange={(e) => {
+              setChatInput(e.target.value);
+              e.target.style.height = "auto";
+              e.target.style.height = `${Math.min(e.target.scrollHeight, 100)}px`;
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void handleSend();
+              }
+            }}
           />
-          <button className="gs-btn gs-btn--primary" style={{ padding: "10px 16px", fontSize: 13, flexShrink: 0 }} onClick={handleSend}>
-            Send
+          <button className="gs-btn gs-btn--primary" style={{ padding: "10px 16px", fontSize: 13, flexShrink: 0 }} onClick={handleSend} disabled={isSending}>
+            {isSending ? "…" : "Send"}
           </button>
         </div>
       </div>
@@ -510,7 +562,7 @@ function NextActionPanel({
   action: NextActionResponse | null;
   isPending: boolean;
   onAsk: () => void;
-  navigate: (to: string) => void;
+  navigate: (to: string, options?: { state?: unknown }) => void;
 }) {
   const kindLabel = action ? (KIND_LABEL[action.kind] ?? action.kind) : null;
   const bg = action ? (KIND_COLOR[action.kind] ?? "var(--pastel-yellow)") : "var(--pastel-yellow)";
@@ -549,7 +601,7 @@ function NextActionPanel({
             )}
             {action.problem?.id && (
               <button className="gs-btn gs-btn--cyan"
-                onClick={() => navigate(`/drill/${action.problem!.id}`)}>
+                onClick={() => navigate(`/drill/${action.problem!.id}`, { state: { from: '/coach' } })}>
                 Start drill →
               </button>
             )}

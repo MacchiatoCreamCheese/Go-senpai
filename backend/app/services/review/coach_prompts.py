@@ -108,3 +108,74 @@ def build_coach_prompt(
         payload["ownership_sample"] = ownership_map
 
     return system, json.dumps(payload, indent=2)
+
+
+GENERAL_CHAT_SYSTEM = """You are Sensei, a Go coach and mentor having a conversation with a student.
+Hard rules:
+- ≤150 words per response.
+- Respond in plain prose only. Never output JSON or any structured data format.
+- Be warm, specific, and reference the student's actual weakness data when relevant.
+- No Go board coordinates in general advice.
+- If the student asks about their weakness, name the specific themes from student_weaknesses.
+- If asked for recommendations, base them on the weakness profile provided.
+- For off-topic questions: briefly redirect — "Let's keep focused on your Go journey!"
+
+TONE: Encouraging for beginners, direct and collegial for intermediate/advanced.
+"""
+
+
+def _clean_turns(turns: list[dict]) -> list[dict]:
+    """Convert DB rows to plain {role, content} pairs for conversation history."""
+    result = []
+    for t in turns:
+        role = t.get("role", "user")
+        content = t.get("user_input") if role == "user" else t.get("assistant_output_md")
+        if content:
+            result.append({"role": role, "content": content})
+    return result
+
+
+def build_general_chat_prompt(
+    *,
+    message: str,
+    weaknesses: list[dict],
+    concepts_seen: list[dict],
+    prior_turns: list[dict],
+) -> tuple[str, str]:
+    """Return (system_prompt, user_text) for the general (non-game) sensei chat.
+
+    Context goes into the system prompt; the user message is plain prose so the
+    LLM never sees JSON and cannot mirror a structured format in its reply.
+    """
+    weakness_lines = [
+        f"  - {w['theme'].replace('_', ' ')} (severity {round(float(w.get('severity') or 0), 2)})"
+        for w in weaknesses[:5]
+        if float(w.get("severity") or 0) > 0
+    ]
+    concept_lines = [
+        f"  - {c['concept_id'].replace('_', ' ')} (taught {c['times_taught']} time{'s' if c['times_taught'] != 1 else ''})"
+        for c in concepts_seen[:5]
+    ]
+
+    profile_sections: list[str] = []
+    if weakness_lines:
+        profile_sections.append("Student weaknesses:\n" + "\n".join(weakness_lines))
+    if concept_lines:
+        profile_sections.append("Concepts recently studied:\n" + "\n".join(concept_lines))
+
+    system = GENERAL_CHAT_SYSTEM
+    if profile_sections:
+        system += "\n\nSTUDENT PROFILE (reference naturally when relevant):\n" + "\n\n".join(profile_sections)
+
+    # Format conversation history as plain dialogue, not JSON
+    history_lines = [
+        f"{'Student' if t['role'] == 'user' else 'Sensei'}: {t['content']}"
+        for t in _clean_turns(prior_turns[-8:])
+    ]
+
+    if history_lines:
+        user_prompt = "\n".join(history_lines) + f"\nStudent: {message}"
+    else:
+        user_prompt = message
+
+    return system, user_prompt

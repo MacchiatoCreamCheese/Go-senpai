@@ -33,6 +33,11 @@ The game of Go has a famously long learning curve. A strong human teacher can po
 - Direct drill links via `GET /api/problems/:id` — shareable URLs to specific tsumego problems
 - Session history feed: `GET /api/users/{id}/action-history` — reverse-chrono log of every planner pick
 - SGF export
+- Drill sessions: 5-problem sessions with pass/fail tracking, hint detection, and end-of-session summary modal
+- Drill hub (`/drill`): overview with session history, accuracy stats, and active-session detection
+- Drill history page (`/drill/history`): full attempt log per user
+- Drill analytics: accuracy-over-time per theme, session count, streak display
+- Layered frontend data architecture (Profile and Drill sections): UI route → React Query hook → pure service → repository → datasource interface → `api.ts`
 
 ---
 
@@ -370,31 +375,75 @@ Go-senpai/
 │       ├── api.ts                ← typed fetch helpers
 │       ├── ws.ts                 ← WebSocket client
 │       ├── types.ts              ← shared TypeScript types
+│       ├── GoBoard.tsx           ← Wrapper around @sabaki/shudan
+│       ├── GoBoardSVG.tsx        ← SVG variant of the board
+│       ├── GameView.tsx          ← Live game shell (wraps PlayGame state)
 │       ├── routes/               ← Page components
 │       │   ├── Home.tsx          ← Dashboard: recent games, weaknesses, Sensei card
+│       │   ├── Login.tsx         ← Authentication page
 │       │   ├── Lobby.tsx         ← Create / join game
-│       │   ├── PlayGame.tsx      ← Active game shell
+│       │   ├── PlayGame.tsx      ← Active game view
 │       │   ├── GameViewer.tsx    ← Replay + analysis + review tabs
+│       │   ├── Review.tsx        ← Standalone LLM review viewer
 │       │   ├── Coach.tsx         ← Sensei planner + action history feed
-│       │   ├── Drill.tsx         ← Tsumego practice
+│       │   ├── Drill.tsx         ← Single tsumego problem (exports DrillProblemUI)
+│       │   ├── DrillHub.tsx      ← Drill overview: sessions, stats, analytics
+│       │   ├── DrillSession.tsx  ← 5-problem drill session with summary modal
+│       │   ├── DrillHistory.tsx  ← Full drill attempt history
 │       │   ├── Profile.tsx       ← Weaknesses, concepts, progress charts
 │       │   ├── Games.tsx         ← Game history list
 │       │   ├── Concepts.tsx      ← Concept library
-│       │   └── Settings.tsx      ← Board theme, stone style, preferences
+│       │   └── ConceptDetail.tsx ← Single concept detail view
 │       ├── components/           ← Shared UI components
-│       │   ├── GoBoard.tsx       ← Wrapper around @sabaki/shudan
-│       │   ├── MoveHistory.tsx   ← Sidebar move list
-│       │   ├── ChatDrawer.tsx    ← Ask Sensei streaming chat
 │       │   ├── ActionCard.tsx    ← Rendered coaching action
-│       │   ├── WeaknessBar.tsx   ← Severity bar
+│       │   ├── AuthLoading.tsx
+│       │   ├── ChatDrawer.tsx    ← Ask Sensei streaming chat
+│       │   ├── ConceptBadge.tsx
+│       │   ├── EngineOverlay.tsx
+│       │   ├── HandleEditor.tsx / HandleGate.tsx
+│       │   ├── LiveTierDot.tsx / TierDot.tsx
+│       │   ├── MomentCard.tsx
+│       │   ├── MoveHistory.tsx   ← Sidebar move list
+│       │   ├── MoveNotePopover.tsx / PlayerNoteInput.tsx ← Move annotations
+│       │   ├── MoveScrubber.tsx
+│       │   ├── NotificationToast.tsx
+│       │   ├── ScoreLineChart.tsx
 │       │   ├── Sparkline.tsx     ← Progress mini-charts
-│       │   └── PlayerNoteInput.tsx ← Per-move annotations
+│       │   ├── StreakCelebration.tsx
+│       │   ├── UserChip.tsx
+│       │   └── WeaknessBar.tsx   ← Severity bar
+│       ├── datasources/          ← DataSource interface + API/Mock implementations
+│       │   ├── drills/           ← IDrillDataSource, ApiDrillDataSource, MockDrillDataSource
+│       │   └── profile/          ← IProfileDataSource, ApiProfileDataSource, MockProfileDataSource
+│       ├── repositories/         ← Thin delegation layer (one class per domain)
+│       │   ├── DrillRepository.ts
+│       │   └── ProfileRepository.ts
+│       ├── services/             ← Pure transform functions — no network, no side effects
+│       │   ├── drillService.ts
+│       │   ├── profileService.ts
+│       │   └── conceptDetailService.ts
+│       ├── hooks/                ← React Query hooks
+│       │   ├── useDrillData.ts
+│       │   ├── useProfileData.ts
+│       │   ├── useChatStream.ts
+│       │   └── useBookmarks.ts
+│       ├── layout/               ← App shell and auth guard
+│       │   ├── AppShell.tsx
+│       │   └── RequireAuth.tsx
+│       ├── types/                ← Domain type modules
+│       │   ├── concept.ts
+│       │   ├── drill.ts
+│       │   └── profile.ts
+│       ├── tests/                ← Frontend unit / integration tests
+│       │   └── profile/          ← Analytics, repository, service, empty-state tests
 │       ├── live2d/               ← Live2D Cubism + Miku rig (`MikuLive2D.tsx`, `live2dInit.ts`)
-│       └── lib/                  ← Auth, replay, SGF, HTTP helpers
+│       └── lib/                  ← Auth, replay, SGF, HTTP helpers, settings
 └── backend/db/init.sql           ← Run once in Supabase SQL Editor to create the schema
 ```
 
 **The golden rule of the backend layers:** `api/` may call `services/` and `engine/`; `services/` may call `engine/` and the DB; `engine/` depends on nothing. If you find yourself importing `app.db` from inside `engine/`, stop — you are about to break a test.
+
+**The golden rule of the frontend layers:** UI routes call hooks only; hooks compose services and repositories via React Query; services are pure functions (no network, no side effects); repositories delegate to a datasource; datasources implement a typed interface (`IDrillDataSource`, `IProfileDataSource`) with API and Mock variants. The Profile and Drill sections are the reference implementations — follow the same stack for any new feature.
 
 ### 3. Why each technology is there
 
@@ -448,8 +497,8 @@ cd frontend && npm run dev
 Pick one of these depending on your interest; all three are real, unblocked tickets:
 
 1. **Add a weakness detector.** The framework is in `services/weakness/`; each detector is ~50 lines. Ideas: "ignores ko threats", "plays too slowly in the opening", "fails to respond to a kikashi". Write the detector, add a test with a canned `move_features` fixture, register it in the orchestrator.
-2. **Wire sound effects and animations.** `frontend/src/routes/Settings.tsx` already has toggles for both; they are stored in localStorage but nothing reads them yet. Hook them into `GoBoard.tsx` (stone placement sound) and the move transition CSS.
-3. **Multi-device settings sync.** Settings are currently localStorage-only. Add a `user_settings` column or table, a `PATCH /api/users/me/settings` endpoint, and sync on login.
+2. **Wire sound effects and animations.** Sound/animation toggles are persisted via `frontend/src/lib/settings.ts` but nothing reads them at playback time yet. Hook them into `GoBoard.tsx` (stone placement sound) and the move transition CSS.
+3. **Multi-device settings sync.** Settings are currently `localStorage`-only. Add a `user_settings` column or table, a `PATCH /api/users/me/settings` endpoint, and sync on login. Follow the same datasource/repository/hook pattern used by Profile and Drill.
 
 ### 8. People and communication
 
@@ -694,11 +743,11 @@ pytest -q
 
 ## Conclusions
 
-What works today: a clean Go engine with full rule enforcement and SGF I/O, live human-vs-human and human-vs-AI play over WebSocket, a KataGo analysis pipeline that caches positions and derives per-move features, weakness detection across six themes, a deterministic orchestrator that picks concepts and drills (with an action-history feedback loop that prevents repeated suggestions), an LLM review service surfaced in the game viewer, an SSE coaching chat, and a styled React frontend covering all user flows.
+What works today: a clean Go engine with full rule enforcement and SGF I/O, live human-vs-human and human-vs-AI play over WebSocket, a KataGo analysis pipeline that caches positions and derives per-move features, weakness detection across six themes, a deterministic orchestrator that picks concepts and drills (with an action-history feedback loop that prevents repeated suggestions), an LLM review service surfaced in the game viewer, an SSE coaching chat, a full drill-session flow (hub, 5-problem sessions, drill history, accuracy analytics), and a styled React frontend with a clean layered data architecture (datasource → repository → service → hook) covering all user flows.
 
-What is still missing: sound effects and animations (settings exist but are not wired), multi-device settings sync (currently localStorage only), and additional weakness detectors beyond the current six themes.
+What is still missing: sound effects and animations (toggles are persisted in `lib/settings.ts` but are not wired into playback), multi-device settings sync (currently localStorage only), and additional weakness detectors beyond the current six themes.
 
-What the team learned: separating the grounded engine from the pedagogical LLM is the single most important decision — asking an LLM to read the board fails, while asking it to explain a pre-computed weakness works. Small integration details (the `@sabaki/shudan` Preact→React alias in Vite) can block an entire page. And a deterministic orchestrator around a non-deterministic LLM is easier to debug, test, and trust than a single monolithic prompt.
+What the team learned: separating the grounded engine from the pedagogical LLM is the single most important decision — asking an LLM to read the board fails, while asking it to explain a pre-computed weakness works. Small integration details (the `@sabaki/shudan` Preact→React alias in Vite) can block an entire page. A deterministic orchestrator around a non-deterministic LLM is easier to debug, test, and trust than a single monolithic prompt. And enforcing a strict UI → hook → service → repository → datasource stack on the frontend pays off immediately when swapping API data for mock data in tests.
 
 ---
 

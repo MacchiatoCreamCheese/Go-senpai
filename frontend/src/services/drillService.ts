@@ -117,8 +117,8 @@ export function difficultyLabel(d: number): { label: string; tier: "easy" | "med
   return { label: "Hard", tier: "hard" };
 }
 
-export function computeAccuracy(correct: number, total: number): number | null {
-  return total < 3 ? null : correct / total;
+export function computeAccuracy(correct: number, total: number, minSamples = 3): number | null {
+  return total < minSamples ? null : correct / total;
 }
 
 export function enrichSession(raw: DrillSessionResp): DrillSession {
@@ -131,7 +131,7 @@ export function enrichSession(raw: DrillSessionResp): DrillSession {
     problemCount: raw.problem_count,
     attemptCount: raw.attempt_count,
     correctCount: raw.correct_count,
-    accuracy: computeAccuracy(raw.correct_count, raw.attempt_count),
+    accuracy: computeAccuracy(raw.correct_count, raw.attempt_count, 1),
     targetProblemCount: raw.target_problem_count,
   };
 }
@@ -167,7 +167,7 @@ export function buildSessionSummary(session: DrillSessionResp): SessionSummary {
     sessionId: session.id,
     totalAttempts: session.attempt_count,
     correctCount: session.correct_count,
-    accuracy: computeAccuracy(session.correct_count, session.attempt_count),
+    accuracy: computeAccuracy(session.correct_count, session.attempt_count, 1),
     durationSeconds,
   };
 }

@@ -156,6 +156,20 @@ export async function appendCoachTurn(
   });
 }
 
+export async function sendCoachMessage(
+  sessionId: string,
+  userId: string,
+  message: string,
+): Promise<string> {
+  const resp = await api(`/api/coaches/sessions/${encodeURIComponent(sessionId)}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: userId, message }),
+  });
+  const data = await asJson<{ reply: string }>(resp);
+  return data.reply;
+}
+
 export async function playMove(
   id: string,
   color: ColorCode,
