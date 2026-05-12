@@ -62,6 +62,23 @@ function extractText(raw: string): string {
   return raw;
 }
 
+// Convert basic markdown to safe HTML for bubble rendering.
+// HTML-escapes first so no injection is possible, then applies formatting.
+function renderMarkdown(raw: string): string {
+  const text = extractText(raw);
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\*\*(.+?)\*\*/gs, "<strong>$1</strong>")
+    .replace(/__(.+?)__/gs, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/gs, "<em>$1</em>")
+    .replace(/_(.+?)_/gs, "<em>$1</em>")
+    .replace(/`(.+?)`/g, "<code>$1</code>")
+    .replace(/(^|\W)'(.+?)'(?!\w)/gs, "$1<strong>$2</strong>")
+    .replace(/\s*[-—–]\s*see (the recommendation card above\.?)/gi, " <em><strong>See $1</em><strong>");
+}
+
 // ─── Active session conflict modal ────────────────────────────────────────────
 
 function ActiveDrillSessionModal({
@@ -474,7 +491,7 @@ export default function Coach() {
             >
               {msg.role === "sensei" && <span className="coach-bubble-avatar">先</span>}
               <div className="coach-bubble-body">
-                <span className="coach-bubble-text">{extractText(msg.text)}</span>
+                <span className="coach-bubble-text" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.text) }} />
                 {msg.ts && (
                   <span className="coach-bubble-ts">
                     {new Date(msg.ts).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
