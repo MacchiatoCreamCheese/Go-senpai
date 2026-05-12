@@ -81,7 +81,7 @@ a { color: inherit; }
 /* ─── gs-* primitives (from design) ─────────────────────── */
 .gs-card {
   background: var(--bg-2);
-  border: var(--border-thick) solid var(--border);
+  border: var(--border-thick) solid var(--ink);
   border-radius: 18px;
 }
 .gs-card--tight { border-radius: 14px; border-width: var(--border-thin); }
@@ -3432,7 +3432,7 @@ a { color: inherit; }
 
 .lib-concept-card {
   background: var(--bg-2);
-  border: 3px solid var(--border);
+  border: 3px solid var(--ink);
   border-radius: 18px;
   text-decoration: none;
   color: var(--ink);

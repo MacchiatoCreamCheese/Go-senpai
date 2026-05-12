@@ -549,7 +549,7 @@ function QuickPlayRow({ hasActiveGame, activeGameId }: { hasActiveGame: boolean;
           textAlign: "left",
           background: c.color,
           cursor: "pointer",
-          border: "3px solid var(--border)",
+          border: "3px solid var(--ink)",
           fontFamily: "var(--font-body)",
           color: "var(--ink)",
           transition: "transform .1s, box-shadow .1s",

@@ -195,13 +195,13 @@ export default function Lobby() {
                   className={"lobby-seg-btn" + (opponent === "human" ? " is-active" : "")}
                   onClick={() => setOpponent("human")}
                 >
-                  👥 vs Human
+                  vs Human
                 </button>
                 <button
                   className={"lobby-seg-btn" + (opponent === "ai" ? " is-active" : "")}
                   onClick={() => setOpponent("ai")}
                 >
-                  先 vs Sensei AI
+                  vs AI Sensei
                 </button>
               </div>
             </div>
