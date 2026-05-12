@@ -1,15 +1,25 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
-  getNextAction,
+  appendCoachTurn,
+  createCoachSession,
   getActionHistory,
-  type NextActionResponse,
+  getCoachTurns,
+  getMyGames,
+  getNextAction,
   type ActionHistoryItem,
+  type NextActionResponse,
 } from "../api";
 import { useToast } from "../components/NotificationToast";
 import { useIdentity } from "../lib/auth";
+import {
+  useDrillSessions,
+  useCreateDrillSession,
+  useDeleteDrillSession,
+} from "../hooks/useDrillData";
+import type { DrillSession } from "../types/drill";
 
 const KIND_LABEL: Record<string, string> = {
   review_game: "Review game",
@@ -39,6 +49,92 @@ interface LocalMessage {
   text: string;
 }
 
+// ─── Active session conflict modal ────────────────────────────────────────────
+
+function ActiveDrillSessionModal({
+  session,
+  isDeleting,
+  isCreating,
+  onDeleteAndNew,
+  onResume,
+  onClose,
+}: {
+  session: DrillSession;
+  isDeleting: boolean;
+  isCreating: boolean;
+  onDeleteAndNew: () => void;
+  onResume: () => void;
+  onClose: () => void;
+}) {
+  const busy = isDeleting || isCreating;
+  return (
+    <div
+      style={{
+        position: "fixed", inset: 0, zIndex: 50,
+        background: "rgba(26,23,20,0.55)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: 20,
+      }}
+      onClick={e => { if (e.target === e.currentTarget && !busy) onClose(); }}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="gs-card"
+        style={{
+          padding: "32px 36px",
+          background: "var(--bg)",
+          boxShadow: "var(--shadow-block)",
+          maxWidth: 400, width: "100%",
+          textAlign: "center",
+        }}
+      >
+        <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 44, lineHeight: 1, marginBottom: 14 }}>
+          練
+        </div>
+        <h2 style={{ fontSize: 20, marginBottom: 8, fontFamily: "var(--font-display)", letterSpacing: "-0.02em" }}>
+          Active session in progress
+        </h2>
+        <p style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 6 }}>
+          {session.attemptCount} problem{session.attemptCount !== 1 ? "s" : ""} attempted so far.
+        </p>
+        <p style={{ fontSize: 13, color: "var(--ink-mute)", marginBottom: 28 }}>
+          What would you like to do?
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <button
+            type="button"
+            className="gs-btn gs-btn--primary"
+            disabled={busy}
+            onClick={onDeleteAndNew}
+            style={{ width: "100%" }}
+          >
+            {isDeleting ? "Deleting…" : isCreating ? "Starting…" : "Delete & start new drill"}
+          </button>
+          <button
+            type="button"
+            className="gs-btn"
+            disabled={busy}
+            onClick={onResume}
+            style={{ width: "100%", background: "var(--pastel-cyan)" }}
+          >
+            Resume existing session →
+          </button>
+          <button
+            type="button"
+            className="gs-btn"
+            disabled={busy}
+            onClick={onClose}
+            style={{ width: "100%" }}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Coach() {
   const { userId } = useIdentity();
   const navigate = useNavigate();
@@ -46,6 +142,101 @@ export default function Coach() {
   const queryClient = useQueryClient();
   const [chatInput, setChatInput] = useState("");
   const [localMessages, setLocalMessages] = useState<LocalMessage[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [loadedRemote, setLoadedRemote] = useState(false);
+
+  const storageKey = `coach_chat_${userId ?? "anon"}`;
+  const sessionKey = `coach_session_${userId ?? "anon"}`;
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw) as LocalMessage[];
+        setLocalMessages(parsed);
+      } else if (userId) {
+        const anonData = localStorage.getItem("coach_chat_anon");
+        if (anonData) {
+          try {
+            const parsed = JSON.parse(anonData) as LocalMessage[];
+            setLocalMessages(parsed);
+          } catch {
+            // ignore malformed storage
+          }
+        }
+      }
+    } catch {
+      // ignore malformed storage
+    }
+    try {
+      const storedSession = localStorage.getItem(sessionKey);
+      if (storedSession) setSessionId(storedSession);
+    } catch {
+      // ignore storage errors
+    }
+  }, [storageKey, sessionKey, userId]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(localMessages));
+    } catch {
+      // ignore storage errors
+    }
+  }, [localMessages, storageKey]);
+
+  useEffect(() => {
+    if (!userId) return;
+    if (sessionId) return;
+    let alive = true;
+    async function ensureSession() {
+      try {
+        const games = await getMyGames(userId);
+        if (!alive) return;
+        const latestGame = games[0];
+        if (!latestGame) return;
+        const created = await createCoachSession(latestGame.id, userId);
+        if (!alive) return;
+        setSessionId(created.session_id);
+        localStorage.setItem(sessionKey, created.session_id);
+      } catch (err) {
+        // fall back to localStorage-only
+      }
+    }
+    ensureSession();
+    return () => {
+      alive = false;
+    };
+  }, [sessionId, sessionKey, userId]);
+
+  useEffect(() => {
+    if (!sessionId || loadedRemote) return;
+    let alive = true;
+    async function loadRemote() {
+      try {
+        const turns = await getCoachTurns(sessionId);
+        if (!alive) return;
+        if (turns.length) {
+          const mapped: LocalMessage[] = turns.map((t, idx) => {
+            const text = t.role === "user" ? (t.user_input ?? "") : (t.assistant_output_md ?? "");
+            return {
+              id: Date.now() + idx,
+              role: t.role === "assistant" ? "sensei" : "user",
+              text,
+            };
+          });
+          setLocalMessages(mapped);
+        }
+      } catch {
+        // ignore remote load errors
+      } finally {
+        if (alive) setLoadedRemote(true);
+      }
+    }
+    loadRemote();
+    return () => {
+      alive = false;
+    };
+  }, [loadedRemote, sessionId]);
 
   const history = useQuery({
     queryKey: ["action-history", userId],
@@ -68,12 +259,61 @@ export default function Coach() {
         ...prev,
         { id: Date.now(), role: "sensei", text },
       ]);
+      if (sessionId) {
+        appendCoachTurn(sessionId, {
+          role: "assistant",
+          mode: "planner",
+          assistant_output_md: text,
+        }).catch(() => undefined);
+      }
     },
     onError: (err) =>
       toast.push({ kind: "error", title: "Planner failed", body: String(err) }),
   });
 
   const action: NextActionResponse | null = planner.data ?? null;
+
+  // ── Quick drill ────────────────────────────────────────────────────────────
+  const [showDrillModal, setShowDrillModal] = useState(false);
+  const { data: sessions } = useDrillSessions(userId);
+  const activeSession = sessions?.find(s => s.status === "active") ?? null;
+  const createSession = useCreateDrillSession();
+  const removeSession = useDeleteDrillSession();
+
+  async function handleQuickDrill() {
+    if (activeSession) {
+      setShowDrillModal(true);
+      return;
+    }
+    await startNewDrill();
+  }
+
+  async function startNewDrill() {
+    if (!userId) return;
+    try {
+      const session = await createSession.mutateAsync({ userId, targetProblemCount: 1 });
+      setShowDrillModal(false);
+      navigate(`/drill/session/${session.id}`);
+    } catch (err) {
+      toast.push({ kind: "error", title: "Could not start drill", body: String(err) });
+    }
+  }
+
+  async function handleDeleteAndNew() {
+    if (!activeSession || !userId) return;
+    try {
+      await removeSession.mutateAsync({ sessionId: activeSession.id, userId });
+      await startNewDrill();
+    } catch (err) {
+      toast.push({ kind: "error", title: "Could not start drill", body: String(err) });
+    }
+  }
+
+  function handleResumeSession() {
+    if (!activeSession) return;
+    setShowDrillModal(false);
+    navigate(`/drill/session/${activeSession.id}`);
+  }
 
   function handleSend() {
     const text = chatInput.trim();
@@ -83,6 +323,19 @@ export default function Coach() {
       { id: Date.now(), role: "user", text },
       { id: Date.now() + 1, role: "sensei", text: "I'm still learning to answer free-form questions here. For now, press 'Ask Sensei' to get your next action recommendation." },
     ]);
+    if (sessionId) {
+      appendCoachTurn(sessionId, {
+        role: "user",
+        mode: "chat",
+        user_input: text,
+      }).catch(() => undefined);
+      appendCoachTurn(sessionId, {
+        role: "assistant",
+        mode: "chat",
+        assistant_output_md:
+          "I'm still learning to answer free-form questions here. For now, press 'Ask Sensei' to get your next action recommendation.",
+      }).catch(() => undefined);
+    }
     setChatInput("");
   }
 
@@ -98,6 +351,21 @@ export default function Coach() {
           : "Press 'Ask Sensei' first — I'll pick your next step and explain my reasoning.",
       },
     ]);
+    if (sessionId) {
+      appendCoachTurn(sessionId, {
+        role: "user",
+        mode: "chip",
+        user_input: label,
+      }).catch(() => undefined);
+      appendCoachTurn(sessionId, {
+        role: "assistant",
+        mode: "chip",
+        assistant_output_md:
+          action?.reason
+            ? action.reason
+            : "Press 'Ask Sensei' first — I'll pick your next step and explain my reasoning.",
+      }).catch(() => undefined);
+    }
   }
 
   if (!userId) {
@@ -120,9 +388,42 @@ export default function Coach() {
 
   return (
     <div className="coach-page">
+      {showDrillModal && activeSession && (
+        <ActiveDrillSessionModal
+          session={activeSession}
+          isDeleting={removeSession.isPending}
+          isCreating={createSession.isPending}
+          onDeleteAndNew={handleDeleteAndNew}
+          onResume={handleResumeSession}
+          onClose={() => setShowDrillModal(false)}
+        />
+      )}
+
       {/* ── Left: action + history ────────────────────── */}
       <div className="coach-left">
         <NextActionPanel action={action} isPending={planner.isPending} onAsk={() => planner.mutate()} navigate={navigate} />
+
+        {/* Quick drill shortcut */}
+        <div className="action-card" style={{ background: "var(--pastel-cyan)", marginTop: 0 }}>
+          <div className="action-card-mark">DRILL</div>
+          <div className="action-card-title" style={{ marginBottom: 6 }}>
+            {activeSession ? "Session in progress" : "Quick drill"}
+          </div>
+          <div className="action-card-body" style={{ marginBottom: 14 }}>
+            {activeSession
+              ? `${activeSession.attemptCount} problem${activeSession.attemptCount !== 1 ? "s" : ""} attempted — resume or start fresh.`
+              : "Jump straight into one focused problem targeted to your weaknesses."}
+          </div>
+          <button
+            type="button"
+            className="gs-btn gs-btn--primary"
+            onClick={handleQuickDrill}
+            disabled={createSession.isPending || removeSession.isPending}
+          >
+            {createSession.isPending ? "Starting…" : activeSession ? "Manage session →" : "Start 1-problem drill →"}
+          </button>
+        </div>
+
         <ActionHistoryPanel items={history.data ?? []} />
       </div>
 

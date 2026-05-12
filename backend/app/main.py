@@ -9,6 +9,7 @@ if sys.platform == "win32":
     # Required so KataGo can be launched as an asyncio subprocess.
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
+import logging
 from dotenv import load_dotenv
 
 # Load .env BEFORE importing any submodule that reads os.environ at import
@@ -26,6 +27,8 @@ from .api import analysis, auth, coach, rest, review, ws
 from .rate_limit import limiter
 from .services.katago import KataGoEngine, get_engine, set_engine
 
+log = logging.getLogger(__name__)
+
 
 def _katago_enabled() -> bool:
     return os.environ.get("KATAGO_ENABLED", "false").lower() in ("1", "true", "yes")
@@ -42,8 +45,12 @@ async def lifespan(app: FastAPI):
             config=os.environ["KATAGO_CONFIG"],
             model=os.environ["KATAGO_MODEL"],
         )
-        await engine.start()
-        set_engine(engine)
+        try:
+            await engine.start()
+            set_engine(engine)
+        except Exception:
+            log.exception("KataGo failed to start; continuing without KataGo engine")
+            set_engine(None)
 
     try:
         yield

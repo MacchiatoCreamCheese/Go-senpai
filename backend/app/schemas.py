@@ -166,7 +166,7 @@ class DrillSessionSchema(BaseModel):
 
 class CreateDrillSessionRequest(BaseModel):
     user_id: str
-    target_problem_count: int = 5
+    target_problem_count: int = Field(default=5, ge=1, le=50)
 
 
 class ThemeBreakdownItem(BaseModel):

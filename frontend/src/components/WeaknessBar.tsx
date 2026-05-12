@@ -1,45 +1,63 @@
 import type { WeaknessItem } from "../api";
 
-interface Props {
-  weakness: WeaknessItem;
-  /** Compact = single-line, no last-seen meta. */
-  compact?: boolean;
-}
+// ── helpers ─────────────────────────────────────────────────────────────────
 
-function formatTheme(theme: string): string {
-  return theme.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+export function formatWeaknessTheme(theme: string): string {
+  return theme.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
 function formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  if (!iso) return "";
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+export type WeaknessTier = "critical" | "moderate" | "minor";
+
+export function weaknessTier(severity: number): WeaknessTier {
+  if (severity >= 0.65) return "critical";
+  if (severity >= 0.35) return "moderate";
+  return "minor";
+}
+
+// ── Chip (compact) ───────────────────────────────────────────────────────────
+// Used in "Focus Areas" on the Overview tab.
+
+interface Props {
+  weakness: WeaknessItem;
+  compact?: boolean;
 }
 
 export function WeaknessBar({ weakness, compact = false }: Props) {
-  const pct = Math.round(Math.min(1, Math.max(0, weakness.severity)) * 100);
+  const tier = weaknessTier(weakness.severity);
+  const pct  = Math.round(Math.min(1, Math.max(0, weakness.severity)) * 100);
+  const name = formatWeaknessTheme(weakness.theme);
+
+  if (compact) {
+    return (
+      <div className={`wk-chip wk-chip--${tier}`} title={`Severity: ${pct}/100`}>
+        <span className="wk-chip-dot" />
+        <span className="wk-chip-label">{name}</span>
+        <span className="wk-chip-score">{pct}</span>
+      </div>
+    );
+  }
+
+  const dateStr = formatDate(weakness.last_seen_at);
+
   return (
-    <div className={"weakness-bar" + (compact ? " is-compact" : "")} title={weakness.theme}>
-      <div className="weakness-bar-head">
-        <span className="weakness-bar-name">{formatTheme(weakness.theme)}</span>
-        <span className="weakness-bar-sev">{(weakness.severity).toFixed(2)}</span>
+    <div className={`wk-card wk-card--${tier}`}>
+      <div className="wk-card-header">
+        <span className="wk-card-name">{name}</span>
+        <span className={`wk-card-badge wk-badge--${tier}`}>{tier}</span>
       </div>
-      <div className="weakness-bar-track">
-        <div
-          className="weakness-bar-fill"
-          style={{ width: `${pct}%` }}
-          aria-valuenow={pct}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          role="progressbar"
-        />
+      <div className="wk-card-bar-track" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+        <div className="wk-card-bar-fill" style={{ width: `${pct}%` }} />
       </div>
-      {!compact && (
-        <div className="weakness-bar-meta">
-          <span>seen in {weakness.evidence_count} game{weakness.evidence_count === 1 ? "" : "s"}</span>
-          <span>last {formatDate(weakness.last_seen_at)}</span>
-        </div>
-      )}
+      <div className="wk-card-meta">
+        <span>{weakness.evidence_count} game{weakness.evidence_count !== 1 ? "s" : ""}</span>
+        {dateStr && <span>· last {dateStr}</span>}
+        <span className="wk-card-score">{pct}/100</span>
+      </div>
     </div>
   );
 }

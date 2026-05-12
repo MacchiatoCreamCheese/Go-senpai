@@ -2,19 +2,26 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 
-import type { ProblemT } from "../api";
+import type { ProblemT, WeaknessItem } from "../api";
 import { GoBoard } from "../GoBoard";
 import { useToast } from "../components/NotificationToast";
 import { boardAtMove, formatCoord, parseCoord, type Cell } from "../lib/replay";
 import { parseProblemSgf, setupToBoard } from "../lib/sgf";
 import { useIdentity } from "../lib/auth";
 import type { MoveT } from "../types";
+import type { ThemeBreakdown } from "../types/drill";
 import {
   useNextDrillProblem,
   useDrillProblem,
   useSubmitDrillAttempt,
   DRILL_KEYS,
 } from "../hooks/useDrillData";
+import {
+  generateWhyExplanation,
+  generateGoalText,
+  generateFailureHint,
+  difficultyLabel,
+} from "../services/drillService";
 
 interface SolutionStep {
   color: "B" | "W";
@@ -108,9 +115,11 @@ export interface DrillProblemUIProps {
   onNext: (wasCorrect?: boolean) => void;
   sessionId?: string | null;
   isPractice?: boolean;
+  userWeaknesses?: WeaknessItem[];
+  themeAccuracy?: ThemeBreakdown[];
 }
 
-export function DrillProblemUI({ problem, userId, onNext, sessionId, isPractice }: DrillProblemUIProps) {
+export function DrillProblemUI({ problem, userId, onNext, sessionId, isPractice, userWeaknesses = [], themeAccuracy = [] }: DrillProblemUIProps) {
   const toast = useToast();
 
   const setup = useMemo(() => parseProblemSgf(problem.sgf), [problem.sgf]);
@@ -126,6 +135,7 @@ export function DrillProblemUI({ problem, userId, onNext, sessionId, isPractice 
   const [modalOpen, setModalOpen] = useState(false);
   const [lastAttemptId, setLastAttemptId] = useState<number | null>(null);
   const [hasAttemptedOnce, setHasAttemptedOnce] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     setMovesPlayed([]);
@@ -134,6 +144,7 @@ export function DrillProblemUI({ problem, userId, onNext, sessionId, isPractice 
     setModalOpen(false);
     setLastAttemptId(null);
     setHasAttemptedOnce(false);
+    setCopied(false);
   }, [problem.id]);
 
   const currentBoard = useMemo(() => {
@@ -234,158 +245,183 @@ export function DrillProblemUI({ problem, userId, onNext, sessionId, isPractice 
     setMovesPlayed(filled);
   }
 
+  function copyLink() {
+    navigator.clipboard.writeText(`${window.location.origin}/drill/${problem.id}`).catch(() => {});
+    toast.push({ kind: "info", title: "Copied", body: "Puzzle link copied to clipboard." });
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
   const themeLabel = problem.themes.slice(0, 2).map((t) => t.replace(/_/g, " ")).join(" · ") || "tsumego";
   const toPlayLabel = setup.toPlay === "B" ? "BLACK" : "WHITE";
 
   return (
     <div className="drill-page">
-      {/* ── Left: context ───────────────────────────── */}
-      <div className="drill-left">
-        <div className="gs-card" style={{ padding: 16, background: "var(--pastel-pink)" }}>
-          <div className="gs-section-h" style={{ marginBottom: 10 }}>WHY THIS PROBLEM</div>
-          <p style={{ fontSize: 13, lineHeight: 1.5, color: "var(--ink-soft)" }}>
-            This problem trains <strong>{themeLabel}</strong>. Solving it without hints will strengthen the corresponding weakness in your model.
-          </p>
-        </div>
-
-        <div className="gs-card" style={{ padding: 16, background: "var(--bg-2)" }}>
-          <div className="gs-section-h" style={{ marginBottom: 12 }}>PROBLEM INFO</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <InfoRow label="Theme" value={themeLabel} />
-            <InfoRow label="Difficulty" value={`${problem.difficulty} / 10`} />
-            <InfoRow label="Board size" value={`${setup.size}×${setup.size}`} />
-            <InfoRow label="Steps" value={`${Math.min(movesPlayed.length + 1, solution.length)} / ${solution.length}`} />
-            <InfoRow label="Hint" value={hintUsed ? "used" : "available"} />
-          </div>
-        </div>
-
-        <div className="gs-card" style={{ padding: 16, background: "var(--pastel-yellow)" }}>
-          <div className="gs-section-h" style={{ marginBottom: 10 }}>SHARE</div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <span className="gs-tag" style={{ fontSize: 10, wordBreak: "break-all" }}>/drill/{problem.id.slice(0, 8)}…</span>
-            <button className="gs-btn" style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => {
-              navigator.clipboard.writeText(`${window.location.origin}/drill/${problem.id}`).catch(() => {});
-              toast.push({ kind: "info", title: "Copied", body: "Link copied to clipboard." });
-            }}>
-              Copy
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Center: board ───────────────────────────── */}
-      <div className="drill-center">
-        <div className="drill-sticker-wrap">
-          <div className="drill-sticker-overlay">
-            <span className="gs-sticker" style={{ fontSize: 11 }}>
-              {toPlayLabel} TO PLAY · {themeLabel.toUpperCase()}
-            </span>
-          </div>
-          <div style={{ marginTop: 20 }}>
-            <GoBoard
-              board={currentBoard.cells}
-              lastMove={currentBoard.last}
-              onPlay={handlePlay}
-              disabled={resolved !== "pending"}
-              width={460}
-            />
-          </div>
-        </div>
-
-        <div className="drill-attempt-bar">
-          <span className={`gs-pill ${
-            resolved === "solved" ? "gs-pill--mint" :
-            resolved === "failed" ? "gs-pill--red" :
-            resolved === "revealed" ? "gs-pill--lav" : "gs-pill--yellow"
-          }`}>
-            {resolved === "pending" ? "in progress" :
-             resolved === "solved" ? "✓ solved" :
-             resolved === "failed" ? "✗ wrong" : "revealed"}
-          </span>
-          <span>{`step ${Math.min(movesPlayed.length + 1, solution.length)} of ${solution.length}`}</span>
-        </div>
-      </div>
-
-      {/* ── Right: moves + actions ───────────────────── */}
-      <div className="drill-right">
-        <div className="gs-card" style={{ padding: 16, background: "var(--bg-2)" }}>
-          <div className="gs-section-h" style={{ marginBottom: 10 }}>GOAL</div>
-          <p style={{ fontSize: 13, lineHeight: 1.5, color: "var(--ink-soft)", marginBottom: 12 }}>
-            Find the correct sequence. {setup.toPlay === "B" ? "Black" : "White"} to play and achieve the objective.
-          </p>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {problem.themes.map((t) => (
-              <span key={t} className="gs-tag">{t.replace(/_/g, " ")}</span>
-            ))}
-          </div>
-        </div>
-
-        {movesPlayed.length > 0 && (
-          <div className="gs-card" style={{ padding: 16, background: "var(--bg-2)" }}>
-            <div className="gs-section-h" style={{ marginBottom: 10 }}>YOUR MOVES</div>
-            <div className="drill-move-list">
-              {movesPlayed.map((m, i) => {
-                const isCorrect = i < solution.length && m.kind === "play" && m.point &&
-                  (() => {
-                    const ep = parseCoord(solution[i].coord, setup.size);
-                    return ep && m.point.row === ep.row && m.point.col === ep.col;
-                  })();
-                return (
-                  <div key={i} className="drill-move-row">
-                    <div style={{
-                      width: 20, height: 20, borderRadius: "50%",
-                      background: m.color === "B" ? "var(--ink)" : "var(--bg-2)",
-                      border: "2px solid var(--ink)",
-                      flexShrink: 0,
-                    }} />
-                    <span className="drill-move-coord">
-                      {m.point ? formatCoord(m.point.row, m.point.col, setup.size) : m.kind}
-                    </span>
-                    <span className={`drill-move-result ${isCorrect ? "good" : "bad"}`}>
-                      {isCorrect ? "✓" : "✗"}
-                    </span>
-                  </div>
-                );
-              })}
+      <div className="drill-shell">
+        <aside className="drill-column drill-column--left">
+          <section className="gs-card drill-panel drill-panel--accent">
+            <div className="drill-panel-head">
+              <span className="gs-section-h">WHY THIS PROBLEM</span>
+              <span className="drill-why-icon" aria-hidden="true">⟳</span>
             </div>
-          </div>
-        )}
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <button
-            type="button"
-            className="gs-btn gs-btn--yellow"
-            onClick={showHint}
-            disabled={resolved === "solved" || resolved === "revealed"}
-            style={{ width: "100%" }}
-          >
-            Hint (−1 stamp)
-          </button>
-          <button
-            type="button"
-            className="gs-btn"
-            onClick={showSolution}
-            disabled={resolved === "solved" || resolved === "revealed"}
-            style={{ width: "100%" }}
-          >
-            Show solution
-          </button>
-          {(resolved !== "pending") && (
-            <button
-              type="button"
-              className="gs-btn gs-btn--primary"
-              onClick={() => onNext(resolved === "solved")}
-              style={{ width: "100%" }}
-            >
-              Next problem →
-            </button>
-          )}
-          {resolved === "revealed" && (
-            <p style={{ fontSize: 12, color: "var(--ink-mute)", textAlign: "center", fontStyle: "italic" }}>
-              Full solution on the board — study it, then move on.
+            <p className="drill-why-body">
+              {generateWhyExplanation(problem, userWeaknesses, themeAccuracy)}
             </p>
+          </section>
+
+          <section className="gs-card drill-panel">
+            <div className="gs-section-h" style={{ marginBottom: 12 }}>PROBLEM INFO</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <InfoRow label="Theme" value={themeLabel} />
+              <InfoRow label="Difficulty" value={`${problem.difficulty} / 10`} />
+              <InfoRow label="Board size" value={`${setup.size}×${setup.size}`} />
+              <InfoRow label="Steps" value={`${Math.min(movesPlayed.length + 1, solution.length)} / ${solution.length}`} />
+              <InfoRow label="Hint" value={hintUsed ? "used" : "available"} />
+            </div>
+          </section>
+
+          <section className="gs-card drill-panel drill-panel--soft">
+            <div className="gs-section-h" style={{ marginBottom: 10 }}>SHARE</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <code className="drill-share-url">/drill/{problem.id.slice(0, 12)}</code>
+              <button
+                type="button"
+                className={`gs-btn drill-copy-btn${copied ? " drill-copy-btn--copied" : ""}`}
+                style={{ padding: "4px 12px", fontSize: 11 }}
+                onClick={copyLink}
+              >
+                {copied ? "Copied ✓" : "Copy link"}
+              </button>
+            </div>
+          </section>
+        </aside>
+
+        <main className="drill-column drill-column--center">
+          <section className="gs-card drill-board-card">
+            <div className="drill-board-head">
+              <div>
+                <div className="gs-section-h">BOARD</div>
+                <p className="drill-board-subtitle">{toPlayLabel} to play · {themeLabel.toUpperCase()}</p>
+              </div>
+              <span className={`gs-pill ${
+                resolved === "solved" ? "gs-pill--mint" :
+                resolved === "failed" ? "gs-pill--red" :
+                resolved === "revealed" ? "gs-pill--lav" : "gs-pill--yellow"
+              }`}>
+                {resolved === "pending" ? "in progress" :
+                 resolved === "solved" ? "✓ solved" :
+                 resolved === "failed" ? "✗ wrong" : "revealed"}
+              </span>
+            </div>
+
+            <div className="drill-sticker-wrap">
+              <div className="drill-sticker-overlay">
+                <span className="gs-sticker" style={{ fontSize: 11 }}>
+                  {toPlayLabel} TO PLAY · {themeLabel.toUpperCase()}
+                </span>
+              </div>
+              <div style={{ marginTop: 20 }}>
+                <GoBoard
+                  board={currentBoard.cells}
+                  lastMove={currentBoard.last}
+                  onPlay={handlePlay}
+                  disabled={resolved !== "pending"}
+                  width={460}
+                />
+              </div>
+            </div>
+
+            <div className="drill-attempt-bar">
+              <span>{`step ${Math.min(movesPlayed.length + 1, solution.length)} of ${solution.length}`}</span>
+            </div>
+          </section>
+        </main>
+
+        <aside className="drill-column drill-column--right">
+          <section className="gs-card drill-panel">
+            <div className="drill-panel-head">
+              <span className="gs-section-h">GOAL</span>
+              {(() => { const d = difficultyLabel(problem.difficulty); return (
+                <span className={`drill-diff-badge drill-diff-badge--${d.tier}`}>{d.label}</span>
+              ); })()}
+            </div>
+            <p className="drill-goal-body">{generateGoalText(problem.themes, setup.toPlay)}</p>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+              {problem.themes.map((t) => (
+                <span key={t} className="gs-tag drill-theme-tag">{t.replace(/_/g, " ")}</span>
+              ))}
+            </div>
+          </section>
+
+          {movesPlayed.length > 0 && (
+            <section className="gs-card drill-panel">
+              <div className="gs-section-h" style={{ marginBottom: 10 }}>YOUR MOVES</div>
+              <div className="drill-move-list">
+                {movesPlayed.map((m, i) => {
+                  const isCorrect = i < solution.length && m.kind === "play" && m.point &&
+                    (() => {
+                      const ep = parseCoord(solution[i].coord, setup.size);
+                      return ep && m.point.row === ep.row && m.point.col === ep.col;
+                    })();
+                  return (
+                    <div key={i} className="drill-move-row">
+                      <div style={{
+                        width: 20, height: 20, borderRadius: "50%",
+                        background: m.color === "B" ? "var(--ink)" : "var(--bg-2)",
+                        border: "2px solid var(--ink)",
+                        flexShrink: 0,
+                      }} />
+                      <span className="drill-move-coord">
+                        {m.point ? formatCoord(m.point.row, m.point.col, setup.size) : m.kind}
+                      </span>
+                      <span className={`drill-move-result ${isCorrect ? "good" : "bad"}`}>
+                        {isCorrect ? "✓" : "✗"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
           )}
-        </div>
+
+          <section className="gs-card drill-panel drill-actions-panel">
+            <div className="drill-action-stack">
+              <button
+                type="button"
+                className="gs-btn gs-btn--yellow"
+                onClick={showHint}
+                disabled={resolved === "solved" || resolved === "revealed"}
+                style={{ width: "100%" }}
+              >
+                Hint (−1 stamp)
+              </button>
+              <button
+                type="button"
+                className="gs-btn"
+                onClick={showSolution}
+                disabled={resolved === "solved" || resolved === "revealed"}
+                style={{ width: "100%" }}
+              >
+                Show solution
+              </button>
+              {(resolved !== "pending") && (
+                <button
+                  type="button"
+                  className="gs-btn gs-btn--primary"
+                  onClick={() => onNext(resolved === "solved")}
+                  style={{ width: "100%" }}
+                >
+                  Next problem →
+                </button>
+              )}
+            </div>
+            {resolved === "revealed" && (
+              <p className="drill-action-note">
+                Full solution on the board — study it, then move on.
+              </p>
+            )}
+          </section>
+        </aside>
       </div>
 
       {/* ── Result modal ─────────────────────────────── */}
@@ -433,17 +469,25 @@ export function DrillProblemUI({ problem, userId, onNext, sessionId, isPractice 
             <h2 style={{ fontSize: 24, marginBottom: 10 }}>
               {resolved === "solved" ? "Well done!" : "Not quite."}
             </h2>
-            <p style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 20 }}>
+            <p style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: resolved === "failed" ? 8 : 20 }}>
               {resolved === "solved"
                 ? hintUsed
                   ? "Solved with a hint — count this as half-credit."
                   : "Solved cleanly. Sensei will adjust your weakness model."
                 : "Dismiss to study the position, then reveal the solution or move on."}
             </p>
+            {resolved === "failed" && (() => {
+              const hint = generateFailureHint(problem.themes);
+              return hint ? (
+                <p style={{ fontSize: 12, color: "var(--ink-soft)", fontStyle: "italic", marginBottom: 20 }}>
+                  {hint}
+                </p>
+              ) : <div style={{ marginBottom: 20 }} />;
+            })()}
             <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
               {resolved === "failed" && (
-                <button type="button" className="gs-btn gs-btn--primary" onClick={retryProblem}>
-                  Try Again
+                <button type="button" className="gs-btn gs-btn--primary" onClick={retryProblem} disabled={submitAttempt.isPending}>
+                  {submitAttempt.isPending ? "Saving…" : "Try Again"}
                 </button>
               )}
               {resolved === "failed" && (

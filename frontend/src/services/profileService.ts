@@ -80,10 +80,19 @@ export function buildAnalytics(
     .slice(0, 5)
     .map(c => ({ title: c.title, count: c.times_taught }));
 
+  const lastWeekDrillCount = progress.drills_per_week.length > 0
+    ? progress.drills_per_week[progress.drills_per_week.length - 1].value
+    : null;
+  const lastWeekGameCount = progress.games_per_week.length > 0
+    ? progress.games_per_week[progress.games_per_week.length - 1].value
+    : null;
+
   return {
     gamesPerWeek,
     drillsPerWeek,
     weaknessSeverityHistory,
     topStudiedConcepts,
+    lastWeekDrillCount,
+    lastWeekGameCount,
   };
 }
