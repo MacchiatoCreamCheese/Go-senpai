@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
@@ -14,6 +15,8 @@ from ..services.coach.session import (
     get_or_create_session,
     run_coach_turn,
 )
+from ..services.review.coach_prompts import build_general_chat_prompt
+from ..services.review.llm import build_default_client
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -38,6 +41,11 @@ class TurnAppendBody(BaseModel):
     mode: str
     user_input: str | None = None
     assistant_output_md: str | None = None
+
+
+class ChatBody(BaseModel):
+    user_id: str
+    message: str
 
 
 @router.post("/api/games/{game_id}/coach/invoke")
@@ -156,3 +164,35 @@ async def append_session_turn(
         body.assistant_output_md,
     )
     return {"ok": True}
+
+
+@router.post("/api/coaches/sessions/{session_id}/chat")
+async def chat_with_sensei(
+    session_id: str,
+    body: ChatBody,
+    _user=Depends(soft_user),
+):
+    weaknesses, concepts_seen, prior_turns = await asyncio.gather(
+        db.list_user_weaknesses(body.user_id),
+        db.list_concepts_seen(body.user_id),
+        db.get_coach_turns(session_id, limit=10),
+    )
+
+    system, user_prompt = build_general_chat_prompt(
+        message=body.message,
+        weaknesses=weaknesses,
+        concepts_seen=concepts_seen,
+        prior_turns=prior_turns,
+    )
+
+    turn_number = len(prior_turns) + 1
+    await db.insert_coach_turn(session_id, turn_number, "user", "chat", body.message, None)
+
+    llm = build_default_client()
+    reply_tokens: list[str] = []
+    async for token in llm.stream_generate(system, user_prompt):
+        reply_tokens.append(token)
+    reply = "".join(reply_tokens)
+
+    await db.insert_coach_turn(session_id, turn_number + 1, "assistant", "chat", None, reply)
+    return {"reply": reply}
