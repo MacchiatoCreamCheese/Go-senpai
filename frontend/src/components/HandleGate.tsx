@@ -1,18 +1,11 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 
-import { HANDLE_KEY, useAuth, useIdentity } from "../lib/auth";
+import { HANDLE_KEY, SETUP_DONE_KEY, useAuth, useIdentity } from "../lib/auth";
 import { updateMyHandle, updateHandleByUserId } from "../api";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/**
- * Returns true when the handle looks like the auto-generated default produced
- * by the backend (_default_auth_handle / ensure_legacy_user).
- *
- * Pattern: "{email_slug}-{uidShort12}"  or  "user-{uidShort16}"
- * We detect it by checking whether the handle ends with the user's UUID prefix.
- */
 function isAutoHandle(handle: string | null | undefined, userId: string | null | undefined): boolean {
   if (!handle) return true;
   if (!userId) return false;
@@ -31,41 +24,59 @@ function validateHandle(v: string): string | null {
 
 // ── Set-handle screen ─────────────────────────────────────────────────────────
 
-function SetHandleScreen({ onDone }: { onDone: () => void }) {
+function SetHandleScreen({
+  onDone,
+  email,
+  defaultHandle,
+}: {
+  onDone: () => void;
+  email: string | null;
+  defaultHandle: string;
+}) {
   const { legacy, refreshProfile } = useAuth();
   const { userId } = useIdentity();
-  const [value, setValue] = useState("");
+  const [name, setName] = useState(defaultHandle);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  function markDone() {
+    if (userId) localStorage.setItem(`${SETUP_DONE_KEY}_${userId}`, "1");
+    onDone();
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const trimmed = value.trim();
-    const validErr = validateHandle(trimmed);
-    if (validErr) { setError(validErr); return; }
+    const trimmed = name.trim();
 
-    setPending(true);
-    setError(null);
-    try {
-      if (!legacy) {
-        await updateMyHandle(trimmed);
-        await refreshProfile();
-      } else {
-        if (!userId) throw new Error("No user ID — please reload the page.");
-        const u = await updateHandleByUserId(userId, trimmed);
-        localStorage.setItem(HANDLE_KEY, u.handle);
+    if (trimmed && trimmed !== defaultHandle) {
+      const validErr = validateHandle(trimmed);
+      if (validErr) { setError(validErr); return; }
+
+      setPending(true);
+      setError(null);
+      try {
+        if (!legacy) {
+          await updateMyHandle(trimmed);
+          await refreshProfile();
+        } else {
+          if (!userId) throw new Error("No user ID — please reload the page.");
+          const u = await updateHandleByUserId(userId, trimmed);
+          localStorage.setItem(HANDLE_KEY, u.handle);
+        }
+      } catch (err) {
+        const msg = String(err);
+        if (msg.includes("unique") || msg.includes("duplicate") || msg.includes("already")) {
+          setError("That username is taken — try another one.");
+        } else {
+          setError(msg);
+        }
+        setPending(false);
+        return;
       }
-      onDone();
-    } catch (err) {
-      const msg = String(err);
-      if (msg.includes("unique") || msg.includes("duplicate") || msg.includes("already")) {
-        setError("That handle is taken — try another one.");
-      } else {
-        setError(msg);
-      }
-    } finally {
       setPending(false);
     }
+
+    markDone();
   }
 
   return (
@@ -75,75 +86,94 @@ function SetHandleScreen({ onDone }: { onDone: () => void }) {
       display: "flex", alignItems: "center", justifyContent: "center",
       padding: 24,
     }}>
-      <div
-        className="gs-card"
-        style={{
-          maxWidth: 440, width: "100%",
-          padding: "44px 48px",
-          background: "var(--pastel-yellow)",
+      <div style={{
+        display: "flex",
+        gap: 20,
+        width: "100%",
+        maxWidth: 860,
+        flexWrap: "wrap",
+        alignItems: "flex-start",
+      }}>
+        {/* Main card */}
+        <div className="panel panel--ink" style={{
+          flex: "1 1 360px",
+          padding: "32px 36px",
+          background: "var(--pastel-cyan)",
           boxShadow: "var(--shadow-block)",
-        }}
-      >
-        <div style={{
-          fontFamily: "var(--font-display)", fontWeight: 700,
-          fontSize: 60, lineHeight: 1, textAlign: "center", marginBottom: 18,
+          display: "flex",
+          flexDirection: "column",
+          gap: 18,
         }}>
-          師
+          <span className="gs-sticker">WELCOME</span>
+
+          <div>
+            <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 30, lineHeight: 1.1, marginBottom: 8 }}>
+              What should we call you?
+            </h1>
+            <p style={{ fontSize: 14, color: "var(--ink-soft)", lineHeight: 1.55 }}>
+              Signed in as <strong>{email ?? "your account"}</strong>. Add a user name — or skip and jump straight in.<br />
+              You can change it later in profile settings.
+            </p>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <label className="login-label" htmlFor="display-name">
+              User name <span style={{ fontWeight: 400, color: "var(--ink-mute)" }}>(optional)</span>
+            </label>
+            <input
+              id="display-name"
+              className="input"
+              type="text"
+              placeholder={defaultHandle || "Your name or nickname"}
+              value={name}
+              onChange={(e) => { setName(e.target.value); setError(null); }}
+              onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(e as unknown as React.FormEvent); }}
+              autoFocus
+              autoComplete="off"
+              spellCheck={false}
+            />
+            {error && (
+              <p style={{ fontSize: 12, color: "var(--tier-bad)", margin: 0 }}>{error}</p>
+            )}
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <button
+              className="gs-btn gs-btn--primary"
+              style={{ width: "100%", justifyContent: "center" }}
+              disabled={pending}
+              onClick={handleSubmit as unknown as React.MouseEventHandler}
+            >
+              {pending ? "Saving…" : "Get Started →"}
+            </button>
+            <button
+              className="gs-btn"
+              style={{ width: "100%", justifyContent: "center", background: "transparent", fontSize: 13 }}
+              onClick={markDone}
+            >
+              skip for now →
+            </button>
+          </div>
         </div>
 
-        <h2 style={{
-          fontFamily: "var(--font-display)", fontWeight: 700,
-          fontSize: 24, textAlign: "center", marginBottom: 8,
-        }}>
-          Choose your handle
-        </h2>
-
-        <p style={{
-          fontSize: 13, color: "var(--ink-soft)",
-          textAlign: "center", lineHeight: 1.6, marginBottom: 28,
-        }}>
-          This is how you appear in games and on your profile.
-          <br />You can change it later in your profile settings.
-        </p>
-
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <input
-            value={value}
-            onChange={e => { setValue(e.target.value); setError(null); }}
-            placeholder="your-handle"
-            maxLength={32}
-            autoFocus
-            autoComplete="off"
-            spellCheck={false}
-            style={{
-              padding: "11px 14px",
-              border: `2.5px solid ${error ? "var(--tier-bad)" : "var(--ink)"}`,
-              borderRadius: 10,
-              fontSize: 15,
-              fontFamily: "var(--font-mono)",
-              background: "var(--bg-2)",
-              color: "var(--ink)",
-              outline: "none",
-              width: "100%",
-              boxSizing: "border-box",
-            }}
-          />
-
-          {error && (
-            <p style={{ fontSize: 12, color: "var(--tier-bad)", margin: 0 }}>
-              {error}
-            </p>
-          )}
-
-          <button
-            type="submit"
-            className="gs-btn gs-btn--primary"
-            disabled={pending || value.trim().length < 2}
-            style={{ marginTop: 6, width: "100%" }}
-          >
-            {pending ? "Saving…" : "Set handle and continue →"}
-          </button>
-        </form>
+        {/* Feature highlights */}
+        <div style={{ flex: "1 1 220px", display: "flex", flexDirection: "column", gap: 14 }}>
+          {[
+            { color: "var(--pastel-yellow)",   tag: "AI COACH", title: "Sensei knows your game", body: "Get next-move hints and post-game reviews powered by KataGo." },
+            { color: "var(--pastel-green)",    tag: "DRILL",    title: "Tsumego every day",     body: "Sharpen your reading with life-and-death problems." },
+            { color: "var(--pastel-lavender)", tag: "LEARN",    title: "Concept library",       body: "Study joseki, fuseki, and key Go ideas at your own pace." },
+          ].map((f) => (
+            <div key={f.tag} className="panel panel--ink" style={{
+              padding: "16px 20px",
+              background: f.color,
+              boxShadow: "var(--shadow-block-sm)",
+            }}>
+              <span className="gs-tag" style={{ marginBottom: 8, display: "inline-block" }}>{f.tag}</span>
+              <div className="gs-display-700" style={{ fontSize: 16, marginBottom: 4 }}>{f.title}</div>
+              <p style={{ fontSize: 12, color: "var(--ink-soft)", margin: 0 }}>{f.body}</p>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -159,22 +189,26 @@ export function HandleGate({ children }: HandleGateProps) {
   const [confirmed, setConfirmed] = useState(false);
 
   if (!ready) return <>{children}</>;
-
-  // Once the user explicitly sets their handle, stop gating.
   if (confirmed) return <>{children}</>;
+
+  const skipped = userId ? !!localStorage.getItem(`${SETUP_DONE_KEY}_${userId}`) : false;
 
   const needsHandle = (() => {
     if (legacy) {
-      // Legacy mode: gate when userId exists but handle is temp ("user-{uid16}")
       const h = localStorage.getItem(HANDLE_KEY);
       return !!userId && isAutoHandle(h, userId);
     }
-    // Auth mode: gate when signed in and handle is still the auto-generated default
     return !!user && !!profile && isAutoHandle(profile.handle, profile.id);
   })();
 
-  if (needsHandle) {
-    return <SetHandleScreen onDone={() => setConfirmed(true)} />;
+  if (needsHandle && !skipped) {
+    return (
+      <SetHandleScreen
+        onDone={() => setConfirmed(true)}
+        email={profile?.email ?? user?.email ?? null}
+        defaultHandle={profile?.handle ?? (legacy ? (localStorage.getItem(HANDLE_KEY) ?? "") : "")}
+      />
+    );
   }
 
   return <>{children}</>;

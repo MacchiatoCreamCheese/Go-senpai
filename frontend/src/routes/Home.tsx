@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 
@@ -8,7 +8,6 @@ import {
   getUserConcepts,
   getUserProgress,
   getWeaknesses,
-  updateMyHandle,
   type NextActionResponse,
   type UserGameListItem,
   type WeaknessItem,
@@ -16,23 +15,15 @@ import {
 import { AuthLoading } from "../components/AuthLoading";
 import { WeaknessBar } from "../components/WeaknessBar";
 import { useToast } from "../components/NotificationToast";
-import { SETUP_DONE_KEY, useAuth, useIdentity } from "../lib/auth";
+import { useAuth, useIdentity } from "../lib/auth";
 import { GoBoardSVG } from "../GoBoardSVG";
 
 const DAYS = ["M", "T", "W", "T", "F", "S", "S"];
 
 export default function Home() {
-  const { profile, user, ready, refreshProfile } = useAuth();
+  const { user, ready } = useAuth();
   const { userId, displayName: handle } = useIdentity();
   const toast = useToast();
-
-  const [nameConfirmed, setNameConfirmed] = useState(false);
-
-  useEffect(() => {
-    if (userId) {
-      setNameConfirmed(!!localStorage.getItem(`${SETUP_DONE_KEY}_${userId}`));
-    }
-  }, [userId]);
 
   const games = useQuery({
     queryKey: ["my-games", userId],
@@ -94,24 +85,6 @@ export default function Home() {
 
   const isLoggedIn = !!(userId || user?.id);
   if (!isLoggedIn) return <WelcomeStub />;
-
-  if (!nameConfirmed) {
-    return (
-      <NameSetupScreen
-        email={profile?.email ?? user?.email ?? null}
-        defaultHandle={profile?.handle ?? ""}
-        onConfirm={async (chosenName) => {
-          const current = profile?.handle ?? "";
-          if (chosenName.trim() && chosenName.trim() !== current) {
-            await updateMyHandle(chosenName.trim());
-            await refreshProfile();
-          }
-          if (userId) localStorage.setItem(`${SETUP_DONE_KEY}_${userId}`, "1");
-          setNameConfirmed(true);
-        }}
-      />
-    );
-  }
 
   const activeGames = (games.data ?? []).filter((g) => !g.result);
 
@@ -517,118 +490,6 @@ function WelcomeStub() {
         <Link to="/login" className="gs-btn gs-btn--primary" style={{ textDecoration: "none" }}>
           Sign In →
         </Link>
-      </div>
-    </div>
-  );
-}
-
-// ─── Name-setup screen (logged in, first time) ─────────────────
-
-function NameSetupScreen({
-  email,
-  defaultHandle,
-  onConfirm,
-}: {
-  email: string | null;
-  defaultHandle: string;
-  onConfirm: (name: string) => void;
-}) {
-  const [name, setName] = useState(defaultHandle);
-
-  return (
-    <div style={{
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      minHeight: "70vh",
-      padding: "40px 20px",
-    }}>
-      <div style={{
-        display: "flex",
-        gap: 20,
-        width: "100%",
-        maxWidth: 860,
-        flexWrap: "wrap",
-        alignItems: "flex-start",
-      }}>
-        {/* Main card */}
-        <div className="panel panel--ink" style={{
-          flex: "1 1 360px",
-          padding: "32px 36px",
-          background: "var(--pastel-cyan)",
-          boxShadow: "var(--shadow-block)",
-          display: "flex",
-          flexDirection: "column",
-          gap: 18,
-        }}>
-          <span className="gs-sticker">WELCOME</span>
-
-          <div>
-            <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 30, lineHeight: 1.1, marginBottom: 8 }}>
-              What should we call you?
-            </h1>
-            <p style={{ fontSize: 14, color: "var(--ink-soft)", lineHeight: 1.55 }}>
-              Signed in as <strong>{email ?? "your account"}</strong>. Add a display name — or skip and jump straight in.
-            </p>
-          </div>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <label className="login-label" htmlFor="display-name">Display name <span style={{ fontWeight: 400, color: "var(--ink-mute)" }}>(optional)</span></label>
-            <input
-              id="display-name"
-              className="input"
-              type="text"
-              placeholder={defaultHandle || "Your name or nickname"}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") onConfirm(name || defaultHandle); }}
-              autoFocus
-            />
-            {defaultHandle && (
-              <p style={{ fontSize: 12, color: "var(--ink-mute)", margin: 0 }}>
-                Your auto-generated name: <strong>{defaultHandle}</strong>
-              </p>
-            )}
-          </div>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <button
-              className="gs-btn gs-btn--primary"
-              style={{ width: "100%", justifyContent: "center" }}
-              onClick={() => onConfirm(name || defaultHandle)}
-            >
-              Get Started →
-            </button>
-            {defaultHandle && (
-              <button
-                className="gs-btn"
-                style={{ width: "100%", justifyContent: "center", background: "transparent", fontSize: 13 }}
-                onClick={() => onConfirm(defaultHandle)}
-              >
-                Skip, keep "{defaultHandle}"
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Feature highlights */}
-        <div style={{ flex: "1 1 220px", display: "flex", flexDirection: "column", gap: 14 }}>
-          {[
-            { color: "var(--pastel-yellow)", tag: "AI COACH", title: "Sensei knows your game", body: "Get next-move hints and post-game reviews powered by KataGo." },
-            { color: "var(--pastel-green)",  tag: "DRILL",    title: "Tsumego every day",     body: "Sharpen your reading with life-and-death problems." },
-            { color: "var(--pastel-lavender)", tag: "LEARN",  title: "Concept library",       body: "Study joseki, fuseki, and key Go ideas at your own pace." },
-          ].map((f) => (
-            <div key={f.tag} className="panel panel--ink" style={{
-              padding: "16px 20px",
-              background: f.color,
-              boxShadow: "var(--shadow-block-sm)",
-            }}>
-              <span className="gs-tag" style={{ marginBottom: 8, display: "inline-block" }}>{f.tag}</span>
-              <div className="gs-display-700" style={{ fontSize: 16, marginBottom: 4 }}>{f.title}</div>
-              <p style={{ fontSize: 12, color: "var(--ink-soft)", margin: 0 }}>{f.body}</p>
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   );
