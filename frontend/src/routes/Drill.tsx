@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 
 import type { ProblemT, WeaknessItem } from "../api";
@@ -44,6 +44,8 @@ function StubCard({ mark, title, body, cta }: { mark: string; title: string; bod
 export default function Drill() {
   const { problemId } = useParams<{ problemId?: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const returnTo = (location.state as Record<string, unknown> | null)?.from as string | undefined ?? "/drill";
   const { userId } = useIdentity();
   const queryClient = useQueryClient();
 
@@ -103,7 +105,7 @@ export default function Drill() {
       userId={userId}
       onNext={() => {
         queryClient.invalidateQueries({ queryKey: DRILL_KEYS.nextProblem(userId) });
-        navigate("/drill", { replace: true });
+        navigate(returnTo, { replace: true });
       }}
     />
   );
