@@ -1400,6 +1400,14 @@ a { color: inherit; }
 .coach-chat-bubble.is-left  .coach-bubble-text { background: var(--pastel-cyan); border-radius: 4px 14px 14px 14px; }
 .coach-chat-bubble.is-right .coach-bubble-text { background: var(--pastel-pink); border-radius: 14px 4px 14px 14px; }
 
+.coach-bubble-text code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: rgba(0,0,0,0.08);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
 /* ── Timestamp ── */
 .coach-bubble-ts {
   font-size: 11px;
