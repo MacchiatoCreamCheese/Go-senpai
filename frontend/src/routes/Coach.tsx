@@ -186,15 +186,16 @@ export default function Coach() {
 
   useEffect(() => {
     if (!userId) return;
+    const resolvedUserId = userId;
     if (sessionId) return;
     let alive = true;
     async function ensureSession() {
       try {
-        const games = await getMyGames(userId);
+        const games = await getMyGames(resolvedUserId);
         if (!alive) return;
         const latestGame = games[0];
         if (!latestGame) return;
-        const created = await createCoachSession(latestGame.id, userId);
+        const created = await createCoachSession(latestGame.id, resolvedUserId);
         if (!alive) return;
         setSessionId(created.session_id);
         localStorage.setItem(sessionKey, created.session_id);
@@ -210,10 +211,11 @@ export default function Coach() {
 
   useEffect(() => {
     if (!sessionId || loadedRemote) return;
+    const resolvedSessionId = sessionId;
     let alive = true;
     async function loadRemote() {
       try {
-        const turns = await getCoachTurns(sessionId);
+        const turns = await getCoachTurns(resolvedSessionId);
         if (!alive) return;
         if (turns.length) {
           const mapped: LocalMessage[] = turns.map((t, idx) => {

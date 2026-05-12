@@ -94,6 +94,7 @@ export class MockProfileDataSource implements IProfileDataSource {
         severity: parseFloat((0.3 + (hi % 50) / 100).toFixed(2)),
         evidence_count: 2 + (hi % 7),
         last_seen_at: isoAgo(5 + (hi % 20)),
+        latest_insight: null,
       };
     });
   }

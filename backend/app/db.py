@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 _log = logging.getLogger(__name__)
@@ -1069,6 +1070,47 @@ async def list_user_concept_progress(user_id: str) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+def _utc_week_start(day: date) -> date:
+    return day - timedelta(days=day.weekday())
+
+
+def _build_continuous_week_series(
+    rows: list[dict[str, Any]],
+    value_key: str,
+    weeks: int,
+    *,
+    cast: type[float] | type[int] = float,
+) -> list[dict[str, Any]]:
+    if not rows:
+        return []
+
+    by_week: dict[date, Any] = {}
+    for row in rows:
+        raw_week = row["week"]
+        week_date = raw_week if isinstance(raw_week, date) else date.fromisoformat(str(raw_week))
+        by_week[week_date] = row[value_key]
+
+    ordered_weeks = sorted(by_week)
+    first_week = ordered_weeks[0]
+    last_week = ordered_weeks[-1]
+    min_points = max(weeks + 1, 8)
+    span = (last_week - first_week).days // 7 + 1
+    if span < min_points:
+        pad_weeks = min_points - span
+        first_week = first_week - timedelta(weeks=pad_weeks)
+
+    series: list[dict[str, Any]] = []
+    cursor = first_week
+    while cursor <= last_week:
+        series.append({
+            "week": cursor.isoformat(),
+            "value": cast(by_week.get(cursor, 0)),
+        })
+        cursor += timedelta(weeks=1)
+
+    return series
+
+
 async def user_progress_series(user_id: str, weeks: int = 7) -> dict[str, list[dict[str, Any]]]:
     """Return per-week counts for the last `weeks` weeks. Each series is a list
     of {week: ISO date (week start, Monday), value: number}.
@@ -1076,7 +1118,7 @@ async def user_progress_series(user_id: str, weeks: int = 7) -> dict[str, list[d
     pool = _get_pool()
     games_rows = await pool.fetch(
         """
-        SELECT date_trunc('week', started_at)::date AS week, COUNT(*) AS n
+                SELECT date_trunc('week', started_at AT TIME ZONE 'UTC')::date AS week, COUNT(*) AS n
         FROM games
         WHERE (black_user_id = $1 OR white_user_id = $1)
           AND started_at >= NOW() - ($2::int || ' weeks')::interval
@@ -1086,7 +1128,7 @@ async def user_progress_series(user_id: str, weeks: int = 7) -> dict[str, list[d
     )
     drills_rows = await pool.fetch(
         """
-        SELECT date_trunc('week', attempted_at)::date AS week, COUNT(*) AS n
+                SELECT date_trunc('week', attempted_at AT TIME ZONE 'UTC')::date AS week, COUNT(*) AS n
         FROM drill_attempts
         WHERE user_id = $1
           AND NOT COALESCE(is_retry, FALSE)
@@ -1097,7 +1139,7 @@ async def user_progress_series(user_id: str, weeks: int = 7) -> dict[str, list[d
     )
     sev_rows = await pool.fetch(
         """
-        SELECT date_trunc('week', last_updated_at)::date AS week,
+                SELECT date_trunc('week', last_updated_at AT TIME ZONE 'UTC')::date AS week,
                MAX(severity) AS sev
         FROM user_weaknesses
         WHERE user_id = $1
@@ -1106,13 +1148,18 @@ async def user_progress_series(user_id: str, weeks: int = 7) -> dict[str, list[d
         """,
         user_id, weeks,
     )
-    return {
-        "games_per_week": [{"week": r["week"].isoformat(), "value": int(r["n"])} for r in games_rows],
-        "drills_per_week": [{"week": r["week"].isoformat(), "value": int(r["n"])} for r in drills_rows],
-        "top_weakness_severity_history": [
-            {"week": r["week"].isoformat(), "value": float(r["sev"])} for r in sev_rows
-        ],
+    raw = {
+        "games_per_week": [dict(r) for r in games_rows],
+        "drills_per_week": [dict(r) for r in drills_rows],
+        "top_weakness_severity_history": [dict(r) for r in sev_rows],
     }
+    series = {
+        "games_per_week": _build_continuous_week_series(raw["games_per_week"], "n", weeks, cast=int),
+        "drills_per_week": _build_continuous_week_series(raw["drills_per_week"], "n", weeks, cast=int),
+        "top_weakness_severity_history": _build_continuous_week_series(raw["top_weakness_severity_history"], "sev", weeks),
+    }
+    _log.debug("user_progress_series raw=%s normalized=%s", raw, series)
+    return series
 
 
 async def get_move_note(

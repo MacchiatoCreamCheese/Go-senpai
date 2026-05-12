@@ -35,15 +35,59 @@ function fmtShort(date: string) {
 }
 
 function fmtAxisLabel(week: string) {
-  const parsed = new Date(`${week}T00:00:00`);
+  const parsed = new Date(`${week}T00:00:00Z`);
   if (!Number.isNaN(parsed.getTime())) {
-    return parsed.toLocaleDateString(undefined, { month: "short", day: "2-digit" });
+    // Force English abbreviated month (e.g. "13 Apr")
+    const day = parsed.getUTCDate();
+    const month = parsed.toLocaleString("en-US", { month: "short" });
+    return `${day} ${month}`;
   }
   return week.replace(/^\d{4}-W/, "W");
 }
 
 function pct(v: number) {
   return `${Math.round(v * 100)}%`;
+}
+
+function buildChartGeometry(data: WeeklySeries[]) {
+  const W = 400;
+  const H = 72;
+  // Increase horizontal padding so lines/labels don't touch card borders
+  const PAD = { l: 20, r: 20, t: 8, b: 10 };
+  const iW = W - PAD.l - PAD.r;
+  const iH = H - PAD.t - PAD.b;
+  const values = data.map(d => Number.isFinite(d.value) ? d.value : 0);
+  const minRaw = Math.min(...values);
+  const maxRaw = Math.max(...values);
+  const range = Math.max(1, maxRaw - minRaw);
+  const pad = Math.max(1, range * 0.35);
+  const min = Math.max(0, minRaw - pad);
+  const max = Math.max(min + 1, maxRaw + pad);
+
+  const xFor = (i: number) => PAD.l + (data.length <= 1 ? iW / 2 : (i / (data.length - 1)) * iW);
+  const yFor = (v: number) => PAD.t + iH - ((v - min) / (max - min)) * iH;
+
+  const points = data.map((d, i) => ({ x: xFor(i), y: yFor(Number.isFinite(d.value) ? d.value : 0), value: Number.isFinite(d.value) ? d.value : 0 }));
+  return { W, H, PAD, iW, iH, points, min, max };
+}
+
+function buildSmoothPath(points: Array<{ x: number; y: number }>) {
+  if (points.length === 0) return "";
+  if (points.length === 1) return `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
+  if (points.length === 2) {
+    return `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)} L ${points[1].x.toFixed(1)} ${points[1].y.toFixed(1)}`;
+  }
+
+  const segments: string[] = [`M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`];
+  for (let i = 1; i < points.length - 1; i += 1) {
+    const midX = ((points[i].x + points[i + 1].x) / 2).toFixed(1);
+    const midY = ((points[i].y + points[i + 1].y) / 2).toFixed(1);
+    segments.push(`Q ${points[i].x.toFixed(1)} ${points[i].y.toFixed(1)} ${midX} ${midY}`);
+  }
+  const last = points[points.length - 1];
+  const prev = points[points.length - 2];
+  segments.push(`Q ${prev.x.toFixed(1)} ${prev.y.toFixed(1)} ${last.x.toFixed(1)} ${last.y.toFixed(1)}`);
+  return segments.join(" ");
 }
 
 // ─── Shared micro-components ──────────────────────────────────────────────────
@@ -91,26 +135,44 @@ function AreaChart({
   fillId: string;
   fillColor: string;
 }) {
-  const W = 400, H = 72;
-  const PAD = { l: 14, r: 14, t: 8, b: 6 };
-  const iW = W - PAD.l - PAD.r;
-  const iH = H - PAD.t - PAD.b;
+  const { W, H, PAD, iW, iH, points } = buildChartGeometry(data);
 
   if (data.length === 1) {
-    const cx = W / 2, cy = H / 2;
+    const cx = W / 2;
+    const cy = H / 2;
+    const latest = data[0].value;
     return (
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none" style={{ display: "block", overflow: "hidden" }}>
-        <circle cx={cx} cy={cy} r="4" fill={strokeColor} stroke="var(--bg-2)" strokeWidth="2" />
+        <rect
+          x={cx - 86}
+          y={cy - 12}
+          width="172"
+          height="24"
+          rx="12"
+          fill={fillColor}
+          opacity="0.28"
+        />
+        <line
+          x1={cx - 54}
+          x2={cx + 54}
+          y1={cy}
+          y2={cy}
+          stroke="var(--line-dark)"
+          strokeWidth="1.5"
+          strokeDasharray="3 4"
+        />
+        <circle cx={cx} cy={cy} r="6" fill={strokeColor} stroke="var(--bg-2)" strokeWidth="2" />
+        <text x={cx} y={cy - 13} textAnchor="middle" fontSize="10" fill="var(--ink-soft)" fontFamily="var(--font-mono)">
+          {latest % 1 === 0 ? latest : latest.toFixed(1)}
+        </text>
       </svg>
     );
   }
 
-  const max = Math.max(1, ...data.map(d => d.value));
-  const x = (i: number) => PAD.l + (i / (data.length - 1)) * iW;
-  const y = (v: number) => PAD.t + iH - (v / max) * iH;
-
-  const line = data.map((d, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(1)} ${y(d.value).toFixed(1)}`).join(" ");
-  const area = `${line} L ${x(data.length - 1).toFixed(1)} ${(PAD.t + iH).toFixed(1)} L ${PAD.l} ${(PAD.t + iH).toFixed(1)} Z`;
+  const line = buildSmoothPath(points);
+  const baseY = PAD.t + iH;
+  const area = `${line} L ${points[points.length - 1].x.toFixed(1)} ${baseY.toFixed(1)} L ${points[0].x.toFixed(1)} ${baseY.toFixed(1)} Z`;
+  const gridYs = [0.25, 0.5, 0.75].map(r => PAD.t + iH * r);
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none" style={{ display: "block", overflow: "hidden" }}>
@@ -120,11 +182,24 @@ function AreaChart({
           <stop offset="100%" stopColor={fillColor} stopOpacity="0.08" />
         </linearGradient>
       </defs>
+      {gridYs.map((y, i) => (
+        <line
+          key={i}
+          x1={PAD.l}
+          x2={PAD.l + iW}
+          y1={y}
+          y2={y}
+          stroke="var(--line)"
+          strokeWidth="1"
+          strokeDasharray="2 4"
+          opacity="0.55"
+        />
+      ))}
       <path d={area} fill={`url(#${fillId})`} />
       <path d={line} fill="none" stroke={strokeColor} strokeWidth="2.5"
         strokeLinecap="round" strokeLinejoin="round" />
       <circle
-        cx={x(data.length - 1)} cy={y(data[data.length - 1].value)} r="4"
+        cx={points[points.length - 1].x} cy={points[points.length - 1].y} r="4"
         fill={strokeColor} stroke="var(--bg-2)" strokeWidth="2"
       />
     </svg>
@@ -145,6 +220,17 @@ function ChartBlock({
   unit?: string;
 }) {
   const fillId = `grad-${label.replace(/\s+/g, "-").toLowerCase()}`;
+  const canvasRef = React.useRef<HTMLDivElement | null>(null);
+  const [axisWidth, setAxisWidth] = React.useState<number | null>(null);
+
+  React.useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    setAxisWidth(el.clientWidth);
+    const ro = new ResizeObserver(() => setAxisWidth(el.clientWidth));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [canvasRef.current]);
 
   if (!data || data.length < 1) {
     return (
@@ -161,7 +247,11 @@ function ChartBlock({
   const prev   = data.length >= 2 ? data[data.length - 2].value : null;
   const delta  = prev !== null ? latest - prev : 0;
   const showDelta = data.length >= 3 && Math.abs(delta) > 0;
-  const weekLabels = data.slice(-5);
+  const weekLabels = data.slice(-4);
+  // Determine tick step when space is limited
+  const minTickGap = 30; // px, per requirements
+  const actualGap = axisWidth && weekLabels.length > 1 ? axisWidth / (weekLabels.length - 1) : Infinity;
+  const step = actualGap && actualGap < minTickGap ? 2 : 1;
 
   return (
     <div className="prf-chart-block">
@@ -180,20 +270,22 @@ function ChartBlock({
         <AreaChart data={data} strokeColor={strokeColor} fillId={fillId} fillColor={fillColor} />
       </div>
       <div className="prf-chart-axis">
-        {weekLabels.map((d, i) => (
-          <span
-            key={d.week}
-            style={
-              i === 0
-                ? { left: "0%", transform: "translateX(0)" }
-                : i === weekLabels.length - 1
-                  ? { left: "100%", transform: "translateX(-100%)" }
-                  : { left: `${(i / Math.max(weekLabels.length - 1, 1)) * 100}%`, transform: "translateX(-50%)" }
-            }
-          >
-            {fmtAxisLabel(d.week)}
-          </span>
-        ))}
+        {weekLabels.map((d, i) => {
+          // Always show first and last labels; otherwise apply step thinning
+          const isLast = i === weekLabels.length - 1;
+          const isFirst = i === 0;
+          if (!isFirst && !isLast && (i % step !== 0)) return null;
+          const leftStyle = isFirst
+            ? { left: "0%", transform: "translateX(0)" }
+            : isLast
+              ? { left: "100%", transform: "translateX(-100%)" }
+              : { left: `${(i / Math.max(weekLabels.length - 1, 1)) * 100}%`, transform: "translateX(-50%)" };
+          return (
+            <span key={d.week} style={leftStyle}>
+              {fmtAxisLabel(d.week)}
+            </span>
+          );
+        })}
       </div>
     </div>
   );
@@ -205,40 +297,7 @@ function ChartBlock({
  * Enhanced StatCard with progress visualization for metrics.
  * Supports optional progress bar for drill accuracy and similar metrics.
  */
-function StatCard({
-  label,
-  value,
-  sub,
-  variant,
-  progress,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  variant?: string;
-  progress?: number; // 0-1, for progress bar display
-}) {
-  return (
-    <div className={`prf-stat-card${variant ? ` prf-stat-card--${variant}` : ""}`}>
-      <div className="prf-stat-card-top">
-        <span className="prf-stat-card-value">{value}</span>
-        <span className="prf-stat-card-label">{label}</span>
-      </div>
-
-      {/* Progress bar visualization (for Puzzle Accuracy, etc.) */}
-      {progress !== undefined && (
-        <div className="prf-stat-card-progress-track">
-          <div
-            className="prf-stat-card-progress-bar"
-            style={{ width: `${Math.min(100, Math.max(0, progress * 100))}%` }}
-          />
-        </div>
-      )}
-
-      {sub && <span className="prf-stat-card-sub">{sub}</span>}
-    </div>
-  );
-}
+// (StatCard removed — top stat cards now use AnalyticsStatCard for a unified neo-brutalist style)
 
 // ─── Result chip ───────────────────────────────────────────────────────────────
 
@@ -675,6 +734,16 @@ function AnalyticsTab({
   const lastGamesValue = analytics.lastWeekGameCount;
   const lastDrillsValue = analytics.lastWeekDrillCount;
 
+  React.useEffect(() => {
+    if (import.meta.env.DEV) {
+      console.debug("[profile analytics] chart series", {
+        gamesPerWeek: analytics.gamesPerWeek,
+        drillsPerWeek: analytics.drillsPerWeek,
+        weaknessSeverityHistory: analytics.weaknessSeverityHistory,
+      });
+    }
+  }, [analytics.gamesPerWeek, analytics.drillsPerWeek, analytics.weaknessSeverityHistory]);
+
   return (
     <div className="prf-analytics">
 
@@ -876,28 +945,39 @@ export default function Profile() {
             </div>
 
             <div className="prf-stats-grid">
-              <StatCard
-                label="Games"
-                value={gamesLoading ? "…" : stats.totalGames.toString()}
-                variant="games"
-              />
-              <StatCard
-                label="Win rate"
-                value={gamesLoading ? "…" : (stats.winRate !== null ? pct(stats.winRate) : "0%")}
-                sub={!gamesLoading && stats.finishedGames > 0 ? `${stats.finishedGames} finished` : undefined}
-                variant="winrate"
-              />
-              <StatCard
-                label="Concepts"
-                value={conceptsLoading && needConcepts ? "…" : stats.totalConcepts.toString()}
-                variant="concepts"
-              />
-              <StatCard
-                label="Puzzle accuracy"
-                value={drillStatsLoading ? "…" : (drillStats?.accuracy != null ? pct(drillStats.accuracy) : "0%")}
-                progress={drillStatsLoading ? undefined : (drillStats?.accuracy ?? 0)}
-                variant="drills"
-              />
+                <AnalyticsStatCard
+                  badge="GAMES"
+                  icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>}
+                  label="Games"
+                  value={gamesLoading ? "…" : stats.totalGames.toString()}
+                  bg="var(--pastel-green)"
+                />
+
+                <AnalyticsStatCard
+                  badge="WIN"
+                  icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>}
+                  label="Win rate"
+                  value={gamesLoading ? "…" : (stats.winRate !== null ? pct(stats.winRate) : "0%")}
+                  hint={!gamesLoading && stats.finishedGames > 0 ? `${stats.finishedGames} finished` : undefined}
+                  bg="var(--pastel-peach)"
+                />
+
+                <AnalyticsStatCard
+                  badge="CONCEPTS"
+                  icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="3"/><path d="M6 20c1.5-3 6-3 12-2"/></svg>}
+                  label="Concepts"
+                  value={conceptsLoading && needConcepts ? "…" : stats.totalConcepts.toString()}
+                  bg="var(--pastel-lavender)"
+                />
+
+                <AnalyticsStatCard
+                  badge="ACCURACY"
+                  icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>}
+                  label="Puzzle accuracy"
+                  value={drillStatsLoading ? "…" : (drillStats?.accuracy != null ? pct(drillStats.accuracy) : "0%")}
+                  progress={drillStatsLoading ? undefined : (drillStats?.accuracy ?? 0)}
+                  bg="var(--pastel-pink)"
+                />
             </div>
 
             {isMe && (

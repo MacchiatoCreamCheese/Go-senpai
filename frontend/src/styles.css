@@ -4849,6 +4849,7 @@ a { color: inherit; }
   flex-wrap: wrap;
   align-items: center;
   padding-top: 2px;
+  margin-top: 1.5rem;
 }
 .prf-action-link {
   display: inline-flex;
@@ -6147,17 +6148,19 @@ a { color: inherit; }
 .prf-chart-axis {
   position: relative;
   height: 18px;
-  padding: 0 8px;
+  padding: 0 20px;
   display: flex;
   gap: 0;
 }
 .prf-chart-axis span {
   position: absolute;
+  top: 0;
   font-family: var(--font-mono);
   font-size: 8.5px;
   color: var(--ink-mute);
   white-space: nowrap;
   line-height: 1;
+  text-anchor: middle;
 }
 
 .prf-no-data {
