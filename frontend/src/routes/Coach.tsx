@@ -302,7 +302,7 @@ export default function Coach() {
     try {
       const session = await createSession.mutateAsync({ userId, targetProblemCount: 1 });
       setShowDrillModal(false);
-      navigate(`/drill/session/${session.id}`);
+      navigate(`/drill/session/${session.id}`, { state: { from: '/coach' } });
     } catch (err) {
       toast.push({ kind: "error", title: "Could not start drill", body: String(err) });
     }
@@ -321,7 +321,7 @@ export default function Coach() {
   function handleResumeSession() {
     if (!activeSession) return;
     setShowDrillModal(false);
-    navigate(`/drill/session/${activeSession.id}`);
+    navigate(`/drill/session/${activeSession.id}`, { state: { from: '/coach' } });
   }
 
   async function handleSend() {
@@ -545,7 +545,7 @@ function NextActionPanel({
   action: NextActionResponse | null;
   isPending: boolean;
   onAsk: () => void;
-  navigate: (to: string) => void;
+  navigate: (to: string, options?: { state?: unknown }) => void;
 }) {
   const kindLabel = action ? (KIND_LABEL[action.kind] ?? action.kind) : null;
   const bg = action ? (KIND_COLOR[action.kind] ?? "var(--pastel-yellow)") : "var(--pastel-yellow)";
@@ -584,7 +584,7 @@ function NextActionPanel({
             )}
             {action.problem?.id && (
               <button className="gs-btn gs-btn--cyan"
-                onClick={() => navigate(`/drill/${action.problem!.id}`)}>
+                onClick={() => navigate(`/drill/${action.problem!.id}`, { state: { from: '/coach' } })}>
                 Start drill →
               </button>
             )}
