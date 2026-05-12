@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { formatSenseiAssistantDisplay } from "../lib/coachText";
 import { useChatStream } from "../hooks/useChatStream";
 import { COACH_PRESET_MODES } from "../constants/coachModes";
 
@@ -92,6 +93,8 @@ export function ChatDrawer({ gameId, userId, open, onClose, onStreamingChange, o
               <div key={i} className={`chat-message chat-message--${msg.role}`}>
                 {msg.streaming && !msg.text ? (
                   <span className="chat-thinking">Thinking…</span>
+                ) : msg.role === "assistant" ? (
+                  formatSenseiAssistantDisplay(msg.text)
                 ) : (
                   msg.text
                 )}

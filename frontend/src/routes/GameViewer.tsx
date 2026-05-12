@@ -14,6 +14,7 @@ import { MoveScrubber } from "../components/MoveScrubber";
 import { EngineOverlay } from "../components/EngineOverlay";
 import { ScoreLineChart } from "../components/ScoreLineChart";
 import { boardAtMove, formatCoord, parseCoord } from "../lib/replay";
+import { formatSenseiAssistantDisplay } from "../lib/coachText";
 import { useChatStream } from "../hooks/useChatStream";
 import type { MoveT } from "../types";
 import { COACH_PRESET_MODES } from "../constants/coachModes";
@@ -296,7 +297,9 @@ export function ViewerSenseiChat({ gameId, userId }: { gameId: string; userId: s
             <div key={i} className={`viewer-sensei-bubble viewer-sensei-bubble--${msg.role}`}>
               {msg.streaming && !msg.text
                 ? <span className="viewer-sensei-thinking">thinking…</span>
-                : msg.text}
+                : msg.role === "assistant"
+                  ? formatSenseiAssistantDisplay(msg.text)
+                  : msg.text}
               {msg.streaming && msg.text && <span className="chat-cursor" aria-hidden />}
             </div>
           ))}

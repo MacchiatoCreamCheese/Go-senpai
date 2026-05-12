@@ -15,6 +15,7 @@ from ..services.coach.session import (
     get_or_create_session,
     run_coach_turn,
 )
+from ..services.coach.text_norm import normalize_coach_assistant_text
 from ..services.review.coach_prompts import build_general_chat_prompt
 from ..services.review.llm import build_default_client
 
@@ -192,7 +193,7 @@ async def chat_with_sensei(
     reply_tokens: list[str] = []
     async for token in llm.stream_generate(system, user_prompt):
         reply_tokens.append(token)
-    reply = "".join(reply_tokens)
+    reply = normalize_coach_assistant_text("".join(reply_tokens))
 
     await db.insert_coach_turn(session_id, turn_number + 1, "assistant", "chat", None, reply)
     return {"reply": reply}

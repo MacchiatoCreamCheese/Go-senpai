@@ -6,6 +6,7 @@ import { COACH_PRESET_MODES } from "./constants/coachModes";
 import { GoBoard } from "./GoBoard";
 import { useChatStream } from "./hooks/useChatStream";
 import { PlayerNoteInput } from "./components/PlayerNoteInput";
+import { formatSenseiAssistantDisplay } from "./lib/coachText";
 import { useToast } from "./components/NotificationToast";
 import { MikuLive2D } from "./live2d/MikuLive2D";
 import { connectGameSocket } from "./ws";
@@ -614,18 +615,6 @@ function MikuSlot({ speaking = false }: { speaking?: boolean }) {
 }
 
 
-function cleanSenseiText(text: string): string {
-  const t = text
-    .replace(/^[ \t]*(analysis|coach note|note):\s*/gim, "")
-    .replace(/\*\*(.+?)\*\*/g, "$1")
-    .replace(/\*(.+?)\*/g, "$1")
-    .replace(/_\(([\s\S]*?)\)_/g, "($1)")
-    .replace(/_(.+?)_/g, "$1")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-  return t;
-}
-
 const SENSEI_MODES = [...COACH_PRESET_MODES];
 
 function PlaySenseiChat({
@@ -688,7 +677,7 @@ function PlaySenseiChat({
               {msg.streaming && !msg.text
                 ? <span className="viewer-sensei-thinking">thinking…</span>
                 : msg.role === "assistant"
-                  ? cleanSenseiText(msg.text)
+                  ? formatSenseiAssistantDisplay(msg.text)
                   : msg.strategyNoteMove != null ? (
                     <>
                       <div className="viewer-sensei-strategy-kicker">

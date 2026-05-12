@@ -14,6 +14,7 @@ import {
 } from "../api";
 import { ActiveDrillModal } from "../components/ActiveDrillModal";
 import { useToast } from "../components/NotificationToast";
+import { decodeCoachLiteralEscapes, stripOuterAsciiDoubleQuoteWrapper } from "../lib/coachText";
 import { useIdentity } from "../lib/auth";
 import { useCreateDrillSession } from "../hooks/useDrillData";
 import { useActiveDrillGuard } from "../hooks/useActiveDrillGuard";
@@ -62,7 +63,7 @@ function extractText(raw: string): string {
 // Convert basic markdown to safe HTML for bubble rendering.
 // HTML-escapes first so no injection is possible, then applies formatting.
 function renderMarkdown(raw: string): string {
-  const text = extractText(raw);
+  const text = stripOuterAsciiDoubleQuoteWrapper(decodeCoachLiteralEscapes(extractText(raw)));
   return text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")

@@ -13,6 +13,7 @@ from ...services.review.selector import Moment
 from ...services.review.llm import build_default_client
 from ...services.review.coach_prompts import build_coach_prompt
 from .engine_query import query_current_position
+from .text_norm import normalize_coach_assistant_text
 
 log = logging.getLogger(__name__)
 
@@ -213,7 +214,7 @@ async def run_coach_turn(
         accumulated.append(token)
         yield token
 
-    full_text = "".join(accumulated)
+    full_text = normalize_coach_assistant_text("".join(accumulated))
 
     # 6. Coordinate guardrail for no-spoiler modes
     if mode in _SPOILER_MODES and COORDINATE_RE.search(full_text):
