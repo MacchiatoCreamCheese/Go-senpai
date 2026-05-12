@@ -451,7 +451,7 @@ a { color: inherit; }
 
 /* ─── App shell ──────────────────────────────────────────── */
 .shell {
-  min-height: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   overflow-x: hidden;
@@ -588,6 +588,7 @@ a { color: inherit; }
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow-y: auto;
 }
 
 /* ─── Toasts ─────────────────────────────────────────────── */
@@ -1180,6 +1181,7 @@ a { color: inherit; }
   box-shadow: var(--shadow-block);
   position: relative;
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .action-card-mark {
@@ -1344,32 +1346,91 @@ a { color: inherit; }
   flex-direction: column;
   gap: 12px;
   min-height: 0;
+  scroll-behavior: smooth;
 }
 
+/* ── Bubble wrapper ── */
 .coach-chat-bubble {
-  max-width: 85%;
+  max-width: 80%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  align-self: flex-start;
+}
+.coach-chat-bubble.is-right {
+  flex-direction: row-reverse;
+  align-self: flex-end;
+}
+
+/* ── Sensei avatar circle ── */
+.coach-bubble-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--ink);
+  background: var(--pastel-cyan);
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+/* ── Column: text + timestamp ── */
+.coach-bubble-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* ── Text pill ── */
+.coach-bubble-text {
+  display: block;
   padding: 10px 14px;
   border-radius: 14px;
   border: 2px solid var(--ink);
   font-size: 14px;
   line-height: 1.5;
+  white-space: pre-wrap;
 }
+.coach-chat-bubble.is-left  .coach-bubble-text { background: var(--pastel-cyan); border-radius: 4px 14px 14px 14px; }
+.coach-chat-bubble.is-right .coach-bubble-text { background: var(--pastel-pink); border-radius: 14px 4px 14px 14px; }
 
-.coach-chat-bubble.is-left {
-  background: var(--pastel-cyan);
-  border-radius: 4px 14px 14px 14px;
-  align-self: flex-start;
-}
-
-.coach-chat-bubble.is-right {
-  background: var(--pastel-pink);
-  border-radius: 14px 4px 14px 14px;
+/* ── Timestamp ── */
+.coach-bubble-ts {
+  font-size: 11px;
+  color: var(--ink-mute);
+  padding: 0 4px;
   align-self: flex-end;
 }
+.coach-chat-bubble.is-right .coach-bubble-ts { align-self: flex-start; }
 
-.coach-chat-bubble.is-typing {
-  font-style: italic;
-  opacity: 0.7;
+/* ── Animated typing indicator ── */
+.coach-typing-dots {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 10px 14px;
+  background: var(--pastel-cyan);
+  border-radius: 4px 14px 14px 14px;
+  border: 2px solid var(--ink);
+}
+.coach-typing-dots span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-soft);
+  animation: typing-bounce 1.2s infinite ease-in-out;
+}
+.coach-typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.coach-typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes typing-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40%           { transform: translateY(-5px); opacity: 1; }
 }
 
 .coach-chat-footer {
@@ -1378,6 +1439,7 @@ a { color: inherit; }
   padding: 12px 20px 16px;
   border-top: 2px solid var(--line);
   flex-shrink: 0;
+  align-items: flex-end;
 }
 
 .coach-chat-input {
@@ -1386,10 +1448,14 @@ a { color: inherit; }
   font-size: 14px;
   padding: 10px 14px;
   border: 2px solid var(--line-dark);
-  border-radius: 999px;
+  border-radius: 14px;
   background: var(--bg-2);
   color: var(--ink);
   outline: none;
+  resize: none;
+  line-height: 1.4;
+  max-height: 100px;
+  overflow-y: auto;
   transition: border-color 150ms;
 }
 .coach-chat-input:focus { border-color: var(--ink); }
@@ -1399,6 +1465,7 @@ a { color: inherit; }
   gap: 8px;
   flex-wrap: wrap;
   padding: 0 20px 8px;
+  flex-shrink: 0;
 }
 
 /* ─── Weakness components (wk-*) ────────────────────────── */
