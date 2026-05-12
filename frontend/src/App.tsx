@@ -12,9 +12,9 @@ import Coach from "./routes/Coach";
 import Drill from "./routes/Drill";
 import DrillHub from "./routes/DrillHub";
 import DrillSessionRoute from "./routes/DrillSession";
+import DrillHistory from "./routes/DrillHistory";
 import Profile from "./routes/Profile";
 import Games from "./routes/Games";
-import Settings from "./routes/Settings";
 import Concepts from "./routes/Concepts";
 import ConceptDetail from "./routes/ConceptDetail";
 
@@ -34,6 +34,7 @@ export function App() {
         <Route path="coach" element={<RequireAuth><Coach /></RequireAuth>} />
 
         <Route path="drill" element={<RequireAuth><DrillHub /></RequireAuth>} />
+        <Route path="drill/history" element={<RequireAuth><DrillHistory /></RequireAuth>} />
         <Route path="drill/session/:sessionId" element={<RequireAuth><DrillSessionRoute /></RequireAuth>} />
         <Route path="drill/:problemId" element={<RequireAuth><Drill /></RequireAuth>} />
 
@@ -45,8 +46,6 @@ export function App() {
 
         <Route path="concepts" element={<Concepts />} />
         <Route path="concepts/:conceptId" element={<ConceptDetail />} />
-
-        <Route path="settings" element={<Settings />} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
