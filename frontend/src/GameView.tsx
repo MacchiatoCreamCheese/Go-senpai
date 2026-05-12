@@ -6,6 +6,7 @@ import { COACH_PRESET_MODES } from "./constants/coachModes";
 import { GoBoard } from "./GoBoard";
 import { useChatStream } from "./hooks/useChatStream";
 import { PlayerNoteInput } from "./components/PlayerNoteInput";
+import { useToast } from "./components/NotificationToast";
 import { MikuLive2D } from "./live2d/MikuLive2D";
 import { connectGameSocket } from "./ws";
 import type { ChatMessage } from "./ws";
@@ -14,6 +15,14 @@ import type { GhostStone } from "./GoBoard";
 
 const USER_ID_KEY = "senpai_user_id";
 const COLS = "ABCDEFGHJKLMNOPQRST";
+
+const WAITING_FOR_OPPONENT_MSG =
+  "Waiting for your opponent to join. Share the game ID from the lobby or invite link until both players are seated.";
+
+function isWaitingForHumanOpponent(game: GameT | null): boolean {
+  if (!game || game.opponent_type !== "human") return false;
+  return game.black_user_id == null || game.white_user_id == null;
+}
 
 interface Props {
   gameId: string;
@@ -30,6 +39,7 @@ function deriveRole(game: GameT | null, userId: string | null): ColorCode | null
 }
 
 export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
+  const toast = useToast();
   const [game, setGame] = useState<GameT | null>(null);
   const [state, setState] = useState<GameStateT | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -160,6 +170,10 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
 
   async function send(kind: MoveKind, point: PointT | null) {
     if (!role) { setError("You're not seated in this game yet."); return; }
+    if (isWaitingForHumanOpponent(game)) {
+      toast.push({ kind: "info", title: "Waiting for opponent", body: WAITING_FOR_OPPONENT_MSG });
+      return;
+    }
     setError(null);
     try {
       const next = await playMove(gameId, role, kind, point);
@@ -244,6 +258,8 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
   }
 
   const disabled = !role || state.status !== "active" || state.turn !== role;
+  const waitingForHumanOpponent = isWaitingForHumanOpponent(game);
+  const boardDisabled = disabled || waitingForHumanOpponent;
   const isMyTurn = !!role && state.status === "active" && state.turn === role;
   const isAiGame = game?.opponent_type === "ai";
   const canUndo = isAiGame && isMyTurn && state.moves.length >= 2;
@@ -316,8 +332,18 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
             >
               <GoBoard
                 state={state}
-                disabled={disabled}
+                disabled={boardDisabled}
                 onPlay={(p) => send("play", p)}
+                onBlockedPlay={
+                  waitingForHumanOpponent && role
+                    ? () =>
+                        toast.push({
+                          kind: "info",
+                          title: "Waiting for opponent",
+                          body: WAITING_FOR_OPPONENT_MSG,
+                        })
+                    : undefined
+                }
                 ownershipGhosts={ownershipGhosts}
                 width={boardWidth}
               />
@@ -356,6 +382,7 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
             role={role}
             userId={userId}
             isAiGame={isAiGame}
+            waitingForHumanOpponent={waitingForHumanOpponent}
             playerNotes={playerNotes}
             onNoteSaved={(mn, body) => setPlayerNotes((prev) => ({ ...prev, [mn]: body }))}
             onSenseiStreamingChange={setSenseiStreaming}
@@ -517,6 +544,15 @@ function SandwichPlayerCard({
       : (uid ? (playerHandles[uid] ?? uid) : "—");
   const captures = state.captures[color];
 
+  const turnLine =
+    isThinking
+      ? "thinking…"
+      : !isActive
+        ? "waiting"
+        : isMe
+          ? "your move"
+          : `${displayName}'s move`;
+
   return (
     <div style={{
       display: "grid", gridTemplateColumns: "auto 1fr", alignItems: "center", gap: 12,
@@ -540,8 +576,19 @@ function SandwichPlayerCard({
           <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 15 }}>{displayName}</span>
           {isYou && isMe && <span className="gs-tag" style={{ background: "var(--pastel-pink)" }}>YOU</span>}
         </div>
-        <div style={{ fontSize: 11, color: "var(--ink-mute)", fontFamily: "var(--font-mono)" }}>
-          {isThinking ? "thinking…" : isActive ? "your move" : "waiting"} · captures {captures}
+        <div
+          style={{
+            fontSize: 11,
+            color: "var(--ink-mute)",
+            fontFamily: "var(--font-mono)",
+            display: "flex",
+            flexDirection: "column",
+            gap: 2,
+            marginTop: 2,
+          }}
+        >
+          <span>{turnLine}</span>
+          <span>captures {captures}</span>
         </div>
       </div>
     </div>
@@ -691,6 +738,7 @@ function PlaySidePanel({
   role,
   userId,
   isAiGame,
+  waitingForHumanOpponent,
   playerNotes,
   onNoteSaved,
   onSenseiStreamingChange,
@@ -714,6 +762,7 @@ function PlaySidePanel({
   role: ColorCode | null;
   userId: string;
   isAiGame: boolean;
+  waitingForHumanOpponent: boolean;
   playerNotes: Record<number, string>;
   onNoteSaved: (mn: number, body: string) => void;
   onSenseiStreamingChange: (v: boolean) => void;
@@ -850,8 +899,8 @@ function PlaySidePanel({
         {state.status === "active" ? (
           <>
             <button type="button" className="gs-btn" onClick={onUndo} disabled={!canUndo} style={{ padding: "8px 0", fontSize: 12 }}>Undo</button>
-            <button type="button" className="gs-btn" onClick={onPass} disabled={!isMyTurn} style={{ padding: "8px 0", fontSize: 12 }}>Pass</button>
-            <button type="button" className="gs-btn gs-btn--red" onClick={onResign} disabled={!isMyTurn} style={{ padding: "8px 0", fontSize: 12 }}>Resign</button>
+            <button type="button" className="gs-btn" onClick={onPass} disabled={!isMyTurn || waitingForHumanOpponent} style={{ padding: "8px 0", fontSize: 12 }}>Pass</button>
+            <button type="button" className="gs-btn gs-btn--red" onClick={onResign} disabled={!isMyTurn || waitingForHumanOpponent} style={{ padding: "8px 0", fontSize: 12 }}>Resign</button>
             {preGame && role && (
               <button type="button" className="gs-btn play-side-actions__swap" onClick={onSwap} disabled={swapping} style={{ padding: "8px 0", fontSize: 12 }}>
                 {swapping ? "swapping…" : "swap colors ⇄"}

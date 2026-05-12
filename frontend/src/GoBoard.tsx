@@ -16,6 +16,8 @@ interface Props {
   board?: Cell[][];
   onPlay?: (point: PointT) => void;
   disabled?: boolean;
+  /** When disabled, still capture clicks on empty points (e.g. human game waiting for opponent). */
+  onBlockedPlay?: () => void;
   /** Fixed pixel width (and height) of the board. When set, cell size is derived from it.
    *  Takes priority over vertexSize. Default: 520. */
   width?: number;
@@ -49,6 +51,7 @@ export function GoBoard({
   board,
   onPlay,
   disabled,
+  onBlockedPlay,
   width,
   vertexSize,
   showCoordinates,
@@ -101,7 +104,10 @@ export function GoBoard({
         width={W}
         height={H}
         viewBox={`0 0 ${W} ${H}`}
-        style={{ display: "block", cursor: disabled ? "default" : "crosshair" }}
+        style={{
+          display: "block",
+          cursor: disabled && onBlockedPlay ? "pointer" : disabled ? "default" : "crosshair",
+        }}
       >
         {/* board background */}
         <rect x="0" y="0" width={W} height={H}
@@ -200,18 +206,42 @@ export function GoBoard({
           })
         )}
 
-        {/* click hit areas */}
-        {!disabled && onPlay && signMap.flatMap((row, y) =>
-          row.map((_sign, x) => (
-            <rect key={`hit${y}_${x}`}
-              x={px(x) - cell / 2} y={px(y) - cell / 2}
-              width={cell} height={cell}
-              fill="transparent"
-              style={{ cursor: "pointer" }}
-              onClick={() => onPlay({ row: y, col: x })}
-            />
-          ))
-        )}
+        {/* click hit areas — blocked (waiting) */}
+        {disabled && onBlockedPlay &&
+          signMap.flatMap((row, y) =>
+            row.map((sign, x) => {
+              if (sign !== 0) return null;
+              return (
+                <rect
+                  key={`blocked${y}_${x}`}
+                  x={px(x) - cell / 2}
+                  y={px(y) - cell / 2}
+                  width={cell}
+                  height={cell}
+                  fill="transparent"
+                  style={{ cursor: "pointer" }}
+                  onClick={() => onBlockedPlay()}
+                />
+              );
+            }),
+          )}
+        {/* normal play */}
+        {!disabled &&
+          onPlay &&
+          signMap.flatMap((row, y) =>
+            row.map((_sign, x) => (
+              <rect
+                key={`hit${y}_${x}`}
+                x={px(x) - cell / 2}
+                y={px(y) - cell / 2}
+                width={cell}
+                height={cell}
+                fill="transparent"
+                style={{ cursor: "pointer" }}
+                onClick={() => onPlay({ row: y, col: x })}
+              />
+            )),
+          )}
       </svg>
     </div>
   );

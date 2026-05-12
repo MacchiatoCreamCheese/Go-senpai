@@ -684,6 +684,15 @@ async def play_move(game_id: str, req: MoveRequest, _user=Depends(soft_user)) ->
     row = await db.get_game_row(game_id)
     record = await _get_record(game_id)
 
+    if row and row.get("opponent_type") == "human":
+        black = row.get("black_user_id")
+        white = row.get("white_user_id")
+        if black is None or white is None:
+            raise HTTPException(
+                status_code=409,
+                detail="waiting for opponent — both players must join before moves are allowed",
+            )
+
     async with record.lock:
         try:
             record.game.play(
