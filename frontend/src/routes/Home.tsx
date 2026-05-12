@@ -20,6 +20,7 @@ import { StreakCelebration } from "../components/StreakCelebration";
 import { WeaknessBar } from "../components/WeaknessBar";
 import { useToast } from "../components/NotificationToast";
 import { useAuth, useIdentity } from "../lib/auth";
+import { gameOpponentPillClass, gameOpponentPillText } from "../lib/gameOpponentPill";
 import { GoBoardSVG } from "../GoBoardSVG";
 
 
@@ -468,10 +469,10 @@ function RecentGames({ games, isLoading }: { games: UserGameListItem[]; isLoadin
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 3, flexWrap: "wrap" }}>
                     <span
-                      className={`gs-pill ${g.opponent_type === "ai" ? "gs-pill--cyan" : "gs-pill--lav"}`}
+                      className={`gs-pill ${gameOpponentPillClass(g)}`}
                       style={{ fontSize: 10, padding: "2px 7px" }}
                     >
-                      {g.opponent_type === "ai" ? "vs AI" : `vs ${g.opponent_handle ?? "Human"}`}
+                      {gameOpponentPillText(g)}
                     </span>
                     <span style={{ fontSize: 10, color: "var(--ink-mute)", fontFamily: "var(--font-mono)" }}>
                       {new Date(g.started_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
@@ -548,7 +549,7 @@ function QuickPlayRow({ hasActiveGame, activeGameId }: { hasActiveGame: boolean;
           textAlign: "left",
           background: c.color,
           cursor: "pointer",
-          border: "3px solid var(--border)",
+          border: "3px solid var(--ink)",
           fontFamily: "var(--font-body)",
           color: "var(--ink)",
           transition: "transform .1s, box-shadow .1s",

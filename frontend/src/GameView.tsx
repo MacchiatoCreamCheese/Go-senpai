@@ -248,6 +248,7 @@ export function GameView({ gameId, onExit, onPlayAgain, onOpenReview }: Props) {
       const next = await createGame(game.size as 9 | 13 | 19, userId, role, {
         opponentType: "ai",
         aiRank: game.ai_rank ?? 10,
+        trainingMode: Boolean(game.training_mode),
       });
       onPlayAgain ? onPlayAgain(next.id) : (window.location.href = `/play/${next.id}`);
     } catch (e) {
@@ -783,16 +784,22 @@ function PlaySidePanel({
   const [tab, setTab] = useState<SideTabId>("moves");
   const senseiStream = useChatStream(gameId, userId);
 
-  const showNotesTooling = isAiGame && !!role && state.status === "active";
-  const showSenseiTooling = isAiGame && state.status === "active";
+  const coachingUi = isAiGame && Boolean(game.training_mode);
+  const showNotesTooling = coachingUi && !!role && state.status === "active";
+  const showSenseiTooling = coachingUi && state.status === "active";
 
   const tabs: { id: SideTabId; label: string }[] = [
     { id: "moves", label: `Moves · ${state.moves.length}` },
-    ...(isAiGame
+    ...(coachingUi
       ? [{ id: "sensei" as SideTabId, label: "Sensei" }]
-      : [{ id: "chat" as SideTabId, label: `Chat · ${humanChatMessages.length}` }]
-    ),
+      : !isAiGame
+        ? [{ id: "chat" as SideTabId, label: `Chat · ${humanChatMessages.length}` }]
+        : []),
   ];
+
+  useEffect(() => {
+    if (!coachingUi && tab === "sensei") setTab("moves");
+  }, [coachingUi, tab]);
 
   return (
     <div className="play-side-dock">
