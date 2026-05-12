@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { getMyGames } from "../api";
 import { useIdentity } from "../lib/auth";
+import { gameOpponentPillClass, gameOpponentPillText } from "../lib/gameOpponentPill";
 
 type Status = "any" | "in_progress" | "finished";
 type Size = 0 | 9 | 13 | 19;
@@ -124,10 +125,10 @@ export default function Games() {
                   <div className="games-row-info">
                     <span className="games-row-opp" style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <span
-                        className={`gs-pill ${g.opponent_type === "ai" ? "gs-pill--cyan" : "gs-pill--lav"}`}
+                        className={`gs-pill ${gameOpponentPillClass(g)}`}
                         style={{ fontSize: 10, padding: "2px 8px" }}
                       >
-                        {g.opponent_type === "ai" ? "vs AI" : `vs ${g.opponent_handle ?? "Human"}`}
+                        {gameOpponentPillText(g)}
                       </span>
                     </span>
                     <span className="games-row-meta">

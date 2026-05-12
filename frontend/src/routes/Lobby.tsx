@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { createGame, createUser, fetchGame, getMyGames, joinGame } from "../api";
+import { gameOpponentPillClass, gameOpponentPillText } from "../lib/gameOpponentPill";
 import type { ColorCode } from "../types";
 import { HANDLE_KEY as USER_HANDLE_KEY, USER_ID_KEY, useAuth } from "../lib/auth";
 import { useToast } from "../components/NotificationToast";
@@ -419,10 +420,10 @@ export default function Lobby() {
                           </div>
                           <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
                             <span
-                              className={`gs-pill ${g.opponent_type === "ai" ? "gs-pill--cyan" : "gs-pill--lav"}`}
+                              className={`gs-pill ${gameOpponentPillClass(g)}`}
                               style={{ fontSize: 10, padding: "2px 7px" }}
                             >
-                              {g.opponent_type === "ai" ? "vs AI" : `vs ${g.opponent_handle ?? "Human"}`}
+                              {gameOpponentPillText(g)}
                             </span>
                             <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--ink-mute)" }}>
                               {new Date(g.started_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
