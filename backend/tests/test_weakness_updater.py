@@ -19,8 +19,8 @@ def test_apply_evidence_first_time_upserts_each_theme():
     assert applied is True
     mark.assert_awaited_once_with("u1", "g1")
     assert upsert.await_count == 2
-    assert upsert.await_args_list[0].args == ("u1", "blunder_middlegame", 0.25, EMA_ALPHA)
-    assert upsert.await_args_list[1].args == ("u1", "ignored_top_move", 0.10, EMA_ALPHA)
+    assert upsert.await_args_list[0].args == ("u1", "blunder_middlegame", 0.25, EMA_ALPHA, "")
+    assert upsert.await_args_list[1].args == ("u1", "ignored_top_move", 0.10, EMA_ALPHA, "")
 
 
 def test_apply_evidence_second_call_is_noop():

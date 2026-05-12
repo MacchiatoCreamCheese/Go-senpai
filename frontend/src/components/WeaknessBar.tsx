@@ -58,6 +58,9 @@ export function WeaknessBar({ weakness, compact = false }: Props) {
         {dateStr && <span>· last {dateStr}</span>}
         <span className="wk-card-score">{pct}/100</span>
       </div>
+      {weakness.latest_insight ? (
+        <p className="wk-card-insight">{weakness.latest_insight}</p>
+      ) : null}
     </div>
   );
 }

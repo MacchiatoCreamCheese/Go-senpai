@@ -33,6 +33,7 @@ class ThemeEvidence:
     theme: str
     score: float           # [0, 1]
     supporting_moves: int  # count of moves that contributed (debug / logging)
+    insight: str = ""      # human-readable summary for homepage display
 
 
 def _confident(points_lost: float | None, stdev: float | None) -> float | None:
@@ -53,6 +54,7 @@ def extract_evidence(features: list[dict[str, Any]]) -> list[ThemeEvidence]:
     """
     phase_counts = {"opening": 0, "middlegame": 0, "endgame": 0}
     phase_blunders = {"opening": 0, "middlegame": 0, "endgame": 0}
+    phase_blunder_pts: dict[str, list[float]] = {"opening": [], "middlegame": [], "endgame": []}
     phase_conf_sum = {"opening": 0.0, "endgame": 0.0}
     phase_conf_count = {"opening": 0, "endgame": 0}
 
@@ -67,11 +69,13 @@ def extract_evidence(features: list[dict[str, Any]]) -> list[ThemeEvidence]:
         if phase not in phase_counts:
             continue
         phase_counts[phase] += 1
+        points_lost = f.get("points_lost")
         if f.get("is_blunder"):
             phase_blunders[phase] += 1
+            if points_lost is not None:
+                phase_blunder_pts[phase].append(points_lost)
 
         rank = f.get("policy_rank")
-        points_lost = f.get("points_lost")
         if rank is not None and points_lost is not None:
             ignored_opportunities += 1
             if rank >= _IGNORED_TOP_RANK and points_lost >= _IGNORED_TOP_MIN_POINTS:
@@ -95,30 +99,61 @@ def extract_evidence(features: list[dict[str, Any]]) -> list[ThemeEvidence]:
         mean = phase_conf_sum[phase] / n
         return max(0.0, min(1.0, mean / threshold)), n
 
+    def _blunder_insight(phase: str) -> str:
+        n = phase_blunders[phase]
+        total = phase_counts[phase]
+        if total == 0:
+            return f"No {phase} moves recorded"
+        if n == 0:
+            return f"No {phase} blunders — {total} moves"
+        pts = phase_blunder_pts[phase]
+        avg = sum(pts) / len(pts) if pts else 0.0
+        return f"{n} {phase} blunder{'s' if n != 1 else ''}, avg {avg:.1f} pts lost"
+
     open_cons_score, open_cons_n = _consistency("opening", _CONSISTENCY_OPENING_THRESHOLD)
     end_cons_score, end_cons_n = _consistency("endgame", _CONSISTENCY_ENDGAME_THRESHOLD)
+
+    open_avg = (phase_conf_sum["opening"] / open_cons_n) if open_cons_n > 0 else 0.0
+    end_avg = (phase_conf_sum["endgame"] / end_cons_n) if end_cons_n > 0 else 0.0
 
     return [
         ThemeEvidence(
             "blunder_opening",
             _rate(phase_blunders["opening"], phase_counts["opening"]),
             phase_blunders["opening"],
+            _blunder_insight("opening"),
         ),
         ThemeEvidence(
             "blunder_middlegame",
             _rate(phase_blunders["middlegame"], phase_counts["middlegame"]),
             phase_blunders["middlegame"],
+            _blunder_insight("middlegame"),
         ),
         ThemeEvidence(
             "blunder_endgame",
             _rate(phase_blunders["endgame"], phase_counts["endgame"]),
             phase_blunders["endgame"],
+            _blunder_insight("endgame"),
         ),
         ThemeEvidence(
             "ignored_top_move",
             _rate(ignored_hits, ignored_opportunities),
             ignored_hits,
+            f"Ignored best move {ignored_hits}× out of {ignored_opportunities} opportunities"
+            if ignored_opportunities > 0 else "No top-move data",
         ),
-        ThemeEvidence("low_consistency_opening", open_cons_score, open_cons_n),
-        ThemeEvidence("low_consistency_endgame", end_cons_score, end_cons_n),
+        ThemeEvidence(
+            "low_consistency_opening",
+            open_cons_score,
+            open_cons_n,
+            f"Opening avg loss: {open_avg:.2f} pts/move ({open_cons_n} moves)"
+            if open_cons_n > 0 else "No opening consistency data",
+        ),
+        ThemeEvidence(
+            "low_consistency_endgame",
+            end_cons_score,
+            end_cons_n,
+            f"Endgame avg loss: {end_avg:.2f} pts/move ({end_cons_n} moves)"
+            if end_cons_n > 0 else "No endgame consistency data",
+        ),
     ]

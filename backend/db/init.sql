@@ -108,6 +108,7 @@ CREATE TABLE user_weaknesses (
     evidence_count    INT  NOT NULL DEFAULT 0,
     last_seen_at      TIMESTAMPTZ,
     last_updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    latest_insight    TEXT,
     UNIQUE (user_id, theme)
 );
 CREATE INDEX idx_user_weaknesses_user ON user_weaknesses (user_id);

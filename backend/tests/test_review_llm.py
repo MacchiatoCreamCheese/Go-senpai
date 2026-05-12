@@ -21,6 +21,19 @@ def test_extract_raises_when_no_json():
         extract_json_object("no json here")
 
 
+def test_extract_json_after_prose_prefix():
+    raw = 'Here you go:\n{"summary_md": "x", "moments": []}'
+    out = extract_json_object(raw)
+    assert out["summary_md"] == "x"
+
+
+def test_extract_truncated_json_raises_truncation_hint():
+    raw = '{"summary_md": "This game featured some strong play'
+    with pytest.raises(LLMError) as exc_info:
+        extract_json_object(raw)
+    assert "truncat" in str(exc_info.value).lower() or "never closed" in str(exc_info.value).lower()
+
+
 def test_build_default_client_unknown_provider_raises():
     with patch.dict("os.environ", {"REVIEW_LLM_PROVIDER": "bogus"}, clear=False):
         with pytest.raises(LLMError):

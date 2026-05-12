@@ -673,29 +673,39 @@ async def upsert_user_weakness(
     theme: str,
     score: float,
     alpha: float,
+    insight: str = "",
 ) -> None:
-    """EMA-update severity for (user, theme). Inserts row if missing."""
+    """EMA-update severity for (user, theme). Inserts row if missing.
+
+    When ``insight`` is empty, an existing row keeps its ``latest_insight`` so
+    drill decay updates (score-only) do not wipe template text from analysis.
+    """
     await _get_pool().execute(
         """
-        INSERT INTO user_weaknesses (user_id, theme, severity, evidence_count, last_seen_at, last_updated_at)
-        VALUES ($1, $2, $3::real, 1, CASE WHEN $3::real > 0 THEN NOW() ELSE NULL END, NOW())
+        INSERT INTO user_weaknesses (user_id, theme, severity, evidence_count, last_seen_at, last_updated_at, latest_insight)
+        VALUES ($1, $2, $3::real, 1, CASE WHEN $3::real > 0 THEN NOW() ELSE NULL END, NOW(), $5)
         ON CONFLICT (user_id, theme) DO UPDATE SET
             severity = $4::real * $3::real + (1 - $4::real) * user_weaknesses.severity,
             evidence_count = user_weaknesses.evidence_count + 1,
             last_seen_at = CASE WHEN $3::real > 0 THEN NOW() ELSE user_weaknesses.last_seen_at END,
-            last_updated_at = NOW()
+            last_updated_at = NOW(),
+            latest_insight = COALESCE(
+                NULLIF(BTRIM(COALESCE($5::text, '')), ''),
+                user_weaknesses.latest_insight
+            )
         """,
         user_id,
         theme,
         score,
         alpha,
+        insight or None,
     )
 
 
 async def list_user_weaknesses(user_id: str) -> list[dict[str, Any]]:
     rows = await _get_pool().fetch(
         """
-        SELECT theme, severity, evidence_count, last_seen_at
+        SELECT theme, severity, evidence_count, last_seen_at, latest_insight
         FROM user_weaknesses
         WHERE user_id = $1
         ORDER BY severity DESC, theme ASC

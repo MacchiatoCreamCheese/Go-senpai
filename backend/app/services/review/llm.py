@@ -5,13 +5,14 @@ import hashlib
 import json
 import logging
 import os
-import re
 from collections import OrderedDict
 from typing import AsyncGenerator, Awaitable, Callable, Protocol, TypeVar
 
 
 log = logging.getLogger(__name__)
 
+# Game reviews are JSON with summary_md + N moment write-ups; 2k output is often truncated.
+_REVIEW_MAX_OUTPUT_TOKENS = 8192
 
 _LLM_CACHE_MAX = 64
 _llm_cache: "OrderedDict[str, tuple[str, int]]" = OrderedDict()
@@ -150,7 +151,7 @@ class LLMClient(Protocol):
 
 
 class ClaudeClient:
-    def __init__(self, model: str, api_key: str, max_tokens: int = 2000) -> None:
+    def __init__(self, model: str, api_key: str, max_tokens: int = _REVIEW_MAX_OUTPUT_TOKENS) -> None:
         from anthropic import AsyncAnthropic  # lazy
 
         self.model = model
@@ -193,7 +194,7 @@ class ClaudeClient:
 
 
 class GeminiClient:
-    def __init__(self, model: str, api_key: str, max_tokens: int = 2000) -> None:
+    def __init__(self, model: str, api_key: str, max_tokens: int = _REVIEW_MAX_OUTPUT_TOKENS) -> None:
         from google import genai  # lazy
 
         self.model = model
@@ -255,16 +256,71 @@ def build_default_client() -> LLMClient:
     raise LLMError(f"unknown REVIEW_LLM_PROVIDER: {provider}")
 
 
-_JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
+def _strip_json_code_fence(raw: str) -> str:
+    s = raw.strip()
+    if not s.startswith("```"):
+        return s
+    newline = s.find("\n")
+    if newline == -1:
+        return s
+    body = s[newline + 1 :]
+    body = body.rstrip()
+    if body.endswith("```"):
+        body = body[:-3].rstrip()
+    return body
+
+
+def _outer_json_object_slice(s: str) -> str | None:
+    """First `{` … matching `}` outside JSON strings; None if unclosed (truncated) or no `{`."""
+    start = s.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    i = start
+    in_string = False
+    escape = False
+    while i < len(s):
+        c = s[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif c == "\\":
+                escape = True
+            elif c == '"':
+                in_string = False
+            i += 1
+            continue
+        if c == '"':
+            in_string = True
+            i += 1
+            continue
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return s[start : i + 1]
+        i += 1
+    return None
 
 
 def extract_json_object(raw: str) -> dict:
     """Tolerant extraction: models sometimes wrap JSON in prose or code fences."""
+    s = _strip_json_code_fence(raw).strip()
     try:
-        return json.loads(raw)
+        return json.loads(s)
     except json.JSONDecodeError:
         pass
-    match = _JSON_OBJECT_RE.search(raw)
-    if not match:
-        raise LLMError(f"LLM response did not contain a JSON object: {raw[:200]}")
-    return json.loads(match.group(0))
+    slice_ = _outer_json_object_slice(s)
+    if slice_ is None:
+        if "{" in s:
+            raise LLMError(
+                "LLM response did not contain a complete JSON object (opening `{` was never "
+                "closed — output was likely truncated by the provider token limit). "
+                f"Preview: {s[:280]!r}"
+            )
+        raise LLMError(f"LLM response did not contain a JSON object. Preview: {s[:280]!r}")
+    try:
+        return json.loads(slice_)
+    except json.JSONDecodeError as e:
+        raise LLMError(f"LLM JSON was malformed: {e}. Preview: {slice_[:280]!r}") from e
